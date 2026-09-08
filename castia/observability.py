@@ -14,8 +14,28 @@ from opentelemetry.sdk.trace import SpanProcessor
 _logger = logging.getLogger("agent")
 
 
-def configure_observability() -> None:
-    """Enable Azure Monitor and Agent 365 telemetry before app imports."""
+def configure_observability(
+    *,
+    enable_content_recording: bool | None = None,
+    enable_genai_tracing: bool | None = None,
+) -> None:
+    """Enable Azure Monitor and Agent 365 telemetry before app imports.
+
+    :param enable_content_recording: Whether the GenAI instrumentor records the
+        prompt/response **content** (input/output text) onto its spans. This is
+        what makes an agent's traces *evaluable* -- trace-based evaluators read
+        the input/output content from the GenAI spans, which is only present when
+        recording is on. It is **off by default** because it writes prompt and
+        response text to Application Insights; enable it deliberately. Resolution
+        order: this argument (when not ``None``) wins; otherwise the
+        ``AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED`` environment variable
+        (``"true"``/``"false"``); otherwise the default (off).
+    :param enable_genai_tracing: Whether to enable the Foundry GenAI instrumentor
+        at all (the ``chat {model}`` spans the Foundry Traces UI keys off).
+        Resolution order: this argument (when not ``None``) wins; otherwise the
+        ``AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING`` environment variable;
+        otherwise the default (on). Passing nothing preserves today's behavior.
+    """
     logging.getLogger("agent").setLevel(logging.INFO)
 
     # Sample every span. The Microsoft distro defaults to a rate-limited sampler
@@ -54,7 +74,25 @@ def configure_observability() -> None:
         },
     )
 
-    _enable_genai_tracing()
+    _enable_genai_tracing(
+        enable_content_recording=enable_content_recording,
+        enable_genai_tracing=enable_genai_tracing,
+    )
+
+
+def _resolve_flag(explicit: bool | None, env_var: str, default: bool) -> bool:
+    """Resolve a tri-state config flag: explicit arg > env var > default.
+
+    ``explicit`` wins whenever it is not ``None``. Otherwise the environment
+    variable is consulted (case-insensitive ``"true"`` -> ``True``, any other
+    set value -> ``False``). If the variable is unset, ``default`` is returned.
+    """
+    if explicit is not None:
+        return explicit
+    raw = os.environ.get(env_var)
+    if raw is not None:
+        return raw.strip().lower() == "true"
+    return default
 
 
 def _build_agent_identity_processors() -> list[SpanProcessor]:
@@ -159,7 +197,11 @@ class _AgentIdentitySpanProcessor(SpanProcessor):
             _logger.debug("Failed to stamp agent identity on span", exc_info=True)
 
 
-def _enable_genai_tracing() -> None:
+def _enable_genai_tracing(
+    *,
+    enable_content_recording: bool | None = None,
+    enable_genai_tracing: bool | None = None,
+) -> None:
     """Enable the official Foundry GenAI instrumentor.
 
     Without this the agent emits only Agents-SDK transport spans
@@ -170,13 +212,24 @@ def _enable_genai_tracing() -> None:
     API so every model call emits a ``chat {model}`` span carrying those
     attributes, which is exactly what the Foundry UI keys off.
 
+    ``enable_content_recording`` / ``enable_genai_tracing`` follow the same
+    arg > env > default resolution documented on :func:`configure_observability`.
+
     Best-effort: any failure here is logged, never raised. Telemetry must never
     take down startup or a turn.
     """
     try:
-        # Experimental feature gate the SDK checks at instrument() time. Set as a
-        # default so an operator can still force it off via the environment.
-        os.environ.setdefault("AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING", "true")
+        genai_enabled = _resolve_flag(
+            enable_genai_tracing, "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING", True
+        )
+        # Reflect the decision back onto the env var the SDK re-checks at
+        # instrument() time, so an explicit argument and the SDK's own gate agree.
+        os.environ["AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"] = (
+            "true" if genai_enabled else "false"
+        )
+        if not genai_enabled:
+            _logger.info("GenAI tracing instrumentor disabled")
+            return
 
         # The instrumentor creates spans through azure-core's tracing
         # abstraction, which must point at the OpenTelemetry span implementation.
@@ -191,17 +244,20 @@ def _enable_genai_tracing() -> None:
 
         from azure.ai.projects.telemetry import AIProjectInstrumentor
 
-        # Map the app's existing content-recording env var onto the instrumentor
-        # (its own default reads a different variable).
-        content_recording = (
-            os.environ.get(
-                "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false"
-            ).lower()
-            == "true"
+        # Whether the model call's input/output *content* is recorded onto the
+        # GenAI spans -- what makes traces evaluable. Off by default (records
+        # prompt/response text to App Insights); overridable by arg or env.
+        content_recording = _resolve_flag(
+            enable_content_recording,
+            "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED",
+            False,
         )
         AIProjectInstrumentor().instrument(enable_content_recording=content_recording)
         _guard_instrumentor_recording()
-        _logger.info("GenAI tracing instrumentor enabled")
+        _logger.info(
+            "GenAI tracing instrumentor enabled (content_recording=%s)",
+            content_recording,
+        )
     except Exception:  # pragma: no cover - telemetry must never break startup
         _logger.warning("Failed to enable GenAI tracing instrumentor", exc_info=True)
 

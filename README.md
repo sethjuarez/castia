@@ -84,6 +84,39 @@ async def reply(text: str, msg: Message, model: Model = Depends(get_model)) -> N
 - **`responses`** — the OpenAI `responses` wire shape.
 - **`invocations`** — Foundry invoke envelopes (tool execution, agent-to-agent).
 
+## Observability & evaluation
+
+`castia` configures Foundry/Agent 365 telemetry for you when the agent starts.
+By default it emits GenAI spans (the `chat {model}` spans the Foundry Traces UI
+keys off) but does **not** record the prompt/response **content** onto them.
+
+Recording content is what makes an agent's traces *evaluable* — trace-based
+evaluators read the input/output text from the GenAI spans, which is only present
+when content recording is enabled. Turn it on deliberately via
+`configure_observability`:
+
+```python
+from castia.observability import configure_observability
+
+# Records prompt/response text onto GenAI spans so traces can be evaluated.
+configure_observability(enable_content_recording=True)
+```
+
+Resolution order for each flag is **explicit argument > environment variable >
+default**:
+
+| Flag | Argument | Environment variable | Default |
+| --- | --- | --- | --- |
+| Content recording | `enable_content_recording` | `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED` | off |
+| GenAI tracing | `enable_genai_tracing` | `AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING` | on |
+
+Passing nothing preserves the default behavior. Telemetry setup is best-effort:
+a failure is logged, never raised, so it can't break startup or a turn.
+
+> **Security caveat:** enabling content recording writes prompt and response
+> **text** to Application Insights. Only enable it where storing that content is
+> acceptable for your data-handling and privacy requirements.
+
 ## Design
 
 `castia` is deliberately import-cheap: `import castia` never pulls in the
