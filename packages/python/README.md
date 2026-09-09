@@ -203,6 +203,24 @@ it anchored to your app root so the baseline resolves the same under
 `python app.py` and `python -m castia`. That contract is pinned for every SDK in
 [`spec/conformance/optimization/`](../../spec/conformance/optimization).
 
+### Switching to a reasoning (or RFT-tuned) model
+
+The optimizer's model search can land on a **reasoning** model — an o-series or
+GPT-5 deployment, or one you mint yourself with reinforcement fine-tuning (RFT).
+Those models take a `reasoning.effort` control that plain chat models don't.
+`Model` exposes it as `reasoning_effort` (`minimal|low|medium|high`):
+
+```python
+o4 = use_model("o4-mini-rft-2025", reasoning_effort="high")
+```
+
+An unset effort omits the field entirely, so chat models are called exactly as
+before; a bad level raises at construction rather than as a `400` mid-turn. An
+operator can also switch a **deployed** agent onto a reasoning model with zero
+code by setting `MODEL_REASONING_EFFORT` — an explicit argument still wins.
+Because `configured_model()` builds its `Model` through the same path, that env
+override flows through to the resolved candidate automatically.
+
 > **Responses-only constraint:** the optimizer accepts only single-protocol
 > `responses` agents — submitting a multi-protocol agent (one that also speaks
 > activity/invocations) is rejected with a `400` at submission. Project a

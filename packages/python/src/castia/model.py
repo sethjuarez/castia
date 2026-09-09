@@ -19,6 +19,31 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Callable
 
+# Reasoning-effort levels accepted by the Responses API for reasoning models
+# (o-series, gpt-5, and their RFT-fine-tuned variants). A plain chat model
+# ignores the concept; we simply omit the field for it (see _reasoning_param).
+_REASONING_EFFORTS = ("minimal", "low", "medium", "high")
+
+
+def _reasoning_param(effort: str | None) -> dict:
+    """Map a reasoning-effort level to Responses-API ``create`` kwargs.
+
+    Returns ``{"reasoning": {"effort": <level>}}`` when ``effort`` is set, or an
+    empty dict so non-reasoning models are called byte-for-byte as before. A RFT
+    (reinforcement-fine-tuned) model is a reasoning model, so this is the one
+    runtime knob needed to consume one well -- point :class:`Model` at the tuned
+    deployment and set an effort. Raises :class:`ValueError` on an unknown level
+    so a typo fails fast at construction instead of as a 400 mid-turn.
+    """
+    if effort is None:
+        return {}
+    level = str(effort).strip().lower()
+    if level not in _REASONING_EFFORTS:
+        raise ValueError(
+            f"reasoning_effort must be one of {_REASONING_EFFORTS}, got {effort!r}"
+        )
+    return {"reasoning": {"effort": level}}
+
 
 class Model:
     """A thin ``respond(text) -> text`` wrapper over the Foundry model."""
@@ -29,12 +54,20 @@ class Model:
         *,
         endpoint: str | None = None,
         instructions: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         from azure.ai.projects.aio import AIProjectClient
         from azure.identity.aio import DefaultAzureCredential
 
         self._deployment = deployment or os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"]
         self._instructions = instructions
+        # An explicit level wins; otherwise MODEL_REASONING_EFFORT lets an
+        # operator switch a deployed agent onto a reasoning model with zero code.
+        self._reasoning_effort = reasoning_effort or os.environ.get(
+            "MODEL_REASONING_EFFORT"
+        )
+        # Build (and thereby validate) the reasoning kwargs once, at construction.
+        self._reasoning = _reasoning_param(self._reasoning_effort)
         self._client = AIProjectClient(
             endpoint=endpoint or os.environ["FOUNDRY_PROJECT_ENDPOINT"],
             credential=DefaultAzureCredential(),
@@ -48,6 +81,7 @@ class Model:
             model=self._deployment,
             input=text,
             instructions=self._instructions,
+            **self._reasoning,
         )
         return response.output_text
 
@@ -69,6 +103,7 @@ class Model:
             input=text,
             instructions=self._instructions,
             stream=True,
+            **self._reasoning,
         )
         async for event in stream:
             if getattr(event, "type", None) == "response.output_text.delta":
@@ -104,6 +139,7 @@ class Model:
                 input=conversation,
                 instructions=self._instructions,
                 tools=specs,
+                **self._reasoning,
             )
             calls = [
                 item
@@ -171,6 +207,7 @@ def use_model(
     *,
     endpoint: str | None = None,
     instructions: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> Callable[[], Model]:
     """Build a model dependency bound to a specific deployment (and endpoint).
 
@@ -183,12 +220,22 @@ def use_model(
         async def reply(text: str, model: Model = Depends(use_model("gpt-4o"))) -> str:
             return await model.respond(text)
 
+    Pass ``reasoning_effort`` (``minimal|low|medium|high``) to bind a reasoning
+    model -- including an RFT-fine-tuned deployment -- at a chosen effort::
+
+        o4 = use_model("o4-mini-rft-2025", reasoning_effort="high")
+
     Each distinct provider is cached, so the client is still built once. To share
     one model across several handlers, bind it to a module-level name and reuse
     it: ``gpt4o = use_model("gpt-4o")`` then ``Depends(gpt4o)``.
     """
 
     def provider() -> Model:
-        return Model(deployment=deployment, endpoint=endpoint, instructions=instructions)
+        return Model(
+            deployment=deployment,
+            endpoint=endpoint,
+            instructions=instructions,
+            reasoning_effort=reasoning_effort,
+        )
 
     return provider
