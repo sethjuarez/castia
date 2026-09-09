@@ -48,8 +48,9 @@ Documentation = "https://castia.dev"
 # the decorators. Deliberately not a runtime dependency so it never ships in the
 # hosted container.
 deploy = ["ruamel.yaml>=0.18"]
-# Test-time only.
-test = ["pytest>=8"]
+# Test-time only. Includes ruamel.yaml because the eval-suite tests parse real
+# eval.yaml / rubric fixtures.
+test = ["pytest>=8", "ruamel.yaml>=0.18"]
 
 [tool.uv]
 prerelease = "allow"
