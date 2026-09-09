@@ -76,6 +76,58 @@ async def reply(text: str, msg: Message, model: Model = Depends(get_model)) -> N
     await msg.say(answer)
 ```
 
+### Consume a toolbox
+
+A Foundry **toolbox** is a curated set of tools the platform exposes behind one
+MCP-compatible endpoint, with centralized auth, governance, and versioning.
+`castia` turns it into a single Responses-API `mcp` tool spec the model service
+resolves **server-side** — no local impl, no function loop. Build the spec and
+hand it to the model as an `extra_specs` entry:
+
+```python
+from castia import Depends, Model, Teams, get_model, toolbox_mcp_tool, toolbox_token
+
+@app.activity(Teams.direct)
+async def reply(text: str, model: Model = Depends(get_model)) -> str:
+    tool = toolbox_mcp_tool(token=await toolbox_token())   # reads TOOLBOX_* env
+    return await model.respond_with_tools(
+        text, tools=[], activity=None, extra_specs=[tool] if tool else []
+    )
+```
+
+`toolbox_mcp_tool()` (called with no endpoint) reads the environment via
+`resolve_toolbox_endpoint`, whose precedence is:
+
+1. an explicit full URL in `TOOLBOX_ENDPOINT` / `TOOLBOX_MCP_ENDPOINT`;
+2. the platform-native `TOOLBOX_<NAME>_MCP_ENDPOINT` that the `azd ai toolbox`
+   extension writes, keyed off `TOOLBOX_NAME` (see `platform_endpoint_env`);
+3. composed from `FOUNDRY_PROJECT_ENDPOINT` + `TOOLBOX_NAME` (+ optional
+   `TOOLBOX_VERSION`). The unversioned URL resolves the promoted **default**
+   version, so a version bump needs no redeploy.
+
+It returns `None` when no toolbox is configured, so "no toolbox" just attaches no
+tool. Auth is either a bearer `token` (minted from the container's managed
+identity by `toolbox_token()`) or a stored-connection `project_connection_id`.
+A Foundry IQ knowledge base is the same shape via `knowledge_base_mcp_tool`.
+
+**Deploying:** the `azd ai toolbox` extension writes `TOOLBOX_<NAME>_MCP_ENDPOINT`
+into the **azd** environment, but does **not** auto-inject it into a hosted
+container — declare that env passthrough on your container yourself (there is no
+`azure.yaml`/manifest step in `castia` for it).
+
+> **Gotcha:** do **not** copy `rai_config.rai_policy_name: Microsoft.Default`
+> from the `azd ai toolbox create --help` example — it is invalid on the project
+> and 500s at tool enumeration (`tools/list`). Omit the `policies` block.
+
+> **Validation status.** *Validated live* (Foundry Responses path, App
+> Insights-traced): the end-to-end pipe (env → compose URL → attach one `mcp`
+> tool → `tools/list` + `tools/call`), a raw `https://ai.azure.com` bearer minted
+> in-container (**no `project_connection_id` required**), both env forms, and
+> unversioned→default-version resolution. *Doc-derived / not yet live:*
+> `knowledge_base_mcp_tool` (Foundry IQ), connection-backed tools (Azure AI
+> Search / remote-MCP / A2A), the Activity path with a toolbox, and
+> approval-gated tools (`require_approval` other than `"never"`).
+
 ## Protocols
 
 `castia` publishes handlers for the protocols in `PUBLISHABLE_PROTOCOLS`:

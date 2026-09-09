@@ -41,6 +41,14 @@ from .optimization import (
 )
 from .streaming import Streamer
 from .surfaces import Teams
+from .toolbox import (
+    compose_toolbox_endpoint,
+    knowledge_base_mcp_tool,
+    platform_endpoint_env,
+    resolve_toolbox_endpoint,
+    toolbox_mcp_tool,
+    toolbox_token,
+)
 from .tracing import OperationName, execute_tool, invoke_agent
 
 __all__ = [
@@ -65,6 +73,7 @@ __all__ = [
     "card_action",
     "card_invoke_response",
     "citation",
+    "compose_toolbox_endpoint",
     "configured_model",
     "current_turn",
     "current_turn_or_none",
@@ -73,12 +82,17 @@ __all__ = [
     "feedback_payload",
     "get_model",
     "invoke_agent",
+    "knowledge_base_mcp_tool",
     "load_agent_config",
     "mention_entity",
     "message_invoke_response",
+    "platform_endpoint_env",
     "require_agentic_user",
+    "resolve_toolbox_endpoint",
     "sensitivity_label",
     "suggested_actions",
+    "toolbox_mcp_tool",
+    "toolbox_token",
     "tools_json",
     "use_model",
 ]
