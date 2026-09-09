@@ -117,6 +117,39 @@ a failure is logged, never raised, so it can't break startup or a turn.
 > **text** to Application Insights. Only enable it where storing that content is
 > acceptable for your data-handling and privacy requirements.
 
+### Building a scored eval suite
+
+Once your traces are evaluable, `python -m castia eval` wraps the
+`azd ai agent eval` extension to synthesize and run a **scored** eval suite — a
+generated JSONL dataset plus an auto-generated, weighted **rubric** (a custom
+multi-dimension evaluator):
+
+```bash
+# Offline gate — validate eval.yaml + rubric files, no Azure, free in CI:
+python -m castia eval check
+
+# Synthesize a rubric + dataset from the agent instruction (billable):
+python -m castia eval generate --agent my-agent --max-samples 25
+
+# Re-upload locally edited rubric/dataset files as a new version:
+python -m castia eval update --evaluator-only
+
+# Submit a scored run against the deployed agent (billable):
+python -m castia eval run
+```
+
+`check` is a pure, offline referential-integrity gate: it resolves every
+evaluator/dataset `local_uri` and validates each rubric dimensions file.
+`generate` and `run` submit **billable** Foundry jobs, so both accept
+`--dry-run` to print the resolved `azd` command line without submitting
+anything. The `azd` wrappers need the build-time extra: `pip install
+'castia[deploy]'`.
+
+The rubric dimensions file is a **bare JSON list** where each entry is keyed by
+`id` (a stable slug like `correct_outcome`), with an optional
+`always_applicable: true` on the catch-all dimension. That cross-SDK shape is
+pinned in the monorepo at [`spec/conformance/rubric/`](../../spec/conformance/rubric).
+
 ## Design
 
 `castia` is deliberately import-cheap: `import castia` never pulls in the
