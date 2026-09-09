@@ -1,0 +1,82 @@
+{
+  "contract": "foundry-rft-grader-schema",
+  "status": "provisional",
+  "source": "doc-derived: Microsoft Foundry reinforcement fine-tuning (RFT) how-to. NOT confirmed against a live fine_tuning.jobs.create submission -- treat the wire shape as provisional until a real RFT job validates it.",
+  "description": "Language-neutral golden for the RFT reward-function (grader) schema, template namespaces, hyperparameter names, and dataset rules every castia SDK must reproduce. The eval rubric (id/description/weight) bridges into a score_model grader here (see rubric_to_score_model), tying the evaluate step to the switch-models step.",
+  "grader_types": [
+    {
+      "id": "string_check",
+      "required": ["input", "reference", "operation"],
+      "operations": ["eq", "ne", "like", "ilike"],
+      "notes": "Exact/substring string comparison of two templates."
+    },
+    {
+      "id": "text_similarity",
+      "required": ["input", "reference", "evaluation_metric"],
+      "metrics": [
+        "bleu",
+        "gleu",
+        "meteor",
+        "rouge_1",
+        "rouge_2",
+        "rouge_3",
+        "rouge_4",
+        "rouge_5",
+        "rouge_l",
+        "cosine",
+        "fuzzy_match"
+      ],
+      "optional": ["pass_threshold"],
+      "notes": "BLEU family plus fuzzy/embedding distances."
+    },
+    {
+      "id": "score_model",
+      "required": ["model", "input"],
+      "optional": ["range", "pass_threshold", "sampling_params"],
+      "range_default": [0.0, 1.0],
+      "notes": "An LLM judge scores each sample. input is a list of judge-prompt chat messages. This is the target of the rubric bridge."
+    },
+    {
+      "id": "python",
+      "required": ["source"],
+      "optional": ["image_tag"],
+      "notes": "Sandboxed grade(sample, item) -> float; no network access."
+    },
+    {
+      "id": "multi",
+      "required": ["graders", "calculate_output"],
+      "notes": "Combine sub-graders via an arithmetic calculate_output expression over their keys."
+    },
+    {
+      "id": "endpoint",
+      "required": ["endpoint"],
+      "preview": true,
+      "notes": "Preview grader type; grade via an external endpoint."
+    }
+  ],
+  "template_namespaces": ["sample", "item"],
+  "well_known_templates": {
+    "sample_output": "{{ sample.output_text }}",
+    "item_field": "{{ item.<field> }}"
+  },
+  "hyperparameters": {
+    "rft_specific": ["eval_interval", "eval_samples", "compute_multiplier", "reasoning_effort"],
+    "sft_shared": ["n_epochs", "batch_size", "learning_rate_multiplier"],
+    "reasoning_effort_levels": ["low", "medium", "high"]
+  },
+  "dataset": {
+    "format": "jsonl",
+    "row_shape": "A chat messages[] list plus arbitrary extra top-level keys, which are the item.* ground-truth columns the grader reads.",
+    "valid_roles": ["system", "developer", "user", "assistant", "tool"],
+    "rules": [
+      "each row carries a non-empty messages[] chat list",
+      "the final message role MUST be user (RFT rolls the model's turn forward from the trailing user prompt)",
+      "extra top-level keys beyond messages are the item.* ground-truth fields",
+      "both a training split and a validation split are required"
+    ]
+  },
+  "method": {
+    "type": "reinforcement",
+    "shape": "{\"type\": \"reinforcement\", \"reinforcement\": {\"grader\": {...}, \"hyperparameters\": {...}}}"
+  }
+}
