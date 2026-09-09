@@ -1,0 +1,52 @@
+name: python-ci
+
+# Path-filtered CI for the Python SDK. The monorepo will hold sibling packages
+# (e.g. a Rust SDK) with their own workflows, so this one only runs when the
+# Python package -- or the shared spec fixtures its tests load -- changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/python/**"
+      - "spec/**"
+      - ".github/workflows/python-ci.yml"
+  pull_request:
+    paths:
+      - "packages/python/**"
+      - "spec/**"
+      - ".github/workflows/python-ci.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: packages/python
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.23"
+
+      - name: Pin Python
+        run: uv python install 3.13
+
+      - name: Create venv and install (with deploy + test extras)
+        run: |
+          uv venv
+          uv pip install -e ".[deploy,test]"
+
+      - name: Ruff
+        run: uvx ruff check .
+
+      - name: Pytest
+        run: .venv/bin/python -m pytest -q
+
+      - name: Build sanity check (wheel + sdist)
+        run: uv build

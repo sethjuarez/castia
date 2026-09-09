@@ -1,0 +1,67 @@
+name: release-please
+
+# Automated releases for the monorepo, driven by Conventional Commits.
+#
+# release-please watches main and maintains a per-package "release PR" that bumps
+# the version and updates the CHANGELOG. Merging that PR creates a GitHub release
+# and a per-language tag (python -> python-v<version>); this same workflow then
+# builds and publishes the Python package to PyPI via Trusted Publishing (OIDC).
+#
+# Publishing lives here -- rather than in a separate `on: push: tags` workflow --
+# because a tag created by the built-in GITHUB_TOKEN does not trigger other
+# workflows. Gating the publish job on release-please's own output avoids that
+# trap without needing a personal access token.
+#
+# One-time PyPI setup is required before the first publish: see
+# packages/python/RELEASING.md.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      python_released: ${{ steps.release.outputs['packages/python--release_created'] }}
+      python_tag: ${{ steps.release.outputs['packages/python--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish-python:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.python_released == 'true' }}
+    runs-on: ubuntu-latest
+    # A dedicated environment lets you require a manual approval on PyPI
+    # releases (repo Settings -> Environments -> pypi -> required reviewers).
+    environment:
+      name: pypi
+      url: https://pypi.org/p/castia
+    permissions:
+      id-token: write # OIDC token for Trusted Publishing
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.23"
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/python/dist

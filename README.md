@@ -34,6 +34,12 @@ Work inside the package you're changing (`packages/<lang>`). Cross-language
 behavior is anchored by [`spec/`](spec) — new protocol behavior lands as a spec
 fixture first, then each SDK implements against it.
 
+Commits and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/);
+releases are automated per language by release-please. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit convention and release flow,
+and [`packages/python/RELEASING.md`](packages/python/RELEASING.md) for the Python
+publish setup.
+
 ## License
 
 MIT © 2026 Seth Juarez
