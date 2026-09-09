@@ -49,6 +49,14 @@ class Router:
         self._routes: list[tuple[tuple[Teams, ...], Handler]] = []
         self._wire: dict[str, Handler] = {}
         self._invokes: dict[str, Handler] = {}
+        # Zero-arg providers each returning a list of ``castia.tools.Tool``.
+        # Tools are the agent's *outbound* capabilities; declaring them here (as
+        # opposed to only passing them to ``respond_with_tools`` inside a
+        # handler) lets the framework see them -- so the optimizer can treat tool
+        # descriptions as an optimization asset and the CLI can emit a baseline
+        # ``tools.json``. Kept as providers (not materialized Tools) so any heavy
+        # tool impls import lazily, exactly like the providers themselves do.
+        self._tool_providers: list[Callable[[], list]] = []
 
     def activity(self, *surfaces: Teams) -> Callable[[Handler], Handler]:
         """Serve ``func`` over the **Activity Protocol** for the given surfaces.
@@ -139,6 +147,43 @@ class Router:
 
         return decorator
 
+    def tools(self, *providers: Callable[[], list]) -> None:
+        """Declare the agent's outbound tool providers.
+
+        Each ``provider`` is a zero-arg callable returning a list of
+        :class:`~castia.tools.Tool`. Declaring them makes the tool set
+        *discoverable* by the framework -- distinct from merely passing tools to
+        ``model.respond_with_tools`` inside a handler -- so the optimizer can
+        treat tool descriptions as an optimization asset (see
+        :func:`castia.tools_json` / :func:`castia.apply_optimized_tools`) and
+        ``python -m castia optimize`` can generate a baseline ``tools.json``::
+
+            app.tools(agent_tools)
+
+        Providers are held (not called) until :meth:`registered_tools` runs, so
+        any heavy tool impls import lazily.
+        """
+        self._tool_providers.extend(providers)
+
+    def registered_tools(self) -> list:
+        """The agent's declared tools, flattened across every provider.
+
+        Calls each provider registered via :meth:`tools`; returns an empty list
+        when the agent declares none. De-duplicates by tool name (first wins) so
+        overlapping providers don't double-list a tool.
+        """
+        seen: set[str] = set()
+        out: list = []
+        for provider in self._tool_providers:
+            for tool in provider():
+                name = getattr(tool, "name", None)
+                if name in seen:
+                    continue
+                if name is not None:
+                    seen.add(name)
+                out.append(tool)
+        return out
+
     def include(self, *routers: Router) -> None:
         """Merge one or more routers' handlers into this one.
 
@@ -171,6 +216,7 @@ class Router:
                         "per invoke name."
                     )
                 self._invokes[name] = handler
+            self._tool_providers.extend(router._tool_providers)
 
     def registered_protocols(self) -> list[str]:
         """Protocol names this router serves, in canonical order.
@@ -207,6 +253,33 @@ class Agent(Router):
 
             self._model = Model()
         return self._model
+
+    def responses_only(self, *, name: str | None = None) -> Agent:
+        """A responses-only projection of this agent -- the Agent Optimizer target.
+
+        The Foundry Agent Optimizer only accepts single-protocol ``responses``
+        agents; it rejects a multi-protocol agent (one that also speaks activity
+        / invocations). This returns a **new** :class:`Agent` carrying just this
+        agent's ``@responses`` handler and its declared :meth:`tools`, so
+        optimizing the projection optimizes the *identical* handler + config the
+        live agent serves -- there is no separately-maintained sibling entrypoint
+        to drift. Deploy it as its own azd service, run the optimizer against it,
+        apply the winning ``.agent_configs`` candidate back, then delete it.
+
+        Raises if this agent has no ``@responses`` handler to project.
+        """
+        handler = self._wire.get("responses")
+        if handler is None:
+            raise ValueError(
+                "responses_only() needs an @responses handler to project; this "
+                "agent registered none. Add @app.responses() (or include a router "
+                "that does) before projecting."
+            )
+        default = f"{self.name}-optimize" if self.name else None
+        projected = Agent(name=name or default)
+        projected._wire["responses"] = handler
+        projected._tool_providers = list(self._tool_providers)
+        return projected
 
     def run(self, *, host: str = "0.0.0.0", port: int = 8088) -> None:
         """Configure telemetry, then serve the registered handlers."""

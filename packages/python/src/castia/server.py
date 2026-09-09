@@ -108,6 +108,50 @@ def _last_user_text(messages) -> str:
     return ""
 
 
+def _responses_input(value) -> str:
+    """The user text from an OpenAI Responses ``input`` field.
+
+    ``input`` is polymorphic: a plain string, or a list of input items (the
+    shape the Responses API, the eval harness, and the Agent Optimizer all
+    send). For the list form, return the text of the last user item, flattening
+    structured content parts (``[{type:"input_text", text:...}]``) to a string.
+    A CLI ``invoke`` sends the string form, so this is the path exercised only
+    by real Responses-API clients.
+    """
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, list):
+        return ""
+
+    def _content_text(content) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = [
+                part.get("text") or ""
+                for part in content
+                if isinstance(part, dict)
+                and part.get("type") in ("input_text", "output_text", "text")
+            ]
+            return "".join(parts)
+        return ""
+
+    # Prefer the last user turn (mirrors ``_last_user_text``); fall back to the
+    # last item with any text so a role-less input item still resolves.
+    fallback = ""
+    for item in reversed(value):
+        if not isinstance(item, dict):
+            if isinstance(item, str) and not fallback:
+                fallback = item
+            continue
+        text = _content_text(item.get("content"))
+        if item.get("role") == "user" and text:
+            return text
+        if text and not fallback:
+            fallback = text
+    return fallback
+
+
 def _invocations_body(text: str) -> dict:
     """A minimal Invocations response payload carrying ``text``.
 
@@ -208,7 +252,7 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
         @app.post("/responses")
         async def responses(request: Request) -> Response:
             body = await request.json()
-            reply = await responses_dispatch(body.get("input") or "")
+            reply = await responses_dispatch(_responses_input(body.get("input")))
             return JSONResponse(_responses_body(reply))
 
         logger.info("Serving responses protocol on POST /responses")

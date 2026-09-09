@@ -24,12 +24,17 @@ class Model:
     """A thin ``respond(text) -> text`` wrapper over the Foundry model."""
 
     def __init__(
-        self, deployment: str | None = None, *, endpoint: str | None = None
+        self,
+        deployment: str | None = None,
+        *,
+        endpoint: str | None = None,
+        instructions: str | None = None,
     ) -> None:
         from azure.ai.projects.aio import AIProjectClient
         from azure.identity.aio import DefaultAzureCredential
 
         self._deployment = deployment or os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"]
+        self._instructions = instructions
         self._client = AIProjectClient(
             endpoint=endpoint or os.environ["FOUNDRY_PROJECT_ENDPOINT"],
             credential=DefaultAzureCredential(),
@@ -42,6 +47,7 @@ class Model:
         response = await self._client.get_openai_client().responses.create(
             model=self._deployment,
             input=text,
+            instructions=self._instructions,
         )
         return response.output_text
 
@@ -61,6 +67,7 @@ class Model:
         stream = await self._client.get_openai_client().responses.create(
             model=self._deployment,
             input=text,
+            instructions=self._instructions,
             stream=True,
         )
         async for event in stream:
@@ -93,7 +100,10 @@ class Model:
         response = None
         for _ in range(max_iterations):
             response = await client.responses.create(
-                model=self._deployment, input=conversation, tools=specs
+                model=self._deployment,
+                input=conversation,
+                instructions=self._instructions,
+                tools=specs,
             )
             calls = [
                 item
@@ -157,7 +167,10 @@ def get_model() -> Model:
 
 
 def use_model(
-    deployment: str | None = None, *, endpoint: str | None = None
+    deployment: str | None = None,
+    *,
+    endpoint: str | None = None,
+    instructions: str | None = None,
 ) -> Callable[[], Model]:
     """Build a model dependency bound to a specific deployment (and endpoint).
 
@@ -176,6 +189,6 @@ def use_model(
     """
 
     def provider() -> Model:
-        return Model(deployment=deployment, endpoint=endpoint)
+        return Model(deployment=deployment, endpoint=endpoint, instructions=instructions)
 
     return provider
