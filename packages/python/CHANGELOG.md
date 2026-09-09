@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/sethjuarez/castia/compare/python-v0.1.0...python-v0.2.0) (2026-09-09)
+
+
+### Features
+
+* **python:** add Foundry Agent Optimizer support ([#5](https://github.com/sethjuarez/castia/issues/5)) ([2d3103a](https://github.com/sethjuarez/castia/commit/2d3103a58f7165f9c6f18deac49f948ab05daa83))
+
 ## 0.1.0 (2026-09-09)
 
 

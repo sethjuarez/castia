@@ -1,6 +1,6 @@
 [project]
 name = "castia"
-version = "0.1.0"
+version = "0.2.0"
 description = "Idiomatic, FastAPI-style Python SDK for Microsoft Foundry hosted agents."
 readme = "README.md"
 requires-python = ">=3.11"
