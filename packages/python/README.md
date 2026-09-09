@@ -30,7 +30,7 @@ app = Agent(name="my-agent")
 def gpt4o() -> Model:
     return Model("gpt-4o")
 
-@app.message(Teams.direct, Teams.group, Teams.channel_mention)
+@app.activity(Teams.direct, Teams.group, Teams.channel_mention)
 async def reply(text: str, model: Model = Depends(gpt4o)) -> str:
     return await model.respond(text)
 
@@ -65,7 +65,7 @@ suggested actions, citations, mentions, sensitivity labels, live-typing
 streamers, and reactions:
 
 ```python
-from castia import Depends, Message, Model, Reaction, Router, Teams
+from castia import Depends, Message, Model, Reaction, Router, Teams, get_model
 
 router = Router()
 
