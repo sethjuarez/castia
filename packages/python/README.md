@@ -231,6 +231,44 @@ override flows through to the resolved candidate automatically.
 The runtime resolver and the reconciler need the optimizer extra: `pip install
 'castia[optimize]'`.
 
+## Reinforcement fine-tuning (RFT)
+
+RFT is the fourth lifecycle step — **build → evaluate → optimize → switch
+models**. It trains a *reasoning* model against a **grader** (a reward function)
+instead of labeled answers, minting a new fine-tuned deployment that becomes a
+candidate in the optimizer's model search. `castia` ships the build-time tooling
+to prepare, validate, and (behind one guarded seam) submit an RFT job — the same
+three-seam shape as the eval suite: pure builders, offline validators, and one
+billable submit seam.
+
+```bash
+# Offline gate — validate an RFT dataset (+ grader), no Azure, free in CI:
+python -m castia finetune check --dataset train.jsonl --validation val.jsonl --grader grader.json
+
+# Bridge an eval rubric into a score_model grader (offline):
+python -m castia finetune grader --rubric rubric.json --model gpt-4o --out grader.json
+
+# Submit a billable RFT job (use --dry-run to print the payload and submit nothing):
+python -m castia finetune submit --model o4-mini --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --reasoning-effort high --dry-run
+```
+
+A grader is one of `string_check`, `text_similarity`, `score_model`, `python`,
+`multi`, or `endpoint` (preview); templates reference two namespaces only —
+`{{ sample.output_text }}` and `{{ item.<field> }}`. Datasets are JSONL chat
+`messages[]` rows whose **final message role must be `user`**, with extra
+top-level keys as the `item.*` ground truth; **both** train and validation
+splits are required. `rubric_to_score_model()` bridges an eval rubric straight
+into a `score_model` grader — the natural tie between the *evaluate* and
+*switch-models* steps.
+
+> ⚠️ **Provisional / doc-derived.** The grader JSON schema, the RFT
+> hyperparameter names, and that `fine_tuning.jobs.create` accepts this payload
+> are derived from the Foundry RFT how-to and **have not been confirmed against a
+> live RFT job**. The builders and validators are fully offline-tested; treat the
+> submitted wire shape as provisional until a real submission validates it. The
+> language-neutral contract is pinned in `spec/conformance/graders/`.
+
 ## Design
 
 `castia` is deliberately import-cheap: `import castia` never pulls in the
