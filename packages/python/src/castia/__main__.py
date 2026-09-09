@@ -5,15 +5,19 @@ Subcommands:
     python -m castia deploy                 # rewrite azure.yaml from decorators
     python -m castia deploy --check         # report drift, write nothing
 
+    python -m castia optimize               # sync .agent_configs baseline (tools.json)
+    python -m castia optimize --check       # report baseline drift, write nothing
+
     python -m castia eval check             # validate eval.yaml + rubric files (offline)
     python -m castia eval generate ...      # azd ai agent eval generate (rubric + dataset)
     python -m castia eval update ...        # azd ai agent eval update (re-upload local edits)
     python -m castia eval run ...           # azd ai agent eval run (submit a scored run)
 
-``deploy`` imports the entrypoint only to read its composed decorators; ``eval
-check`` is a pure offline gate; and ``eval {generate,update,run}`` are thin
-wrappers over the ``azd ai agent eval`` extension (they shell to ``azd`` and, for
-generate/run, submit **billable** Foundry jobs -- use ``--dry-run`` to preview).
+``deploy`` / ``optimize`` import the entrypoint only to read its composed
+decorators; ``eval check`` is a pure offline gate; and ``eval
+{generate,update,run}`` are thin wrappers over the ``azd ai agent eval``
+extension (they shell to ``azd`` and, for generate/run, submit **billable**
+Foundry jobs -- use ``--dry-run`` to preview).
 """
 
 from __future__ import annotations
@@ -30,6 +34,11 @@ from .deploy import (
 )
 from .evalsuite import DEFAULT_CONFIG as DEFAULT_EVAL_CONFIG
 from .evalsuite import DEFAULT_INSTRUCTION_FILE
+from .optimize import (
+    DEFAULT_CONFIG_DIR,
+    OptimizePlan,
+    generate_optimizer_config,
+)
 
 
 def _format_list(protocols) -> str:
@@ -73,6 +82,46 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
     _print_plan(plan, check=args.check)
 
     # --check is a CI gate: non-zero when the manifest would change.
+    if args.check and plan.changed:
+        return 1
+    return 0
+
+
+def _print_optimize_plan(plan: OptimizePlan, *, check: bool) -> None:
+    print(f"baseline      : {plan.baseline_dir}")
+    print(f"declared tools: {_format_list(plan.tools)}")
+    tools_state = "drift" if plan.tools_changed else "up to date"
+    print(f"tools.json    : {plan.tools_path.name}  ({tools_state})")
+    meta_state = "needs tool_file" if plan.metadata_changed else "ok"
+    print(f"metadata.yaml : {plan.metadata_path.name}  ({meta_state})")
+    for note in plan.notes:
+        print(f"note          : {note}")
+
+    if not plan.changed:
+        print("result        : up to date")
+    elif check:
+        print("result        : OUT OF DATE (run without --check to write)")
+    elif plan.written:
+        print("result        : written")
+
+
+def _cmd_optimize(args: argparse.Namespace) -> int:
+    try:
+        app = load_app(args.app)
+    except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
+        print(f"error: could not load app {args.app!r}: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        plan = generate_optimizer_config(
+            app, args.config_dir, candidate=args.candidate, check=args.check
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: could not reconcile baseline: {exc}", file=sys.stderr)
+        return 2
+
+    _print_optimize_plan(plan, check=args.check)
+
     if args.check and plan.changed:
         return 1
     return 0
@@ -218,6 +267,32 @@ def main(argv: list[str] | None = None) -> int:
         help="report drift and exit non-zero without writing",
     )
     deploy.set_defaults(func=_cmd_deploy)
+
+    optimize = sub.add_parser(
+        "optimize",
+        help="sync the .agent_configs baseline (tools.json) from the Agent",
+    )
+    optimize.add_argument(
+        "--app",
+        default=DEFAULT_APP,
+        help=f"entrypoint as module:attr (default: {DEFAULT_APP})",
+    )
+    optimize.add_argument(
+        "--config-dir",
+        default=DEFAULT_CONFIG_DIR,
+        help=f"path to the .agent_configs directory (default: {DEFAULT_CONFIG_DIR})",
+    )
+    optimize.add_argument(
+        "--candidate",
+        default="baseline",
+        help="candidate folder under the config dir (default: baseline)",
+    )
+    optimize.add_argument(
+        "--check",
+        action="store_true",
+        help="report baseline drift and exit non-zero without writing",
+    )
+    optimize.set_defaults(func=_cmd_optimize)
 
     ev = sub.add_parser(
         "eval",

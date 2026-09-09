@@ -32,6 +32,13 @@ from .invokes import (
 )
 from .messages import Message
 from .model import Model, get_model, use_model
+from .optimization import (
+    AgentConfig,
+    apply_optimized_tools,
+    configured_model,
+    load_agent_config,
+    tools_json,
+)
 from .streaming import Streamer
 from .surfaces import Teams
 from .tracing import OperationName, execute_tool, invoke_agent
@@ -39,6 +46,7 @@ from .tracing import OperationName, execute_tool, invoke_agent
 __all__ = [
     "PUBLISHABLE_PROTOCOLS",
     "Agent",
+    "AgentConfig",
     "AgenticIdentityError",
     "Depends",
     "InvokeNames",
@@ -53,9 +61,11 @@ __all__ = [
     "action_chips",
     "adaptive_card",
     "agentic_user_id",
+    "apply_optimized_tools",
     "card_action",
     "card_invoke_response",
     "citation",
+    "configured_model",
     "current_turn",
     "current_turn_or_none",
     "decision_card",
@@ -63,10 +73,12 @@ __all__ = [
     "feedback_payload",
     "get_model",
     "invoke_agent",
+    "load_agent_config",
     "mention_entity",
     "message_invoke_response",
     "require_agentic_user",
     "sensitivity_label",
     "suggested_actions",
+    "tools_json",
     "use_model",
 ]
