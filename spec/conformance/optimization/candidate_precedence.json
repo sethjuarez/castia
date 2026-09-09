@@ -1,0 +1,38 @@
+{
+  "contract": "foundry-agent-optimizer-candidate-injection",
+  "description": "First-wins resolution order a conforming optimizer config loader must honor when selecting the agent's active configuration (baseline vs. optimizer-injected candidate). Only the local source is affected by an explicit config_dir override.",
+  "precedence": [
+    {
+      "id": "inline_config",
+      "source": "OPTIMIZATION_CONFIG",
+      "kind": "env",
+      "env": ["OPTIMIZATION_CONFIG"],
+      "affected_by_config_dir": false,
+      "notes": "Inline JSON blob carrying instructions/model injected by the optimizer. Highest priority."
+    },
+    {
+      "id": "resolver_api",
+      "source": "OPTIMIZATION_CANDIDATE_ID + OPTIMIZATION_RESOLVE_ENDPOINT",
+      "kind": "http",
+      "env": ["OPTIMIZATION_CANDIDATE_ID", "OPTIMIZATION_RESOLVE_ENDPOINT"],
+      "affected_by_config_dir": false,
+      "notes": "The optimizer supplies a candidate id resolved to a config over the resolve endpoint."
+    },
+    {
+      "id": "local_agent_configs",
+      "source": ".agent_configs/",
+      "kind": "filesystem",
+      "env": ["OPTIMIZATION_LOCAL_DIR"],
+      "affected_by_config_dir": true,
+      "notes": "The on-disk baseline directory. This is the ONLY source affected by an explicit config_dir argument or the OPTIMIZATION_LOCAL_DIR override."
+    },
+    {
+      "id": "none",
+      "source": null,
+      "kind": "default",
+      "env": [],
+      "affected_by_config_dir": false,
+      "notes": "No config resolved -> the SDK bridge degrades to environment defaults (env model, no instructions), so the agent runs identically with or without the optimizer."
+    }
+  ]
+}
