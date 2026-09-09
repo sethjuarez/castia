@@ -388,6 +388,7 @@ def test_model_stream_yields_text_deltas():
     model = Model.__new__(Model)
     model._client = _Client()
     model._deployment = "gpt-4o"
+    model._instructions = None
 
     async def run():
         return [d async for d in model.stream("hi")]
