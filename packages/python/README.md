@@ -150,6 +150,87 @@ The rubric dimensions file is a **bare JSON list** where each entry is keyed by
 `always_applicable: true` on the catch-all dimension. That cross-SDK shape is
 pinned in the monorepo at [`spec/conformance/rubric/`](../../spec/conformance/rubric).
 
+## Optimizer-readiness
+
+The Foundry **Agent Optimizer** searches for a better system prompt (and, when
+you declare tools, better tool descriptions) by running candidates against your
+eval suite. Making a castia agent *optimizer-ready* is three things: install the
+runtime resolver, ship a baseline config, and source your model + instructions
+from that config instead of hardcoding them — so the optimizer can swap in a
+candidate with **zero handler changes**.
+
+Bind your model dependency with `configured_model()` and thread its resolved
+instructions through:
+
+```python
+from castia import Depends, Model, Router, configured_model
+
+router = Router()
+gpt = configured_model()  # resolves baseline (or the injected candidate) once
+
+@router.responses()
+async def reply(text: str, model: Model = Depends(gpt)) -> str:
+    return await model.respond(text)   # instructions flow into responses.create
+```
+
+`configured_model()` calls `load_agent_config()`, which is **best-effort**: if
+the optimizer package isn't installed, resolution fails, or no config is found,
+it degrades to environment defaults (`AZURE_AI_MODEL_DEPLOYMENT_NAME`, no
+instructions) — the agent runs identically with or without the optimizer.
+
+Ship a baseline under `.agent_configs/baseline/`:
+
+```
+.agent_configs/baseline/
+  metadata.yaml       # model, instruction_file, (optional) tool_file pointers
+  instructions.md     # the system prompt the optimizer tunes
+  tools.json          # optional: tool specs the optimizer may reword
+```
+
+If your agent declares tools with `app.tools(...)`, keep the baseline
+`tools.json` in sync with the code using the build-time reconciler:
+
+```bash
+python -m castia optimize          # write/refresh .agent_configs/baseline/tools.json
+python -m castia optimize --check   # CI drift gate (exits non-zero, writes nothing)
+```
+
+**Config resolution order** is first-wins: `OPTIMIZATION_CONFIG` (inline JSON) →
+resolver API (`OPTIMIZATION_CANDIDATE_ID` + `OPTIMIZATION_RESOLVE_ENDPOINT`) →
+local `.agent_configs/` → environment defaults. An explicit `config_dir`
+argument (or `OPTIMIZATION_LOCAL_DIR`) affects **only** the local source — pass
+it anchored to your app root so the baseline resolves the same under
+`python app.py` and `python -m castia`. That contract is pinned for every SDK in
+[`spec/conformance/optimization/`](../../spec/conformance/optimization).
+
+### Switching to a reasoning (or RFT-tuned) model
+
+The optimizer's model search can land on a **reasoning** model — an o-series or
+GPT-5 deployment, or one you mint yourself with reinforcement fine-tuning (RFT).
+Those models take a `reasoning.effort` control that plain chat models don't.
+`Model` exposes it as `reasoning_effort` (`minimal|low|medium|high`):
+
+```python
+o4 = use_model("o4-mini-rft-2025", reasoning_effort="high")
+```
+
+An unset effort omits the field entirely, so chat models are called exactly as
+before; a bad level raises at construction rather than as a `400` mid-turn. An
+operator can also switch a **deployed** agent onto a reasoning model with zero
+code by setting `MODEL_REASONING_EFFORT` — an explicit argument still wins.
+Because `configured_model()` builds its `Model` through the same path, that env
+override flows through to the resolved candidate automatically.
+
+> **Responses-only constraint:** the optimizer accepts only single-protocol
+> `responses` agents — submitting a multi-protocol agent (one that also speaks
+> activity/invocations) is rejected with a `400` at submission. Project a
+> responses-only sibling from the *same* handler code with
+> `app.responses_only()`, deploy that as its own service, optimize it, then apply
+> the winning `.agent_configs` candidate back to your live agent.
+
+The runtime resolver and the reconciler need the optimizer extra: `pip install
+'castia[optimize]'`.
+
 ## Design
 
 `castia` is deliberately import-cheap: `import castia` never pulls in the

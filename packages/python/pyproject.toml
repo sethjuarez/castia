@@ -48,6 +48,11 @@ Documentation = "https://castia.dev"
 # the decorators. Deliberately not a runtime dependency so it never ships in the
 # hosted container.
 deploy = ["ruamel.yaml>=0.18"]
+# Optimizer-readiness. `azure-ai-agentserver-optimization` is the runtime
+# resolver that loads optimizer candidates in the hosted container; the bridge
+# degrades to env defaults when it is absent, so it stays optional. ruamel.yaml
+# is used by the `python -m castia optimize` baseline reconciler.
+optimize = ["azure-ai-agentserver-optimization>=1.0.0b1", "ruamel.yaml>=0.18"]
 # Test-time only. Includes ruamel.yaml because the eval-suite tests parse real
 # eval.yaml / rubric fixtures.
 test = ["pytest>=8", "ruamel.yaml>=0.18"]
