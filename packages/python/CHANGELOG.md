@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sethjuarez/castia/compare/python-v0.2.0...python-v0.3.0) (2026-09-09)
+
+
+### Features
+
+* **python:** add reinforcement fine-tuning (RFT) tooling ([#7](https://github.com/sethjuarez/castia/issues/7)) ([971646c](https://github.com/sethjuarez/castia/commit/971646cb15a2480d7026cf4ef0dc419a0eddbb23))
+
 ## [0.2.0](https://github.com/sethjuarez/castia/compare/python-v0.1.0...python-v0.2.0) (2026-09-09)
 
 
