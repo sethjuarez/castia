@@ -112,7 +112,13 @@ class Model:
                     yield delta
 
     async def respond_with_tools(
-        self, text: str, *, tools: list, activity: object, max_iterations: int = 4
+        self,
+        text: str,
+        *,
+        tools: list,
+        activity: object,
+        max_iterations: int = 4,
+        extra_specs: list[dict] | None = None,
     ) -> str:
         """Answer ``text`` letting the model call outbound :class:`~castia.tools.Tool` s.
 
@@ -122,12 +128,16 @@ class Model:
         back, and repeat until the model returns text or the iteration cap is hit.
         Tool impls fail *soft* -- their diagnostic dict (or a captured exception)
         is returned to the model as the tool output rather than raising.
+
+        ``extra_specs`` appends raw tool specs the model resolves **server-side**
+        (e.g. a Foundry-toolbox ``mcp`` tool from :mod:`castia.toolbox`); they
+        carry no local impl and are ignored by the ``function_call`` loop.
         """
         import json
 
         from .tracing import execute_tool
 
-        specs = [t.spec() for t in tools]
+        specs = [t.spec() for t in tools] + list(extra_specs or [])
         by_name = {t.name: t for t in tools}
         client = self._client.get_openai_client()
         conversation: list = [{"role": "user", "content": text}]
