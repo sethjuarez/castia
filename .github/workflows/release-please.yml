@@ -29,7 +29,7 @@ jobs:
       python_released: ${{ steps.release.outputs['packages/python--release_created'] }}
       python_tag: ${{ steps.release.outputs['packages/python--tag_name'] }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
@@ -51,11 +51,12 @@ jobs:
       run:
         working-directory: packages/python
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
+          enable-cache: false
           version: "0.8.23"
 
       - name: Build wheel + sdist
