@@ -74,6 +74,10 @@ integrity before any spend.
 
 ## Step 3 — optimize it (Foundry Agent Optimizer)
 
+For hands-on optimizer implementation, toolbox sidecars, live drift workflows,
+or candidate-apply/debugging tasks, invoke the repo-local `castia-optimizer`
+skill first; this lifecycle skill is the high-level map.
+
 The optimizer improves the **prompt / tool descriptions / model selection**
 against the same `eval.yaml`. The on-disk contract is `.agent_configs/baseline/`
 (instructions, tools.json, metadata). Castia owns request construction,

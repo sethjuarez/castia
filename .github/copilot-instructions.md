@@ -35,3 +35,6 @@ flow.
   `azd` remains the deployment rail for hosted agents. The daily
   `.github/workflows/foundry-optimizer-live.yml` job is the preview-service drift
   canary and is billable when enabled.
+- For detailed optimizer work, use the repo-local skill at
+  `.github/skills/castia-optimizer/SKILL.md`; `castia-lifecycle` remains the
+  broader build/evaluate/optimize/RFT map.
