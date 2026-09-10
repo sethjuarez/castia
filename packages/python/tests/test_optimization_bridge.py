@@ -93,6 +93,30 @@ def test_missing_model_falls_back_to_env(monkeypatch):
     assert load_agent_config().model == "gpt-env"
 
 
+def test_azd_tools_file_metadata_is_loaded_when_package_ignores_it(monkeypatch, tmp_path):
+    baseline = tmp_path / "baseline"
+    baseline.mkdir()
+    (baseline / "metadata.yaml").write_text(
+        "model: gpt-4o\ninstruction_file: instructions.md\ntools_file: tools.json\n",
+        encoding="utf-8",
+    )
+    (baseline / "tools.json").write_text(
+        '[{"type":"function","function":{"name":"web","description":"Search."}}]',
+        encoding="utf-8",
+    )
+    cfg = _FakeConfig(
+        instructions="be terse",
+        model="gpt-candidate",
+        source=f"local:{baseline}",
+        tool_definitions=[],
+    )
+    _install_load_config(monkeypatch, lambda config_dir=None: cfg)
+
+    assert load_agent_config(tmp_path).tool_definitions == (
+        {"type": "function", "function": {"name": "web", "description": "Search."}},
+    )
+
+
 def test_config_dir_is_forwarded(monkeypatch):
     seen = {}
 
@@ -105,20 +129,33 @@ def test_config_dir_is_forwarded(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# configured_model -- threads model + instructions into Model                  #
+# configured_model -- threads optimizer config into Model                      #
 # --------------------------------------------------------------------------- #
 
 
-def test_configured_model_threads_model_and_instructions(monkeypatch):
+def test_configured_model_threads_model_instructions_and_tools(monkeypatch):
     captured = {}
 
     class _FakeModel:
-        def __init__(self, deployment=None, *, endpoint=None, instructions=None):
+        def __init__(
+            self,
+            deployment=None,
+            *,
+            endpoint=None,
+            instructions=None,
+            tool_definitions=(),
+        ):
             captured["deployment"] = deployment
             captured["instructions"] = instructions
+            captured["tool_definitions"] = tool_definitions
 
     monkeypatch.setattr("castia.model.Model", _FakeModel)
-    provider = configured_model(AgentConfig("gpt-4o", "be nice", "local"))
+    defs = ({"function": {"name": "search", "description": "Search."}},)
+    provider = configured_model(AgentConfig("gpt-4o", "be nice", "local", defs))
     model = provider()
     assert isinstance(model, _FakeModel)
-    assert captured == {"deployment": "gpt-4o", "instructions": "be nice"}
+    assert captured == {
+        "deployment": "gpt-4o",
+        "instructions": "be nice",
+        "tool_definitions": defs,
+    }

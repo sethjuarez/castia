@@ -16,6 +16,7 @@ from castia import (
     apply_optimized_tools,
     tools_json,
 )
+from castia.toolbox import toolbox_mcp_tool
 from castia.tools import Tool
 
 
@@ -68,6 +69,33 @@ def test_tools_json_emits_nested_function_form():
 
 def test_tools_json_empty():
     assert tools_json([]) == []
+
+
+def test_tools_json_includes_toolbox_optimizer_sidecar():
+    spec = toolbox_mcp_tool(
+        "https://x/mcp",
+        server_label="contracts",
+        allowed_tools=("knowledge_base_retrieve",),
+        descriptions={"knowledge_base_retrieve": "Search contract policy."},
+    )
+
+    assert spec is not None
+    out = tools_json([spec])
+    assert out == [
+        {
+            "type": "function",
+            "function": {
+                "name": "knowledge_base_retrieve",
+                "description": "Search contract policy.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": True,
+                },
+            },
+        }
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -142,6 +170,45 @@ def test_apply_unknown_name_passes_through():
     defs = [{"function": {"name": "not_a_tool", "description": "x"}}]
     applied = apply_optimized_tools(tools, defs)
     assert applied[0] is tools[0]
+
+
+def test_apply_overlays_toolbox_sidecar_descriptions():
+    spec = toolbox_mcp_tool(
+        "https://x/mcp",
+        server_label="contracts",
+        allowed_tools=("knowledge_base_retrieve",),
+        server_description="Contracts toolbox.",
+        descriptions={"knowledge_base_retrieve": "Search contract policy."},
+        param_guidance={"knowledge_base_retrieve": {"query": "Original query hint."}},
+    )
+    assert spec is not None
+
+    applied = apply_optimized_tools(
+        [spec],
+        [
+            {
+                "function": {
+                    "name": "knowledge_base_retrieve",
+                    "description": "REWRITTEN policy search.",
+                    "parameters": {
+                        "properties": {
+                            "query": {"description": "REWRITTEN query hint."}
+                        }
+                    },
+                }
+            }
+        ],
+    )
+
+    rewritten = applied[0]
+    assert isinstance(rewritten, dict)
+    sidecar = rewritten["x-castia-optimizer-tool-definitions"][0]["function"]
+    assert sidecar["description"] == "REWRITTEN policy search."
+    assert sidecar["parameters"]["properties"]["query"]["description"] == (
+        "REWRITTEN query hint."
+    )
+    assert "Contracts toolbox." in rewritten["server_description"]
+    assert "REWRITTEN policy search." in rewritten["server_description"]
 
 
 # --------------------------------------------------------------------------- #

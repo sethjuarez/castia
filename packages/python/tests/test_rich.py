@@ -851,7 +851,7 @@ def test_make_invoke_dispatch_none_when_handler_returns_non_dict():
 
 
 def test_server_routes_invoke_to_handler_and_returns_body():
-    from fastapi.testclient import TestClient
+    import httpx
 
     from castia import InvokeNames, Router, card_invoke_response, decision_card
     from castia.server import build_app
@@ -863,18 +863,24 @@ def test_server_routes_invoke_to_handler_and_returns_body():
         return card_invoke_response(decision_card("Resolved"))
 
     app = build_app(router._routes, router._wire, router._invokes)
-    client = TestClient(app)
 
-    resp = client.post(
-        "/activity/messages",
-        json={
-            "type": "invoke",
-            "name": InvokeNames.adaptive_card_action,
-            "value": {"action": {"verb": "approve", "data": {}}},
-            "conversation": {"id": CONVERSATION_ID},
-            "serviceUrl": SERVICE_URL,
-        },
-    )
+    async def _post() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            return await client.post(
+                "/activity/messages",
+                json={
+                    "type": "invoke",
+                    "name": InvokeNames.adaptive_card_action,
+                    "value": {"action": {"verb": "approve", "data": {}}},
+                    "conversation": {"id": CONVERSATION_ID},
+                    "serviceUrl": SERVICE_URL,
+                },
+            )
+
+    resp = asyncio.run(_post())
     assert resp.status_code == 200
     body = resp.json()
     assert body["type"] == ADAPTIVE_CARD_CONTENT_TYPE
@@ -882,19 +888,28 @@ def test_server_routes_invoke_to_handler_and_returns_body():
 
 
 def test_server_unknown_invoke_acks_empty_200():
-    from fastapi.testclient import TestClient
+    import httpx
 
     from castia import Router
     from castia.server import build_app
 
     app = build_app([], {}, Router()._invokes)
-    client = TestClient(app)
 
-    resp = client.post(
-        "/activity/messages",
-        json={"type": "invoke", "name": "some/unhandled.invoke", "value": {}},
-    )
+    async def _post() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            return await client.post(
+                "/activity/messages",
+                json={
+                    "type": "invoke",
+                    "name": "some/unhandled.invoke",
+                    "value": {},
+                },
+            )
+
+    resp = asyncio.run(_post())
     assert resp.status_code == 200
     assert resp.json() == {}
-
 

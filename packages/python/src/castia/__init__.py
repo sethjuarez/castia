@@ -42,6 +42,7 @@ from .optimization import (
 from .streaming import Streamer
 from .surfaces import Teams
 from .toolbox import (
+    apply_optimized_toolbox_tools,
     compose_toolbox_endpoint,
     knowledge_base_mcp_tool,
     platform_endpoint_env,
@@ -69,6 +70,7 @@ __all__ = [
     "action_chips",
     "adaptive_card",
     "agentic_user_id",
+    "apply_optimized_toolbox_tools",
     "apply_optimized_tools",
     "card_action",
     "card_invoke_response",

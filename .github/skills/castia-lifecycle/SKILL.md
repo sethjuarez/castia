@@ -29,7 +29,7 @@ CLI verbs split cleanly into **free/offline gates** and **billable Foundry jobs*
 | Verb | Free (offline, no Azure, no spend) | Billable (submits a Foundry job) |
 |------|-----------------------------------|----------------------------------|
 | `eval` | `eval check` | `eval generate`, `eval run` (`--dry-run` to preview) |
-| `optimize` | `optimize --check` | `optimize` (submission) |
+| `optimize` | `optimize --check`, `optimize run --dry-run` | `optimize run` |
 | `finetune` | `finetune check`, `finetune grader` | `finetune submit` (`--dry-run` to preview) |
 
 Rule of thumb: run the `check`/`--check`/`--dry-run` gate first — it's free and
@@ -76,7 +76,9 @@ integrity before any spend.
 
 The optimizer improves the **prompt / tool descriptions / model selection**
 against the same `eval.yaml`. The on-disk contract is `.agent_configs/baseline/`
-(instructions, tools.json, metadata). Two facts matter:
+(instructions, tools.json, metadata). Castia owns request construction,
+submission, status, cancel, and local candidate apply; `azd` remains the hosted
+agent deployment rail. Two facts matter:
 
 - **Responses-only.** The optimizer submits against the Responses protocol; an
   agent it optimizes must expose it (`Agent.responses_only()`).
@@ -86,8 +88,36 @@ against the same `eval.yaml`. The on-disk contract is `.agent_configs/baseline/`
 
 ```
 python -m castia optimize --check           # FREE: report .agent_configs baseline drift, write nothing
-python -m castia optimize                    # reconcile / submit
+python -m castia optimize                   # FREE: write/refresh baseline tools.json + metadata pointers
+python -m castia optimize run --dry-run     # FREE: print the exact Foundry optimizer payload
+python -m castia optimize run               # billable: submit + wait for a Foundry optimizer job
+python -m castia optimize status --watch    # inspect/poll the latest castia-submitted job
+python -m castia optimize apply             # fetch best candidate and write .agent_configs/<candidate>
+python -m castia optimize cancel            # cancel the latest castia-submitted job
 ```
+
+`optimize run` uses `FOUNDRY_PROJECT_ENDPOINT` (or `--project-endpoint`) and
+the model/evaluator/dataset declarations in `eval.yaml`. The live wire shape is
+validated against the preview service through the package tests and the daily
+GitHub Actions smoke: `api-version=v1`, `Foundry-Features:
+AgentsOptimization=V2Preview`, and a `{"inputs": ...}` submit envelope.
+
+For toolbox/federated MCP tools, use the post-facto guidance overrides on
+`toolbox_mcp_tool(...)` / `knowledge_base_mcp_tool(...)`: selected tool names,
+descriptions, parameter guidance, and `server_description` are emitted into
+optimizer-visible `tools.json`, while private `x-castia-*` sidecar metadata is
+stripped before Responses calls. Live service-visible toolbox names are the MCP
+tool names (for example `web`), not `server_label___tool`; the legacy spelling
+is accepted only as an alias when applying optimized tools.
+
+After `optimize apply`, deploy a chosen candidate through `azd` by setting:
+
+```
+OPTIMIZATION_LOCAL_DIR=.agent_configs
+OPTIMIZATION_CANDIDATE_ID=<candidate-id>
+```
+
+Then run the normal hosted-agent deploy workflow.
 
 ## Step 4 — switch models via RFT (the last step)
 
