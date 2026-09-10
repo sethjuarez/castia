@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/sethjuarez/castia/compare/python-v0.4.0...python-v0.5.0) (2026-09-10)
+
+
+### Features
+
+* **python:** optimize toolbox tool descriptions ([34b28c0](https://github.com/sethjuarez/castia/commit/34b28c0dd39a53e120ab13c635e28fb2e657f224))
+
 ## [0.4.0](https://github.com/sethjuarez/castia/compare/python-v0.3.0...python-v0.4.0) (2026-09-09)
 
 
