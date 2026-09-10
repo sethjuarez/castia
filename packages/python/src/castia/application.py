@@ -49,7 +49,8 @@ class Router:
         self._routes: list[tuple[tuple[Teams, ...], Handler]] = []
         self._wire: dict[str, Handler] = {}
         self._invokes: dict[str, Handler] = {}
-        # Zero-arg providers each returning a list of ``castia.tools.Tool``.
+        # Zero-arg providers each returning a list of ``castia.tools.Tool`` or
+        # optimizer-aware raw specs (for example toolbox MCP specs).
         # Tools are the agent's *outbound* capabilities; declaring them here (as
         # opposed to only passing them to ``respond_with_tools`` inside a
         # handler) lets the framework see them -- so the optimizer can treat tool
@@ -151,10 +152,11 @@ class Router:
         """Declare the agent's outbound tool providers.
 
         Each ``provider`` is a zero-arg callable returning a list of
-        :class:`~castia.tools.Tool`. Declaring them makes the tool set
-        *discoverable* by the framework -- distinct from merely passing tools to
-        ``model.respond_with_tools`` inside a handler -- so the optimizer can
-        treat tool descriptions as an optimization asset (see
+        :class:`~castia.tools.Tool` or optimizer-aware raw specs such as
+        :func:`castia.toolbox_mcp_tool`. Declaring them makes the tool set
+        *discoverable* by the framework -- distinct from merely passing tools or
+        ``extra_specs`` to ``model.respond_with_tools`` inside a handler -- so the
+        optimizer can treat tool descriptions as an optimization asset (see
         :func:`castia.tools_json` / :func:`castia.apply_optimized_tools`) and
         ``python -m castia optimize`` can generate a baseline ``tools.json``::
 
@@ -169,8 +171,9 @@ class Router:
         """The agent's declared tools, flattened across every provider.
 
         Calls each provider registered via :meth:`tools`; returns an empty list
-        when the agent declares none. De-duplicates by tool name (first wins) so
-        overlapping providers don't double-list a tool.
+        when the agent declares none. De-duplicates local function tools by name
+        (first wins) so overlapping providers don't double-list a tool. Raw specs
+        without a ``name`` attribute pass through for the optimizer serializer.
         """
         seen: set[str] = set()
         out: list = []

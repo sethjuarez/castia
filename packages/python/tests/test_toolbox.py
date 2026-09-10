@@ -8,8 +8,11 @@ one impure seam (:func:`castia.toolbox.toolbox_token`) is not called here.
 
 from __future__ import annotations
 
+import pytest
+
 from castia.toolbox import (
     AI_FOUNDRY_SCOPE,
+    OPTIMIZER_TOOL_DEFINITIONS_KEY,
     compose_toolbox_endpoint,
     knowledge_base_mcp_tool,
     platform_endpoint_env,
@@ -179,6 +182,107 @@ def test_mcp_tool_reads_endpoint_from_env() -> None:
     )
 
 
+def test_mcp_tool_overrides_emit_server_description_and_optimizer_defs() -> None:
+    spec = toolbox_mcp_tool(
+        "https://x/mcp",
+        server_label="contracts",
+        allowed_tools=("kb-conn___knowledge_base_retrieve",),
+        descriptions={
+            "knowledge_base_retrieve": "Search contract and billing policy sources."
+        },
+        param_guidance={
+            "knowledge_base_retrieve": {
+                "query": "A natural-language contract or billing-policy question."
+            }
+        },
+    )
+
+    assert spec is not None
+    assert spec["allowed_tools"] == ["kb-conn___knowledge_base_retrieve"]
+    assert "kb-conn___knowledge_base_retrieve" in spec["server_description"]
+    assert "Search contract and billing policy sources." in spec["server_description"]
+
+    optimizer_defs = spec[OPTIMIZER_TOOL_DEFINITIONS_KEY]
+    assert optimizer_defs == [
+        {
+            "type": "function",
+            "function": {
+                "name": "kb-conn___knowledge_base_retrieve",
+                "description": "Search contract and billing policy sources.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "description": (
+                                "A natural-language contract or billing-policy question."
+                            )
+                        }
+                    },
+                    "required": [],
+                    "additionalProperties": True,
+                },
+            },
+        }
+    ]
+
+
+def test_mcp_tool_overrides_accept_selected_tool_name() -> None:
+    final = "kb-conn___knowledge_base_retrieve"
+    spec = toolbox_mcp_tool(
+        "https://x/mcp",
+        server_label="contracts",
+        allowed_tools=("kb-conn___knowledge_base_retrieve",),
+        descriptions={final: "Use this for contracts."},
+    )
+
+    assert spec is not None
+    assert spec[OPTIMIZER_TOOL_DEFINITIONS_KEY][0]["function"]["name"] == final
+
+
+def test_mcp_tool_overrides_accept_legacy_labeled_name_alias() -> None:
+    spec = toolbox_mcp_tool(
+        "https://x/mcp",
+        server_label="contracts",
+        allowed_tools=("kb-conn___knowledge_base_retrieve",),
+        descriptions={
+            "contracts___kb-conn___knowledge_base_retrieve": (
+                "Use this for contracts."
+            )
+        },
+    )
+
+    assert spec is not None
+    assert spec[OPTIMIZER_TOOL_DEFINITIONS_KEY][0]["function"]["name"] == (
+        "kb-conn___knowledge_base_retrieve"
+    )
+
+
+def test_mcp_tool_overrides_require_allowed_tools() -> None:
+    with pytest.raises(ValueError, match="allowed_tools is required"):
+        toolbox_mcp_tool(
+            "https://x/mcp",
+            descriptions={"knowledge_base_retrieve": "Search contracts."},
+        )
+
+
+def test_mcp_tool_overrides_reject_unknown_keys() -> None:
+    with pytest.raises(ValueError, match="unknown toolbox descriptions key"):
+        toolbox_mcp_tool(
+            "https://x/mcp",
+            allowed_tools=("knowledge_base_retrieve",),
+            descriptions={"stale_tool": "Search contracts."},
+        )
+
+
+def test_mcp_tool_overrides_reject_ambiguous_bare_keys() -> None:
+    with pytest.raises(ValueError, match="ambiguous toolbox descriptions key"):
+        toolbox_mcp_tool(
+            "https://x/mcp",
+            allowed_tools=("one___search", "two___search"),
+            descriptions={"search": "Ambiguous."},
+        )
+
+
 # --- knowledge_base_mcp_tool -------------------------------------------------
 
 
@@ -193,6 +297,17 @@ def test_kb_tool_search_token_header() -> None:
         "https://s/knowledgebases/kb/mcp", search_token="tok"
     )
     assert spec["headers"] == {"x-ms-query-source-authorization": "tok"}
+
+
+def test_kb_tool_accepts_default_tool_description_override() -> None:
+    spec = knowledge_base_mcp_tool(
+        "https://s/knowledgebases/kb/mcp",
+        descriptions={"knowledge_base_retrieve": "Search the KB."},
+    )
+
+    assert spec[OPTIMIZER_TOOL_DEFINITIONS_KEY][0]["function"]["name"] == (
+        "knowledge_base_retrieve"
+    )
 
 
 def test_kb_tool_never_none() -> None:

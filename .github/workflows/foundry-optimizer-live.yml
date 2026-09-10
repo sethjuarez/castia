@@ -1,0 +1,135 @@
+name: foundry-optimizer-live
+
+# Daily live contract smoke for the preview Foundry Agent Optimizer API.
+# This is intentionally separate from PR CI because it submits a billable
+# optimizer job against a pre-deployed smoke agent.
+on:
+  schedule:
+    - cron: "23 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: foundry-optimizer-live
+  cancel-in-progress: false
+
+jobs:
+  optimizer-smoke:
+    runs-on: ubuntu-latest
+    environment: foundry-live
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/python
+    env:
+      FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+      FOUNDRY_OPTIMIZER_AGENT_NAME: ${{ vars.FOUNDRY_OPTIMIZER_AGENT_NAME }}
+      FOUNDRY_OPTIMIZER_AGENT_VERSION: ${{ vars.FOUNDRY_OPTIMIZER_AGENT_VERSION }}
+      FOUNDRY_EVAL_MODEL: ${{ vars.FOUNDRY_EVAL_MODEL || 'gpt-4o' }}
+      FOUNDRY_OPTIMIZE_MODEL: ${{ vars.FOUNDRY_OPTIMIZE_MODEL || 'gpt-5' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate live smoke configuration
+        run: |
+          test -n "$FOUNDRY_PROJECT_ENDPOINT" || { echo "FOUNDRY_PROJECT_ENDPOINT variable is required"; exit 2; }
+          test -n "$FOUNDRY_OPTIMIZER_AGENT_NAME" || { echo "FOUNDRY_OPTIMIZER_AGENT_NAME variable is required"; exit 2; }
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.23"
+
+      - name: Install castia with optimizer dependencies
+        run: |
+          uv venv
+          uv pip install -e ".[deploy,optimize,test]"
+
+      - name: Build live optimizer smoke inputs
+        run: |
+          mkdir -p .live/foundry-optimizer/.agent_configs/baseline
+
+          cat > .live/foundry-optimizer/dataset.jsonl <<'JSONL'
+          {"query":"What is two plus two?","expected_behavior":"The answer says four."}
+          {"query":"Use web search to find Microsoft's official homepage and summarize it in one sentence.","expected_behavior":"The response uses the web tool and identifies microsoft.com as Microsoft's official homepage."}
+          JSONL
+
+          cat > .live/foundry-optimizer/.agent_configs/baseline/instructions.md <<'EOF'
+          You are a release-validation smoke agent for castia. Answer concisely. Use the toolbox web tool only when current public information is required.
+          EOF
+
+          cat > .live/foundry-optimizer/.agent_configs/baseline/tools.json <<'JSON'
+          [
+            {
+              "type": "function",
+              "function": {
+                "name": "web",
+                "description": "Search current public web information when the answer requires facts outside the prompt.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "description": "A concise public web search query."
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": true
+                }
+              }
+            }
+          ]
+          JSON
+
+          cat > .live/foundry-optimizer/.agent_configs/baseline/metadata.yaml <<'YAML'
+          model: gpt-4o
+          instruction_file: instructions.md
+          tool_file: tools.json
+          tools_file: tools.json
+          YAML
+
+          {
+            echo "agent:"
+            echo "  name: ${FOUNDRY_OPTIMIZER_AGENT_NAME}"
+            if [ -n "$FOUNDRY_OPTIMIZER_AGENT_VERSION" ]; then
+              echo "  version: \"${FOUNDRY_OPTIMIZER_AGENT_VERSION}\""
+            fi
+            echo "dataset:"
+            echo "  local_uri: dataset.jsonl"
+            echo "evaluators:"
+            echo "  - relevance"
+            echo "  - task_adherence"
+            echo "options:"
+            echo "  eval_model: ${FOUNDRY_EVAL_MODEL}"
+            echo "  optimization_model: ${FOUNDRY_OPTIMIZE_MODEL}"
+            echo "  max_candidates: 1"
+          } > .live/foundry-optimizer/eval.yaml
+
+      - name: Preview optimizer payload
+        run: |
+          .venv/bin/python -m castia optimize run \
+            --config .live/foundry-optimizer/eval.yaml \
+            --config-dir .agent_configs \
+            --dry-run
+
+      - name: Submit and wait for optimizer smoke
+        run: |
+          .venv/bin/python -m castia optimize run \
+            --config .live/foundry-optimizer/eval.yaml \
+            --config-dir .agent_configs \
+            --project-endpoint "$FOUNDRY_PROJECT_ENDPOINT" \
+            --poll-interval 15
+
+      - name: Apply best candidate
+        run: |
+          .venv/bin/python -m castia optimize apply \
+            --config-dir .live/foundry-optimizer/.agent_configs

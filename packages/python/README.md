@@ -110,6 +110,38 @@ tool. Auth is either a bearer `token` (minted from the container's managed
 identity by `toolbox_token()`) or a stored-connection `project_connection_id`.
 A Foundry IQ knowledge base is the same shape via `knowledge_base_mcp_tool`.
 
+For optimizer-ready toolbox guidance, pass an override map for the selected
+tools and declare the same pure spec provider with `app.tools(...)` so
+`python -m castia optimize` can emit the federated tools to `tools.json`:
+
+```python
+def contract_kb():
+    tool = toolbox_mcp_tool(
+        allowed_tools=["contracts-kb-mcp___knowledge_base_retrieve"],
+        descriptions={
+            "knowledge_base_retrieve": "Search governing contracts and billing policies."
+        },
+        param_guidance={
+            "knowledge_base_retrieve": {
+                "query": "A natural-language contract or billing-policy question."
+            }
+        },
+    )
+    return [tool] if tool else []
+
+app.tools(contract_kb)
+```
+
+Override keys may be the selected toolbox tool name
+(`contracts-kb-mcp___knowledge_base_retrieve`) or the bare tool name
+(`knowledge_base_retrieve`). The Responses API reports `server_label`
+separately from the tool `name`, so castia emits the selected toolbox tool name
+to `tools.json`; the older `toolbox___...` spelling is accepted as an alias.
+Unknown or ambiguous names raise immediately. Runtime still uses the validated
+server-side `mcp` call path; castia folds the overrides into
+`server_description` for model-visible guidance and into a private optimizer
+sidecar that is stripped before the Responses API call.
+
 **Deploying:** the `azd ai toolbox` extension writes `TOOLBOX_<NAME>_MCP_ENDPOINT`
 into the **azd** environment, but does **not** auto-inject it into a hosted
 container — declare that env passthrough on your container yourself (there is no
@@ -246,6 +278,44 @@ If your agent declares tools with `app.tools(...)`, keep the baseline
 python -m castia optimize          # write/refresh .agent_configs/baseline/tools.json
 python -m castia optimize --check   # CI drift gate (exits non-zero, writes nothing)
 ```
+
+Then submit optimizer jobs directly through castia. This path reads the same
+`eval.yaml` and baseline files, inlines local JSONL datasets for the request,
+and preserves `tools.json` so toolbox/federated tool descriptions are visible to
+the optimizer:
+
+```bash
+python -m castia optimize run --dry-run   # FREE: print the exact payload
+python -m castia optimize run             # billable: submit to Foundry
+python -m castia optimize status --watch  # poll the latest castia-submitted job
+python -m castia optimize apply           # write the best candidate locally
+python -m castia optimize cancel          # cancel the latest job
+```
+
+`optimize run` uses `FOUNDRY_PROJECT_ENDPOINT` (or `--project-endpoint`) and
+the model/evaluator/dataset declarations in `eval.yaml`. `optimize apply`
+materializes the candidate under `.agent_configs/<candidate-id>/` with
+`metadata.yaml`, `instructions.md`, `tools.json`, and `skills/` as returned by
+Foundry. Deployment is still an `azd` handoff: set
+`OPTIMIZATION_LOCAL_DIR=.agent_configs` and
+`OPTIMIZATION_CANDIDATE_ID=<candidate-id>`, then deploy the hosted agent with
+your existing `azd` workflow.
+
+For preview-service drift detection, the repo includes
+`.github/workflows/foundry-optimizer-live.yml`. It runs daily (and on manual
+dispatch), submits one billable optimizer candidate against a pre-deployed
+Foundry smoke agent, waits for completion, and applies the best candidate into a
+throwaway runner directory. Configure the `foundry-live` GitHub environment with
+OIDC Azure login secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID`) and these variables:
+
+| Variable | Purpose |
+|---|---|
+| `FOUNDRY_PROJECT_ENDPOINT` | Target Foundry project endpoint. |
+| `FOUNDRY_OPTIMIZER_AGENT_NAME` | Pre-deployed smoke agent name. |
+| `FOUNDRY_OPTIMIZER_AGENT_VERSION` | Optional pinned hosted-agent version. |
+| `FOUNDRY_EVAL_MODEL` | Optional evaluator model, defaults to `gpt-4o`. |
+| `FOUNDRY_OPTIMIZE_MODEL` | Optional optimizer model, defaults to `gpt-5`. |
 
 **Config resolution order** is first-wins: `OPTIMIZATION_CONFIG` (inline JSON) →
 resolver API (`OPTIMIZATION_CANDIDATE_ID` + `OPTIMIZATION_RESOLVE_ENDPOINT`) →

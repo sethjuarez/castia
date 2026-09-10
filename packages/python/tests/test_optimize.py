@@ -2,7 +2,7 @@
 
 Hermetic: builds an Agent in-memory and reconciles a temp ``.agent_configs``
 directory. Proves drift detection (missing/stale ``tools.json`` and the
-``tool_file`` pointer), that a write makes ``--check`` clean, and that an agent
+tool-file pointers), that a write makes ``--check`` clean, and that an agent
 with no declared tools reports tool optimization as inactive without churning.
 """
 
@@ -12,6 +12,7 @@ import json
 
 from castia import Agent
 from castia.optimize import generate_optimizer_config
+from castia.toolbox import toolbox_mcp_tool
 from castia.tools import Tool
 
 
@@ -56,6 +57,7 @@ def test_write_then_check_is_clean(tmp_path):
 
     meta = (tmp_path / "baseline" / "metadata.yaml").read_text(encoding="utf-8")
     assert "tool_file: tools.json" in meta
+    assert "tools_file: tools.json" in meta
 
     again = generate_optimizer_config(_agent_with_tools(), tmp_path, check=True)
     assert not again.changed
@@ -71,3 +73,25 @@ def test_no_tools_reports_inactive_without_drift(tmp_path):
 def test_missing_metadata_is_noted(tmp_path):
     plan = generate_optimizer_config(_agent_with_tools(), tmp_path, check=True)
     assert any("metadata.yaml" in n for n in plan.notes)
+
+
+def test_toolbox_optimizer_sidecar_participates_in_baseline(tmp_path):
+    _write_metadata(tmp_path)
+    app = Agent(name="t")
+    app.tools(
+        lambda: [
+            toolbox_mcp_tool(
+                "https://x/mcp",
+                server_label="contracts",
+                allowed_tools=("knowledge_base_retrieve",),
+                descriptions={"knowledge_base_retrieve": "Search contract policy."},
+            )
+        ]
+    )
+
+    written = generate_optimizer_config(app, tmp_path)
+    assert written.written
+    assert written.tools == ["knowledge_base_retrieve"]
+
+    data = json.loads(written.tools_path.read_text(encoding="utf-8"))
+    assert data[0]["function"]["name"] == "knowledge_base_retrieve"

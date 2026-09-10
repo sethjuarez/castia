@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator, Callable
 # (o-series, gpt-5, and their RFT-fine-tuned variants). A plain chat model
 # ignores the concept; we simply omit the field for it (see _reasoning_param).
 _REASONING_EFFORTS = ("minimal", "low", "medium", "high")
+_PRIVATE_TOOL_PREFIX = "x-castia-"
 
 
 def _reasoning_param(effort: str | None) -> dict:
@@ -55,12 +56,14 @@ class Model:
         endpoint: str | None = None,
         instructions: str | None = None,
         reasoning_effort: str | None = None,
+        tool_definitions: tuple[dict, ...] | list[dict] = (),
     ) -> None:
         from azure.ai.projects.aio import AIProjectClient
         from azure.identity.aio import DefaultAzureCredential
 
         self._deployment = deployment or os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"]
         self._instructions = instructions
+        self._tool_definitions = tuple(tool_definitions)
         # An explicit level wins; otherwise MODEL_REASONING_EFFORT lets an
         # operator switch a deployed agent onto a reasoning model with zero code.
         self._reasoning_effort = reasoning_effort or os.environ.get(
@@ -80,7 +83,7 @@ class Model:
         response = await self._client.get_openai_client().responses.create(
             model=self._deployment,
             input=text,
-            instructions=self._instructions,
+            **_instructions_param(self._instructions),
             **self._reasoning,
         )
         return response.output_text
@@ -101,8 +104,8 @@ class Model:
         stream = await self._client.get_openai_client().responses.create(
             model=self._deployment,
             input=text,
-            instructions=self._instructions,
             stream=True,
+            **_instructions_param(self._instructions),
             **self._reasoning,
         )
         async for event in stream:
@@ -137,8 +140,15 @@ class Model:
 
         from .tracing import execute_tool
 
-        specs = [t.spec() for t in tools] + list(extra_specs or [])
-        by_name = {t.name: t for t in tools}
+        function_tools = [t for t in tools if not isinstance(t, dict)]
+        raw_specs = [t for t in tools if isinstance(t, dict)]
+        specs = [t.spec() for t in function_tools] + [
+            _public_tool_spec(spec, self._tool_definitions) for spec in raw_specs
+        ] + [
+            _public_tool_spec(spec, self._tool_definitions)
+            for spec in list(extra_specs or [])
+        ]
+        by_name = {t.name: t for t in function_tools}
         client = self._client.get_openai_client()
         conversation: list = [{"role": "user", "content": text}]
 
@@ -147,8 +157,8 @@ class Model:
             response = await client.responses.create(
                 model=self._deployment,
                 input=conversation,
-                instructions=self._instructions,
                 tools=specs,
+                **_instructions_param(self._instructions),
                 **self._reasoning,
             )
             calls = [
@@ -212,12 +222,34 @@ def get_model() -> Model:
     return Model()
 
 
+def _instructions_param(instructions: str | None) -> dict:
+    """Return the Responses kwargs for optional instructions."""
+    if instructions is None:
+        return {}
+    return {"instructions": instructions}
+
+
+def _public_tool_spec(
+    spec: dict, tool_definitions: tuple[dict, ...] | list[dict] = ()
+) -> dict:
+    """Apply optimizer rewrites, then drop private metadata before Responses."""
+    from .toolbox import apply_optimized_toolbox_tools
+
+    optimized = apply_optimized_toolbox_tools(spec, tool_definitions)
+    return {
+        k: v
+        for k, v in optimized.items()
+        if not str(k).startswith(_PRIVATE_TOOL_PREFIX)
+    }
+
+
 def use_model(
     deployment: str | None = None,
     *,
     endpoint: str | None = None,
     instructions: str | None = None,
     reasoning_effort: str | None = None,
+    tool_definitions: tuple[dict, ...] | list[dict] = (),
 ) -> Callable[[], Model]:
     """Build a model dependency bound to a specific deployment (and endpoint).
 
@@ -246,6 +278,7 @@ def use_model(
             endpoint=endpoint,
             instructions=instructions,
             reasoning_effort=reasoning_effort,
+            tool_definitions=tool_definitions,
         )
 
     return provider

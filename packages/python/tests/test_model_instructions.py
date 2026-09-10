@@ -16,7 +16,8 @@ from typing import ClassVar
 
 import pytest
 
-from castia.model import Model, _reasoning_param
+from castia.model import Model, _instructions_param, _reasoning_param
+from castia.toolbox import toolbox_mcp_tool
 
 
 class _Response:
@@ -59,13 +60,16 @@ class _FakeClient:
 
 
 def _model(
-    instructions: str | None, reasoning: dict | None = None
+    instructions: str | None,
+    reasoning: dict | None = None,
+    tool_definitions: tuple[dict, ...] = (),
 ) -> tuple[Model, dict]:
     sink: dict = {}
     model = Model.__new__(Model)
     model._deployment = "dep"
     model._instructions = instructions
     model._reasoning = reasoning or {}
+    model._tool_definitions = tool_definitions
     model._client = _FakeClient(sink)
     return model, sink
 
@@ -79,11 +83,10 @@ def test_respond_threads_instructions():
     assert sink["model"] == "dep"
 
 
-def test_respond_none_instructions_still_passed():
+def test_respond_omits_none_instructions():
     model, sink = _model(None)
     asyncio.run(model.respond("hi"))
-    assert "instructions" in sink
-    assert sink["instructions"] is None
+    assert "instructions" not in sink
 
 
 def test_stream_threads_instructions():
@@ -107,6 +110,37 @@ def test_respond_with_tools_threads_instructions():
     assert sink["instructions"] == "tool prompt"
 
 
+def test_respond_with_tools_applies_toolbox_rewrites_to_extra_specs():
+    spec = toolbox_mcp_tool(
+        "https://x/mcp",
+        server_label="contracts",
+        allowed_tools=("knowledge_base_retrieve",),
+        descriptions={"knowledge_base_retrieve": "Original guidance."},
+    )
+    model, sink = _model(
+        "tool prompt",
+        tool_definitions=(
+            {
+                "function": {
+                    "name": "knowledge_base_retrieve",
+                    "description": "Rewritten guidance.",
+                }
+            },
+        ),
+    )
+
+    asyncio.run(
+        model.respond_with_tools(
+            "hi", tools=[], activity=object(), extra_specs=[spec]
+        )
+    )
+
+    sent_spec = sink["tools"][0]
+    assert "x-castia-optimizer-tool-definitions" not in sent_spec
+    assert "x-castia-server-description" not in sent_spec
+    assert "Rewritten guidance." in sent_spec["server_description"]
+
+
 # -- reasoning-effort passthrough (RFT / model-switch) ----------------------
 
 
@@ -118,6 +152,11 @@ def test_reasoning_param_maps_levels_and_rejects_typos():
     for bad in ("", "hi", "extreme"):
         with pytest.raises(ValueError):
             _reasoning_param(bad)
+
+
+def test_instructions_param_omits_none():
+    assert _instructions_param(None) == {}
+    assert _instructions_param("be terse") == {"instructions": "be terse"}
 
 
 def test_respond_passes_reasoning_effort():

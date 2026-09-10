@@ -25,7 +25,13 @@ flow.
 ## Python package conventions
 
 - Tooling is `uv` + `hatchling`. There is no `pip` in the venvs — use `uv pip`.
-- Validate from `packages/python`: `uv pip install -e ".[deploy,test]"`, then
-  `.venv/bin/python -m pytest -q`, `uvx ruff check .`, and `uv build`.
+- Validate from `packages/python`: `uv pip install -e ".[deploy,optimize,test]"`,
+  then `.venv/bin/python -m pytest -q -W error`, `uvx ruff check .`,
+  `uv build`, and `git --no-pager diff --check`.
 - Keep `import castia` cheap: heavy Azure/OpenAI imports stay lazy, inside the
   methods that need them.
+- Optimizer ownership is split deliberately: castia owns `.agent_configs`,
+  toolbox optimizer sidecars, and `python -m castia optimize run/status/cancel/apply`;
+  `azd` remains the deployment rail for hosted agents. The daily
+  `.github/workflows/foundry-optimizer-live.yml` job is the preview-service drift
+  canary and is billable when enabled.

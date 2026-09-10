@@ -17,6 +17,24 @@ your code owns the tool loop -- so the way a toolbox reaches this agent is:
    turn. Unlike :mod:`castia.tools` function tools, a toolbox tool needs no
    local impl -- the toolbox runs the tool and the model folds the result in.
 
+Server-side ``mcp`` specs do not declare each federated tool as a local
+function, but tool wording still matters: Foundry's guidance says descriptions
+steer tool choice, and the OpenAI Responses MCP schema exposes
+``server_description`` as model-visible context for a remote MCP server. Pass a
+``descriptions`` map (and optional ``param_guidance``) when you need local
+post-facto wording for selected toolbox tools. The map is folded into
+``server_description`` for runtime steering and into a private optimizer sidecar
+that :mod:`castia.optimize` serializes to ``tools.json``. This keeps the
+validated server-side toolbox call path while making selected federated tools
+eligible for Foundry Agent Optimizer description rewrites. Because the builder
+is offline and cannot list a remote toolbox, overrides require ``allowed_tools``
+so stale names fail loud instead of silently dropping optimizer guidance.
+Responses returns MCP calls with ``server_label`` separate from ``name``; live
+validation against a Foundry toolbox showed the model-visible name is the
+``allowed_tools`` entry (for example ``web``), not ``{server_label}___web``.
+Toolbox-federated connection names may still contain their own ``___`` prefix
+(for example ``contracts-kb-mcp___knowledge_base_retrieve``).
+
 Env forms are supported in this precedence (see :func:`resolve_toolbox_endpoint`):
 
 * an explicit full URL in ``TOOLBOX_ENDPOINT`` / ``TOOLBOX_MCP_ENDPOINT`` -- a
@@ -63,6 +81,13 @@ _NAME_ENV = "TOOLBOX_NAME"
 _VERSION_ENV = "TOOLBOX_VERSION"
 
 _API_VERSION = "v1"
+_FEDERATED_NAME_SEPARATOR = "___"
+
+# Private castia metadata carried on a raw MCP spec. ``Model.respond_with_tools``
+# strips it before calling Responses; ``python -m castia optimize`` consumes it
+# when generating ``.agent_configs/baseline/tools.json``.
+OPTIMIZER_TOOL_DEFINITIONS_KEY = "x-castia-optimizer-tool-definitions"
+_SERVER_DESCRIPTION_KEY = "x-castia-server-description"
 
 
 def platform_endpoint_env(name: str) -> str:
@@ -139,6 +164,9 @@ def toolbox_mcp_tool(
     token: str | None = None,
     project_connection_id: str | None = None,
     headers: Mapping[str, str] | None = None,
+    server_description: str | None = None,
+    descriptions: Mapping[str, str] | None = None,
+    param_guidance: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """A Responses-API ``mcp`` tool spec for a Foundry toolbox, or ``None``.
 
@@ -152,7 +180,22 @@ def toolbox_mcp_tool(
     (the toolbox resolves auth from a stored project connection). Extra ``headers``
     are merged last. ``allowed_tools`` restricts which of the toolbox's tools the
     model may call; omit it to expose all.
+
+    ``descriptions`` and ``param_guidance`` are local, post-facto guidance for
+    selected federated tools. Keys may be the final model-visible name
+    (``{server_label}___{tool}``), the selected upstream name, or the bare tool
+    name after the final ``___`` segment. The legacy ``{server_label}___{tool}``
+    spelling is accepted as an alias but normalizes back to the selected tool
+    name. Unknown or ambiguous keys raise. Since the builder cannot discover a
+    remote toolbox offline, ``allowed_tools`` is required whenever overrides are
+    supplied.
     """
+    override_defs = _optimizer_tool_definitions(
+        server_label=server_label,
+        allowed_tools=allowed_tools,
+        descriptions=descriptions,
+        param_guidance=param_guidance,
+    )
     endpoint = endpoint or resolve_toolbox_endpoint(env)
     if not endpoint:
         return None
@@ -164,6 +207,14 @@ def toolbox_mcp_tool(
     }
     if allowed_tools:
         spec["allowed_tools"] = list(allowed_tools)
+    if server_description or override_defs:
+        if server_description:
+            spec[_SERVER_DESCRIPTION_KEY] = server_description
+        spec["server_description"] = _server_description(
+            server_description, override_defs
+        )
+    if override_defs:
+        spec[OPTIMIZER_TOOL_DEFINITIONS_KEY] = override_defs
     if project_connection_id:
         spec["project_connection_id"] = project_connection_id
     merged: dict[str, str] = {}
@@ -188,6 +239,9 @@ def knowledge_base_mcp_tool(
     require_approval: str = "never",
     token: str | None = None,
     project_connection_id: str | None = None,
+    server_description: str | None = None,
+    descriptions: Mapping[str, str] | None = None,
+    param_guidance: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, Any]:
     """A Responses-API ``mcp`` tool spec for a **Foundry IQ** knowledge base.
 
@@ -196,7 +250,9 @@ def knowledge_base_mcp_tool(
     a per-user Azure AI Search token forwarded as ``x-ms-query-source-authorization``
     -- the same header a managed prompt agent templates from ``structured_inputs``.
     Pass it as ``search_token``. ``token`` (an ``Authorization`` bearer) and
-    ``project_connection_id`` carry the outer connection auth, if used.
+    ``project_connection_id`` carry the outer connection auth, if used. Override
+    descriptions follow :func:`toolbox_mcp_tool` and default to resolving against
+    ``knowledge_base_retrieve``.
     """
     headers: dict[str, str] = {}
     if search_token:
@@ -209,11 +265,222 @@ def knowledge_base_mcp_tool(
         token=token,
         project_connection_id=project_connection_id,
         headers=headers or None,
+        server_description=server_description,
+        descriptions=descriptions,
+        param_guidance=param_guidance,
     )
     # endpoint is a required non-empty argument here, so toolbox_mcp_tool never
     # returns None; assert to satisfy the type checker and fail loud on misuse.
     assert spec is not None
     return spec
+
+
+def _optimizer_tool_definitions(
+    *,
+    server_label: str,
+    allowed_tools: list[str] | tuple[str, ...] | None,
+    descriptions: Mapping[str, str] | None,
+    param_guidance: Mapping[str, Mapping[str, str]] | None,
+) -> list[dict[str, Any]]:
+    descriptions = descriptions or {}
+    param_guidance = param_guidance or {}
+    if not descriptions and not param_guidance:
+        return []
+    if not allowed_tools:
+        raise ValueError(
+            "allowed_tools is required when toolbox descriptions or "
+            "param_guidance are provided; castia cannot validate override names "
+            "without a selected toolbox tool list"
+        )
+
+    selected = [_SelectedTool(server_label, name) for name in allowed_tools]
+    resolved_descriptions = _resolve_overrides("descriptions", descriptions, selected)
+    resolved_params = _resolve_overrides("param_guidance", param_guidance, selected)
+
+    out: list[dict[str, Any]] = []
+    for tool in selected:
+        description = resolved_descriptions.get(tool.final_name)
+        params = resolved_params.get(tool.final_name, {})
+        if description is None and not params:
+            continue
+        out.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.final_name,
+                    "description": description
+                    or f"Call the federated toolbox tool {tool.upstream_name!r}.",
+                    "parameters": _parameter_schema(params),
+                },
+            }
+        )
+    return out
+
+
+class _SelectedTool:
+    def __init__(self, server_label: str, upstream_name: str) -> None:
+        self.upstream_name = upstream_name
+        self.final_name = upstream_name
+        self.legacy_labeled_name = (
+            f"{server_label}{_FEDERATED_NAME_SEPARATOR}{upstream_name}"
+        )
+        self.bare_name = upstream_name.rsplit(_FEDERATED_NAME_SEPARATOR, 1)[-1]
+
+    def aliases(self) -> set[str]:
+        return {
+            self.final_name,
+            self.upstream_name,
+            self.legacy_labeled_name,
+            self.bare_name,
+        }
+
+
+def _resolve_overrides(
+    label: str, overrides: Mapping[str, Any], selected: list[_SelectedTool]
+) -> dict[str, Any]:
+    resolved: dict[str, Any] = {}
+    for key, value in overrides.items():
+        matches = [tool for tool in selected if key in tool.aliases()]
+        if not matches:
+            allowed = ", ".join(tool.final_name for tool in selected)
+            raise ValueError(
+                f"unknown toolbox {label} key {key!r}; expected one of: {allowed}"
+            )
+        if len(matches) > 1:
+            choices = ", ".join(tool.final_name for tool in matches)
+            raise ValueError(
+                f"ambiguous toolbox {label} key {key!r}; matches: {choices}"
+            )
+        resolved[matches[0].final_name] = value
+    return resolved
+
+
+def _parameter_schema(guidance: Mapping[str, str]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            name: {"description": description}
+            for name, description in guidance.items()
+        },
+        "required": [],
+        "additionalProperties": True,
+    }
+
+
+def _server_description(
+    base: str | None, tool_definitions: list[dict[str, Any]]
+) -> str:
+    lines: list[str] = []
+    if base:
+        lines.append(base)
+    if tool_definitions:
+        lines.append("Local tool guidance:")
+        for item in tool_definitions:
+            func = item["function"]
+            lines.append(f"- {func['name']}: {func['description']}")
+            props = func.get("parameters", {}).get("properties", {})
+            for name, schema in props.items():
+                if schema.get("description"):
+                    lines.append(f"  - {name}: {schema['description']}")
+    return "\n".join(lines)
+
+
+def apply_optimized_toolbox_tools(
+    spec: dict[str, Any], tool_definitions: tuple[dict, ...] | list[dict]
+) -> dict[str, Any]:
+    """Apply optimizer-rewritten toolbox descriptions to a raw MCP spec.
+
+    Matches candidate ``tools.json`` entries by the optimizer sidecar's function
+    names, rewrites only descriptions and parameter-description text, and
+    regenerates ``server_description`` so candidate runs can actually exercise
+    the rewritten wording while preserving the validated server-side MCP runtime.
+    Specs without a toolbox sidecar pass through unchanged.
+    """
+    current = spec.get(OPTIMIZER_TOOL_DEFINITIONS_KEY)
+    if not isinstance(current, list) or not current or not tool_definitions:
+        return spec
+
+    lookup: dict[str, dict] = {}
+    for item in tool_definitions:
+        if not isinstance(item, dict):
+            continue
+        func = item.get("function")
+        if not isinstance(func, dict):
+            func = item if item.get("name") else {}
+        name = func.get("name")
+        if name:
+            lookup[name] = func
+
+    if not lookup:
+        return spec
+
+    changed = False
+    rewritten: list[dict[str, Any]] = []
+    for item in current:
+        if not isinstance(item, dict):
+            rewritten.append(item)
+            continue
+        func = item.get("function")
+        if not isinstance(func, dict):
+            rewritten.append(item)
+            continue
+        optimized = lookup.get(func.get("name"))
+        if optimized is None:
+            rewritten.append(item)
+            continue
+
+        new_func = dict(func)
+        description = optimized.get("description")
+        if description and description != func.get("description"):
+            new_func["description"] = description
+            changed = True
+
+        parameters = _merge_parameter_descriptions(
+            new_func.get("parameters"), optimized.get("parameters")
+        )
+        if parameters is not new_func.get("parameters"):
+            new_func["parameters"] = parameters
+            changed = True
+
+        rewritten.append({**item, "function": new_func})
+
+    if not changed:
+        return spec
+
+    base = spec.get(_SERVER_DESCRIPTION_KEY)
+    if not isinstance(base, str):
+        base = None
+    out = {**spec, OPTIMIZER_TOOL_DEFINITIONS_KEY: rewritten}
+    out["server_description"] = _server_description(base, rewritten)
+    return out
+
+
+def _merge_parameter_descriptions(current: object, optimized: object | None) -> object:
+    if not isinstance(current, dict) or not isinstance(optimized, dict):
+        return current
+    cur_props = current.get("properties")
+    opt_props = optimized.get("properties")
+    if not isinstance(cur_props, dict) or not isinstance(opt_props, dict):
+        return current
+
+    merged_props: dict[str, Any] = {}
+    changed = False
+    for name, schema in cur_props.items():
+        opt_schema = opt_props.get(name)
+        if (
+            isinstance(schema, dict)
+            and isinstance(opt_schema, dict)
+            and opt_schema.get("description")
+            and opt_schema.get("description") != schema.get("description")
+        ):
+            merged_props[name] = {**schema, "description": opt_schema["description"]}
+            changed = True
+        else:
+            merged_props[name] = schema
+
+    if not changed:
+        return current
+    return {**current, "properties": merged_props}
 
 
 async def toolbox_token(scope: str = AI_FOUNDRY_SCOPE) -> str:

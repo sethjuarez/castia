@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .application import Agent
-from .optimization import tools_json
+from .optimization import tools_json, tools_json_names
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ruamel.yaml import YAML
@@ -90,7 +90,7 @@ def generate_optimizer_config(
     candidate: str = DEFAULT_CANDIDATE,
     check: bool = False,
 ) -> OptimizePlan:
-    """Reconcile the baseline ``tools.json`` (+ ``tool_file`` pointer) with ``app``.
+    """Reconcile the baseline ``tools.json`` (+ tool-file pointers) with ``app``.
 
     With ``check=True`` nothing is written; the returned :class:`OptimizePlan`
     reports whether a write *would* change the baseline (a CI drift gate). The
@@ -102,8 +102,8 @@ def generate_optimizer_config(
     metadata_path = baseline / _METADATA_FILE
 
     declared = app.registered_tools()
-    tool_names = [t.name for t in declared]
     desired = tools_json(declared)
+    tool_names = tools_json_names(declared)
     notes: list[str] = []
 
     # --- tools.json drift ------------------------------------------------- #
@@ -119,7 +119,7 @@ def generate_optimizer_config(
                 "optimization is inactive -- the optimizer can only tune the prompt"
             )
 
-    # --- metadata.yaml tool_file pointer ---------------------------------- #
+    # --- metadata.yaml tool-file pointers --------------------------------- #
     metadata_changed = False
     if not metadata_path.exists():
         notes.append(
@@ -133,7 +133,10 @@ def generate_optimizer_config(
             notes.append(f"metadata instruction_file {instr!r} does not exist")
         if not meta.get("model"):
             notes.append("metadata.yaml has no 'model' -- authored baseline model missing")
-        if desired and meta.get("tool_file") != _TOOLS_FILE:
+        if desired and (
+            meta.get("tool_file") != _TOOLS_FILE
+            or meta.get("tools_file") != _TOOLS_FILE
+        ):
             metadata_changed = True
 
     plan = OptimizePlan(
@@ -161,6 +164,10 @@ def generate_optimizer_config(
         yaml = _yaml()
         meta = yaml.load(metadata_path.read_text(encoding="utf-8")) or {}
         meta["tool_file"] = _TOOLS_FILE
+        # Compatibility with azd ai agent optimize, whose Go-side metadata
+        # schema currently uses "tools_file" while the Python optimizer package
+        # uses "tool_file".
+        meta["tools_file"] = _TOOLS_FILE
         with metadata_path.open("w", encoding="utf-8", newline="\n") as handle:
             yaml.dump(meta, handle)
 
