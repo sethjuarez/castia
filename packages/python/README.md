@@ -301,11 +301,16 @@ Foundry. Deployment is still an `azd` handoff: set
 `OPTIMIZATION_CANDIDATE_ID=<candidate-id>`, then deploy the hosted agent with
 your existing `azd` workflow.
 
-For preview-service drift detection, the repo includes
-`.github/workflows/foundry-optimizer-live.yml`. It runs daily (and on manual
-dispatch), submits one billable optimizer candidate against a pre-deployed
+For local functional checks, use `python -m castia observe drift` with an
+explicit project configuration and your local Azure credentials. See
+[the lifecycle guide](LIFECYCLE.md) for coverage, limits, and report handling.
+The CLI does not install a schedule or submit fine-tuning jobs.
+
+The optional `.github/workflows/foundry-optimizer-live.yml` workflow runs on
+manual dispatch only. It submits one billable optimizer candidate against a pre-deployed
 Foundry smoke agent, waits for completion, and applies the best candidate into a
-throwaway runner directory. Configure the `foundry-live` GitHub environment with
+throwaway runner directory. To use this optional workflow, configure the
+`foundry-live` GitHub environment with
 OIDC Azure login secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
 `AZURE_SUBSCRIPTION_ID`) and these variables:
 

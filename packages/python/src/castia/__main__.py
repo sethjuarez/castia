@@ -885,6 +885,20 @@ def main(argv: list[str] | None = None) -> int:
                            help="print the resolved payload and submit nothing")
     ft_submit.set_defaults(func=_cmd_finetune_submit)
 
+    from .finetuning.cli import register_commands as register_finetuning_commands
+
+    register_finetuning_commands(ftsub)
+
+    from .building.cli import register_commands as register_build_commands
+
+    register_build_commands(sub)
+
+    from .lifecycle.cli import register_commands as register_lifecycle_commands
+    from .observe.cli import register_commands as register_observe_commands
+
+    register_lifecycle_commands(sub)
+    register_observe_commands(sub)
+
     args = parser.parse_args(argv)
     return args.func(args)
 

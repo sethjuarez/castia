@@ -169,14 +169,19 @@ The Castia client matches the current azd/live service contract:
 If a live job starts failing, compare the request emitted by
 `optimize run --dry-run` against these facts before changing higher-level code.
 
-## Daily live drift workflow
+## Local drift checks and optional GitHub smoke
 
-The repo includes `.github/workflows/foundry-optimizer-live.yml` as the preview
-service drift canary. It runs daily and on manual dispatch, builds a throwaway
+Use `python -m castia observe drift` for scheduled local checks with local Azure
+credentials. Read `packages/python/LIFECYCLE.md` for the configuration, coverage
+report, and billable-operation controls. Missing prerequisites remain explicit
+coverage gaps. The runner never submits fine-tuning jobs.
+
+The repo includes `.github/workflows/foundry-optimizer-live.yml` as an optional
+manual preview-service smoke. It has no schedule. It builds a throwaway
 eval suite on the runner, submits one billable optimizer candidate, waits for
 completion, and applies the best candidate locally.
 
-Enable it by configuring the `foundry-live` GitHub environment:
+To use the optional GitHub workflow, configure the `foundry-live` environment:
 
 | Name | Type | Purpose |
 |---|---|---|

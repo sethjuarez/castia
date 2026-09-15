@@ -102,8 +102,9 @@ python -m castia optimize cancel            # cancel the latest castia-submitted
 
 `optimize run` uses `FOUNDRY_PROJECT_ENDPOINT` (or `--project-endpoint`) and
 the model/evaluator/dataset declarations in `eval.yaml`. The live wire shape is
-validated against the preview service through the package tests and the daily
-GitHub Actions smoke: `api-version=v1`, `Foundry-Features:
+checked by offline contract tests and live smoke runs. Local checks use
+`python -m castia observe drift`; the GitHub smoke is manual only.
+The pinned wire facts are `api-version=v1`, `Foundry-Features:
 AgentsOptimization=V2Preview`, and a `{"inputs": ...}` submit envelope.
 
 For toolbox/federated MCP tools, use the post-facto guidance overrides on

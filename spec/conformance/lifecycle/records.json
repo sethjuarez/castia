@@ -1,0 +1,136 @@
+{
+  "contract": "castia-local-lifecycle-evidence",
+  "status": "validated-offline",
+  "schema_version": 1,
+  "description": "Castia-owned immutable local evidence, not a Foundry service wire format. No operation submits fine-tuning or implicitly deploys an agent.",
+  "hash": {
+    "algorithm": "SHA-256",
+    "encoding": "UTF-8",
+    "representation": "64 lowercase hexadecimal characters",
+    "record_input": "The normalized record object, including kind and schema_version, excluding the external artifact envelope id.",
+    "canonical_json": {
+      "object_keys": "string keys sorted by Unicode code point",
+      "separators": [",", ":"],
+      "ensure_ascii": false,
+      "allow_nan": false,
+      "trailing_newline": false,
+      "unicode_normalization": "none",
+      "numbers": "Finite JSON integers and floats, preserving integer versus float representation; schema-v1 Python serialization uses json.dumps. This is not a claim of RFC 8785 compliance."
+    },
+    "source_file_input": "Exact source bytes, never source file contents in the snapshot.",
+    "candidate_file_input": "Exact UTF-8 config content; CRLF and LF are distinct. Each file stores its validated sha256.",
+    "example_input": "The canonical JSON object containing exactly one key, input, with the reviewed/redacted input string.",
+    "integrity_limit": "Hashes detect content mismatch, not authorship. A writer able to rewrite the complete store can fabricate evidence; use access controls or external signatures across trust boundaries."
+  },
+  "artifact_envelope_fields": ["id", "record"],
+  "record_fields": {
+    "agent": ["schema_version", "kind", "source_files", "dependencies", "model", "instructions", "tools"],
+    "dataset": ["schema_version", "kind", "examples", "train_ids", "heldout_ids", "seed", "redaction_version"],
+    "run": ["schema_version", "kind", "agent_id", "dataset_id", "evaluator", "split", "expected_ids", "repeats", "results"],
+    "candidate": ["schema_version", "kind", "baseline_id", "agent_id", "files", "agent_snapshot"],
+    "decision": ["schema_version", "kind", "baseline_run_id", "candidate_run_id", "baseline_agent_id", "candidate_agent_id", "accepted", "reasons", "aggregates", "regressions", "gate"]
+  },
+  "nested_fields": {
+    "source_file": ["path", "sha256", "size"],
+    "config_file": ["path", "content", "sha256"],
+    "example": ["input", "reference", "group", "provenance", "reviewers", "reference_origins"],
+    "evaluator": ["name", "version", "configuration"],
+    "evaluation_result": ["example_id", "repetition", "metrics", "error"]
+  },
+  "validation": [
+    "Reject unknown record kinds, unsupported schema versions, unknown fields, duplicate JSON object keys, nonfinite numbers, and mismatched artifact identities.",
+    "Configuration and dependencies are explicit caller inputs, never environment dumps. JSON/YAML/TOML credential keys follow the same rules, including camelCase and quoted keys. Only whole environment/redaction placeholders or empty values are permitted at credential keys. Unsupported config formats fail. YAML parsing is lazy and requires the deploy extra. This is defense in depth, not a general secret detector.",
+    "Candidate embeds its evaluated AgentSnapshot, whose identity must match agent_id. Every staged payload path, exact content SHA-256 and byte size must match that snapshot's source_files. Capture staged config before evaluation; changed or unlisted files fail.",
+    "Paths are normalized relative files without traversal, absolute paths, drive roots, alternate data streams, symlinks, or Windows reserved aliases.",
+    "Artifact writes are immutable, idempotent, atomically published without replacing an existing file, and revalidated on read.",
+    "Collections are deeply immutable in memory; persisted records are normalized before identity calculation."
+  ],
+  "dataset": {
+    "reference_origins": ["human", "authoritative", "deterministic"],
+    "review": "Every trace explicitly approved by a named reviewer before and after a versioned, caller-supplied redaction callback. Reference origin is an attestation, not an independently verified claim. deterministic means independently computed rule/test-fixture gold, not model output; synthetic control-flow evidence does not establish live model quality. Curated examples retain the sorted reference_origins of merged source traces.",
+    "model_output": "Never persisted and cannot be reused as gold, including through the redaction callback.",
+    "deduplication": "Exact reviewed/redacted input identity. Conflicting references fail; provenance and reviewers are merged.",
+    "split": "Both train and heldout are nonempty, disjoint, and cover every unique example. Original and redacted conversation groups, including groups unioned by duplicate inputs, cannot cross splits.",
+    "determinism": "Group ordering is by a SHA-256 rank of seed and group; input ordering does not alter the dataset identity.",
+    "rft_export": "Local JSONL has a final user message plus independently reviewed reference and provenance. Export never submits a job."
+  },
+  "evaluation": {
+    "splits": ["train", "heldout"],
+    "error_codes": [null, "timeout", "callback_error", "invalid_metrics"],
+    "failure_metrics": {},
+    "callback": "Async callback(agent_snapshot, example, zero_based_repetition) returns a finite numeric metric mapping.",
+    "metrics": {
+      "quality": "Higher is better.",
+      "latency_seconds": "Nonnegative; measured callback wall time is used if omitted.",
+      "cost": "Optional, nonnegative caller-supplied cost."
+    },
+    "coverage": "Every expected example/repetition pair is unique; comparison requires full successful coverage on both runs.",
+    "cancellation": "External cancellation propagates and joins all worker tasks. Callbacks must cooperate with asyncio cancellation. A timeout is failed evidence, not proof of remote cancellation: callbacks launching service jobs must cancel/poll only their owned jobs and persist terminal status or cancellation evidence; unresolved cleanup must be reported explicitly.",
+    "exceptions": "Persist safe error codes only, never callback exception messages or raw model output."
+  },
+  "acceptance": {
+    "required_equal": ["dataset_id", "evaluator.id", "split", "expected_ids", "repeats"],
+    "default_gate": {
+      "minimum_quality": 0,
+      "maximum_quality_drop": 0,
+      "maximum_example_regressions": 0,
+      "maximum_latency_seconds": null,
+      "maximum_cost": null,
+      "required_metrics": ["quality"],
+      "require_heldout": true
+    },
+    "decision": "accepted is true exactly when reasons is empty.",
+    "aggregates": ["baseline", "candidate", "delta"],
+    "regressions": "Sorted IDs of examples whose mean quality declined across repeated evaluations.",
+    "fail_closed": "Mismatch, missing/failed coverage, missing required metrics, nonfinite values or deltas, or any gate violation rejects acceptance. Explicit diagnostic gates may disable the default heldout requirement."
+  },
+  "deployment": {
+    "journal_schema_version": 1,
+    "event_envelope_fields": ["id", "event"],
+    "event_fields": ["schema_version", "revision", "previous", "action", "candidate_id", "decision_id", "status", "reconciliation"],
+    "state_fields": ["revision", "known_good", "previous_good", "last_status", "head", "remote_state", "pending_cleanup"],
+    "remote_states": ["uninitialized", "unknown", "verified"],
+    "actions": ["promote", "rollback", "reconcile"],
+    "statuses": ["started", "verified", "failed", "cancelled", "reconciled"],
+    "transitions": [
+      {"status": "started", "advances_known_good": false},
+      {"status": "verified", "advances_known_good": true},
+      {"status": "failed", "advances_known_good": false},
+      {"status": "cancelled", "advances_known_good": false},
+      {"status": "reconciled", "advances_known_good": false}
+    ],
+    "verification": "Only literal boolean true returned by verify(candidate, deploy_receipt) advances known-good. A mapping receipt explicitly reporting failed, failure, error, cancelled, or canceled is rejected before verification. Receipts and exceptions are not persisted.",
+    "promotion": "A candidate must match an accepted decision and extend the current known-good agent when one exists. Promotion is blocked while remote_state is unknown.",
+    "rollback": "After failure/cancellation, first reconcile all possibly outstanding writes and then restore current known-good explicitly. After success restore the preceding verified candidate. Failed rollback does not move either known-good pointer.",
+    "concurrency": "Mandatory expected_revision plus an exclusive lock reject stale or concurrent handoffs. Revisions advance once for start and once for completion.",
+    "recovery": "Any handoff start, failure, or cancellation marks remote_state unknown and pending_cleanup true. No handoff, including rollback, may start while cleanup is pending. reconcile invokes an explicit verifier and records exactly {no_outstanding_writes:true,evidence:<nonempty terminal operation evidence>}; observing the active version alone is insufficient. Reconciliation clears pending_cleanup but does not change known_good or remote_state. Only a later verified handoff restores remote_state verified. azd timeout stops waiting and does not imply cancellation of Azure-side deployment. Stale locks and absence of a verified rollback target require external/manual recovery.",
+    "execution": "Only injected deployment/verification callbacks execute. CLI adapters require local source and --allow-code; promotion/rollback additionally require --execute."
+  },
+  "hash_vectors": [
+    {
+      "value": {"b": [2, 1], "a": "é"},
+      "canonical": "{\"a\":\"é\",\"b\":[2,1]}",
+      "sha256": "265cdd44ca612f13fd2b8e14f6913a5513adf3142e6c82317e55ba51948f43f2"
+    },
+    {
+      "value": {"input": "question-0"},
+      "canonical": "{\"input\":\"question-0\"}",
+      "sha256": "d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"
+    },
+    {
+      "value": {
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [
+          {"path": "agent.py", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "size": 0}
+        ],
+        "dependencies": {"castia": "0.5.0"},
+        "model": {"deployment": "baseline"},
+        "instructions": "Be helpful.",
+        "tools": []
+      },
+      "canonical": "{\"dependencies\":{\"castia\":\"0.5.0\"},\"instructions\":\"Be helpful.\",\"kind\":\"agent\",\"model\":{\"deployment\":\"baseline\"},\"schema_version\":1,\"source_files\":[{\"path\":\"agent.py\",\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0}],\"tools\":[]}",
+      "sha256": "eda40e3a24313859ab842667d8a65db6033ddf24aee9e8a94f7b7205c0fe0fbe"
+    }
+  ]
+}

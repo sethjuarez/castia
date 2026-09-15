@@ -21,6 +21,9 @@ env/
 .mypy_cache/
 .pytype/
 
+# Local lifecycle evidence can contain private execution data
+.castia/
+
 # Environment / secrets
 .env
 .env.*

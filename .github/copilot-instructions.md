@@ -32,9 +32,9 @@ flow.
   methods that need them.
 - Optimizer ownership is split deliberately: castia owns `.agent_configs`,
   toolbox optimizer sidecars, and `python -m castia optimize run/status/cancel/apply`;
-  `azd` remains the deployment rail for hosted agents. The daily
-  `.github/workflows/foundry-optimizer-live.yml` job is the preview-service drift
-  canary and is billable when enabled.
+  `azd` remains the deployment rail for hosted agents. Local drift checks use
+  `python -m castia observe drift`. The optional
+  `.github/workflows/foundry-optimizer-live.yml` job is manual and billable.
 - For detailed optimizer work, use the repo-local skill at
   `.github/skills/castia-optimizer/SKILL.md`; `castia-lifecycle` remains the
   broader build/evaluate/optimize/RFT map.
