@@ -182,13 +182,13 @@ def toolbox_mcp_tool(
     model may call; omit it to expose all.
 
     ``descriptions`` and ``param_guidance`` are local, post-facto guidance for
-    selected federated tools. Keys may be the final model-visible name
-    (``{server_label}___{tool}``), the selected upstream name, or the bare tool
-    name after the final ``___`` segment. The legacy ``{server_label}___{tool}``
-    spelling is accepted as an alias but normalizes back to the selected tool
-    name. Unknown or ambiguous keys raise. Since the builder cannot discover a
-    remote toolbox offline, ``allowed_tools`` is required whenever overrides are
-    supplied.
+    selected federated tools. Keys may be the selected model-visible MCP name
+    or the bare tool name after its final ``___`` segment. ``server_label``
+    identifies the server; it does not prefix the tool's name. The legacy
+    ``{server_label}___{tool}`` spelling is accepted as an alias but normalizes
+    back to the selected tool name. Unknown or ambiguous keys raise. Since the
+    builder cannot discover a remote toolbox offline, ``allowed_tools`` is
+    required whenever overrides are supplied.
     """
     override_defs = _optimizer_tool_definitions(
         server_label=server_label,

@@ -10,14 +10,20 @@ messages, Adaptive Cards, entities, and invoke envelopes.
 This is a **polyglot monorepo**: one framework, multiple language SDKs that all
 implement the same protocols and are verified against a shared conformance spec.
 
+Using the Python package from another agent? Start with the
+[consumer agent guide](packages/python/AGENTS.md). It includes uv installation,
+a complete Responses agent with native MCP tools, offline tests, and the
+approval boundaries for live work. The [Python README](packages/python/README.md)
+and [lifecycle guide](packages/python/LIFECYCLE.md) cover the detailed APIs.
+
 ## Layout
 
 ```
 castia/
 ├─ spec/              # source of truth: protocol contracts + conformance fixtures
-├─ packages/
-│  └─ python/         # the Python SDK (PyPI: castia)  → see packages/python/README.md
-└─ docs/
+└─ packages/
+   └─ python/         # the Python SDK (PyPI: castia)
+      └─ AGENTS.md    # consumer guide for agents using the Python SDK
 ```
 
 | SDK | Path | Registry | Status |

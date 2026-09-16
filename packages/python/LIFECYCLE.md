@@ -1,5 +1,9 @@
 # Build, observe, and improve an agent
 
+For a complete consumer application, start with [AGENTS.md](AGENTS.md).
+It installs the extras, runs a Responses agent with native MCP, and tests the
+same code offline. This guide covers the evidence and operational workflows.
+
 Castia keeps lifecycle work in separate packages. Existing imports such as
 `from castia import Agent, Model, Message` and existing CLI commands still work.
 
@@ -39,6 +43,10 @@ operations. Do not point write tests at real inboxes, conversations, or files.
 Use isolated fixtures with explicit expected effects and cleanup.
 
 ## Run locally
+
+For an application using a published package, follow
+[the consumer setup](AGENTS.md#start-with-the-installed-package). The commands
+below are for contributors testing the SDK source.
 
 From `packages/python`, create the test environment if it is missing.
 

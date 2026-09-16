@@ -1,5 +1,10 @@
 # Trace labels in the Foundry Traces UI
 
+For application setup and content-recording controls, start with the
+[consumer guide](AGENTS.md) and [observability configuration](README.md#observability--evaluation).
+For bounded App Insights queries and verification, use
+[the lifecycle guide](LIFECYCLE.md#inspect-traces-and-run-a-drift-suite).
+
 A working reference for the span badges in the trace tree — **In Process**,
 **HTTP**, **Invoke Agent**, **Chat** — and a warning about one badge that lies.
 Written after a bug bash where we watched the framework/HTTP badges flip on their
