@@ -1,0 +1,62 @@
+---
+title: Castia
+description: A Python SDK for Microsoft Foundry hosted agents.
+template: splash
+hero:
+  title: A Python SDK for Microsoft Foundry hosted agents.
+  tagline: Castia gives Python apps decorators, dependency injection, protocol adapters, tests, evals, optimization, and guarded deployment for Microsoft Foundry hosted agents.
+  image:
+    alt: Castia mark
+    file: ../../../public/assets/castia-mark.svg
+  actions:
+    - text: Add Copilot extras
+      link: copilot-extras/
+      icon: right-arrow
+      variant: primary
+    - text: Install the SDK
+      link: install/
+      icon: document
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Start with the Copilot path
+
+The fastest demo path is a focused scenario repo. Castia stays here as the reusable SDK, specs, prompts, and skills. The scenario repo owns the data, tests, and one clear agent job.
+
+```powershell
+uv add --prerelease=allow "castia[deploy,optimize,test]"
+New-Item -ItemType Directory -Force .github\prompts, .github\skills
+```
+
+<CardGrid>
+  <Card title="Build the agent" icon="seti:python">
+    Use decorators and dependencies to write handlers for Responses, Activity, and Invocations.
+  </Card>
+  <Card title="Prove it locally" icon="setting">
+    Run readiness checks, protocol tests, eval config checks, and a local chat surface when one exists.
+  </Card>
+  <Card title="Ship on purpose" icon="rocket">
+    Use lifecycle records, optimizer baselines, azd handoff, and explicit approval for live work.
+  </Card>
+</CardGrid>
+
+## Docs
+
+<CardGrid>
+  <Card title="Install the SDK" icon="document" href="install/">
+    Add Castia to a Python project and run the first scaffold.
+  </Card>
+  <Card title="Add Copilot extras" icon="puzzle" href="copilot-extras/">
+    Copy prompts and skills that help a fresh Copilot App session build a scenario agent.
+  </Card>
+  <Card title="Framework map" icon="seti:folder" href="framework/">
+    See the protocol, runtime, hosting, messaging, eval, tuning, observe, and delivery pieces.
+  </Card>
+  <Card title="Customize additions" icon="star" href="customize/">
+    Plan the plugin, canvas, skills, and prompts that should install from Copilot App Customize.
+  </Card>
+  <Card title="Color tokens" icon="paintbrush" href="color-tokens/">
+    Use the Castia blue, violet, purple, and pink tokens without drifting back to a red button.
+  </Card>
+</CardGrid>

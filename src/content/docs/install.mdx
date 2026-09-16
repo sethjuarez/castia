@@ -1,0 +1,47 @@
+---
+title: Install Castia
+description: Install Castia and scaffold a Microsoft Foundry hosted agent.
+---
+
+Castia requires Python 3.11 or later. Use the package in the scenario repo, not by editing this monorepo.
+
+## New project
+
+These commands use PowerShell. `$python` keeps every command on the same interpreter after changing directories.
+
+```powershell
+uv venv --python 3.13
+$python = (Resolve-Path .\.venv\Scripts\python.exe).Path
+uv pip install --python $python --prerelease=allow "castia[deploy,optimize,test]"
+$deployment = "<your-model-deployment-name>"
+& $python -m castia build scaffold .\my-agent --name my-agent --model $deployment
+Set-Location .\my-agent
+```
+
+The `deploy` extra supplies YAML tooling. `optimize` includes candidate resolution. `test` installs local test support. Castia does not install Azure CLI or azd.
+
+## Check before live calls
+
+```powershell
+& $python -m castia deploy --app main:app
+& $python -m castia optimize --app main:app
+& $python -m castia build check .
+& $python -m castia build test . --timeout 60
+& $python -m castia eval check --config eval.yaml
+```
+
+`build check` reports missing model and project settings as failures. Offline protocol tests prove local adapter behavior. They do not prove cloud access, model quality, Teams delivery, or Graph authorization.
+
+## Live settings
+
+Use an existing Foundry project and an existing model deployment. The deployment name is the Azure deployment name, not a model family request.
+
+```powershell
+az login --tenant "<your-tenant-id>"
+$env:FOUNDRY_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
+$env:AZURE_AI_MODEL_DEPLOYMENT_NAME = "<your-model-deployment-name>"
+$env:TOOLBOX_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>/toolboxes/<toolbox>/mcp?api-version=v1"
+& $python main.py
+```
+
+Get approval before sending live inference calls, executing tools, deploying, granting permissions, or spending money.

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Castia mark</title>
+  <desc id="desc">A faceted anvil built from two complementary mold halves.</desc>
+  <defs>
+    <clipPath id="mold-outline">
+      <path d="M20 86L94 60H216L232 76V112L208 136H184L176 162L198 184H216V208H88V184H106L128 162L120 136H102C62 136 34 111 20 86Z"/>
+    </clipPath>
+    <linearGradient id="mold-left" x1="28" y1="68" x2="170" y2="214" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#21A6FF"/>
+      <stop offset=".48" stop-color="#3F70FF"/>
+      <stop offset="1" stop-color="#5B4CE2"/>
+    </linearGradient>
+    <linearGradient id="mold-right" x1="232" y1="60" x2="160" y2="218" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F970B5"/>
+      <stop offset=".45" stop-color="#B162EA"/>
+      <stop offset="1" stop-color="#684BE8"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#mold-outline)">
+    <path fill="url(#mold-left)" d="M0 0H170L148 136L170 256H0Z"/>
+    <path fill="url(#mold-right)" d="M184 0H256V256H184L162 136Z"/>
+  </g>
+</svg>

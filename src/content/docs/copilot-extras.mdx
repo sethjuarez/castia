@@ -1,0 +1,41 @@
+---
+title: Castia Copilot extras
+description: Add Castia prompts and skills to a scenario repo.
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+A scenario repo should give Copilot the task, the tests, and the approval boundaries before it starts writing agent code.
+
+## Copy these into the scenario repo
+
+| Path | Why it helps |
+| --- | --- |
+| `.github/prompts/build-castia-agent.prompt.md` | Starts the build from README, tests, data, and repo instructions. |
+| `.github/prompts/test-castia-agent.prompt.md` | Asks for local proof and a short transcript instead of a vague status update. |
+| `.github/skills/castia-lifecycle` | Teaches Copilot the Castia build, test, evaluate, optimize, and deployment boundaries. |
+| `.github/skills/castia-optimizer` | Keeps optimizer work on the Castia rails and separates it from azd deployment. |
+
+```powershell
+New-Item -ItemType Directory -Force .github\prompts, .github\skills
+
+Copy-Item ..\castia\.github\prompts\*.prompt.md .github\prompts\
+Copy-Item ..\castia\.github\skills\castia-lifecycle .github\skills\ -Recurse
+Copy-Item ..\castia\.github\skills\castia-optimizer .github\skills\ -Recurse
+```
+
+Adjust the paths for your checkout. The canvas plugin should install through Customize once the Castia Agent Lab plugin exists. Until then, keep the local tests and prompts canonical.
+
+<CardGrid>
+  <Card title="Build" icon="right-arrow">
+    Run the build prompt after the repo has a specific use case, fixtures, and checks.
+  </Card>
+  <Card title="Use the canvas" icon="puzzle">
+    The Castia canvas should become the local chat and trace surface for the scenario agent.
+  </Card>
+  <Card title="Gate live work" icon="lock">
+    Ask before provisioning, deploying, publishing to Teams, granting permissions, or spending money.
+  </Card>
+</CardGrid>
+
+See [Customize additions](../customize/) for the plugin plan.

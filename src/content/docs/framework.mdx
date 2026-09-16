@@ -1,0 +1,42 @@
+---
+title: Castia framework map
+description: How the Castia Python package is organized.
+---
+
+Application imports stay short. Implementation code lives in capability packages so protocol behavior, local testing, optimization, and delivery do not blur together.
+
+## Shape of an app
+
+```python
+from castia import Agent, Depends, Model, Teams
+
+app = Agent(name="my-agent")
+
+def model() -> Model:
+    return Model()
+
+@app.activity(Teams.direct, Teams.group, Teams.channel_mention)
+async def reply(text: str, model: Model = Depends(model)) -> str:
+    return await model.respond(text)
+
+if __name__ == "__main__":
+    app.run()
+```
+
+## Framework parts
+
+| Package | Implementation |
+| --- | --- |
+| `protocols` | Activity wire models and protocol accessors. |
+| `runtime` | Agent and router composition, dependency injection, turn context, and dispatch. |
+| `hosting` | HTTP endpoints, local run policy, credentials, and agentic identity. |
+| `messaging` | Teams surfaces, Activity routing, replies, cards, entities, invoke helpers, streaming, and connector support. |
+| `inference` | Model calls and executable tool definitions. |
+| `integrations` | Foundry toolbox adapters and Graph operations. |
+| `building` | Scaffolding, readiness checks, and offline protocol testing. |
+| `evaluation` | Evaluation suite configuration, rubric validation, and azd evaluation commands. |
+| `observe` | Telemetry, tracing, execution records, queries, and drift checks. |
+| `optimizing` | Candidate configuration, baseline generation, and optimizer jobs. |
+| `finetuning` | RFT preparation, submission, and existing job management. |
+| `lifecycle` | Snapshots, datasets, evidence, acceptance, and promotion records. |
+| `delivery` | Manifest generation and guarded azd deployment. |

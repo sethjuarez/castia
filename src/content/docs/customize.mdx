@@ -1,0 +1,57 @@
+---
+title: Castia Customize additions
+description: Plan for Castia Copilot App Customize additions.
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+The docs site should point to a Copilot plugin. The plugin should carry the Castia canvas, skills, prompts, and repo setup guidance.
+
+<CardGrid>
+  <Card title="Agent Lab canvas" icon="puzzle">
+    Local chat, traces, tool calls, readiness checks, and validation output for a scenario agent.
+  </Card>
+  <Card title="Skills and prompts" icon="star">
+    Ship the lifecycle and optimizer skills with build and test prompts for a fresh session.
+  </Card>
+  <Card title="Scenario setup" icon="document">
+    Give the target repo templates for instructions, model policy, tests, and live work gates.
+  </Card>
+</CardGrid>
+
+## Website install path
+
+```text
+1. Install the Castia Copilot plugin from Customize.
+2. Copy scenario starter files into the target repo.
+3. Open the target repo in Copilot App.
+4. Run the build prompt.
+5. Try the local agent in the Castia Agent Lab canvas.
+6. Deploy only after local proof looks good.
+```
+
+The website should not provision Azure resources or grant permissions. It should explain the install and send the user to Customize.
+
+## Plugin shape
+
+```text
+plugins/castia-agent-lab/
+|-- plugin.json
+|-- extensions/
+|   `-- castia-agent-lab/
+|       `-- extension.mjs
+|-- skills/
+|   |-- castia-lifecycle/
+|   `-- castia-optimizer/
+`-- prompts/
+    |-- build-castia-agent.prompt.md
+    `-- test-castia-agent.prompt.md
+```
+
+The extension should open a local browser surface that talks to a scenario agent endpoint. The first version can require the user or Copilot to start the local agent. A later version can discover common Castia scaffold paths and start the process when the repo allows it.
+
+## Canvas scope
+
+| Show | Gate |
+| --- | --- |
+| Agent endpoint, health, prompts, responses, tool calls, tests, eval results, and deployment readiness. | Azure provisioning, deployment, Teams publishing, permissions, and spend. |
