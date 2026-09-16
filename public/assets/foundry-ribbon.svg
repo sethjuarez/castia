@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="640" viewBox="0 0 900 640" role="img" aria-labelledby="title desc">
+  <title id="title">Foundry inspired color field</title>
+  <desc id="desc">Abstract blue, violet, and magenta ribbons for the Castia website.</desc>
+  <defs>
+    <linearGradient id="ribbon-a" x1="96" y1="44" x2="760" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20A6FF"/>
+      <stop offset=".48" stop-color="#6255EA"/>
+      <stop offset="1" stop-color="#F36FB4"/>
+    </linearGradient>
+    <linearGradient id="ribbon-b" x1="160" y1="560" x2="812" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#136EF6"/>
+      <stop offset=".56" stop-color="#824FE9"/>
+      <stop offset="1" stop-color="#FF79A8"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+  </defs>
+  <path fill="url(#ribbon-a)" opacity=".92" d="M86 398C170 208 316 111 524 108C647 106 744 58 815 0H900V640H673C609 562 526 522 424 520C269 517 157 476 86 398Z"/>
+  <path fill="url(#ribbon-b)" opacity=".74" d="M0 640V496C76 437 161 405 255 400C374 394 450 342 486 245C535 113 634 36 784 14C820 9 859 4 900 0V236C844 326 760 381 648 400C546 418 468 456 414 516C354 583 281 624 196 640H0Z"/>
+  <circle cx="672" cy="186" r="146" fill="#FFFFFF" opacity=".18" filter="url(#soft)"/>
+  <circle cx="358" cy="448" r="112" fill="#FFFFFF" opacity=".14" filter="url(#soft)"/>
+</svg>

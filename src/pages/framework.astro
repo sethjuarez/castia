@@ -1,0 +1,75 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+
+const packages = [
+  ["protocols", "Activity wire models and protocol accessors."],
+  ["runtime", "Agent and router composition, dependency injection, turn context, and dispatch."],
+  ["hosting", "HTTP endpoints, local run policy, credentials, and agentic identity."],
+  ["messaging", "Teams surfaces, Activity routing, replies, cards, entities, invoke helpers, streaming, and connector support."],
+  ["inference", "Model calls and executable tool definitions."],
+  ["integrations", "Foundry toolbox adapters and Graph operations."],
+  ["building", "Scaffolding, readiness checks, and offline protocol testing."],
+  ["evaluation", "Evaluation suite configuration, rubric validation, and azd evaluation commands."],
+  ["observe", "Telemetry, tracing, execution records, queries, and drift checks."],
+  ["optimizing", "Candidate configuration, baseline generation, and optimizer jobs."],
+  ["finetuning", "RFT preparation, submission, and existing job management."],
+  ["lifecycle", "Snapshots, datasets, evidence, acceptance, and promotion records."],
+  ["delivery", "Manifest generation and guarded azd deployment."],
+];
+---
+<BaseLayout title="Castia framework map" description="How Castia is organized.">
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Framework</p>
+        <h1>One package. Three protocols. Clear rails.</h1>
+        <p class="lede">
+          Application imports stay short. Implementation code lives in capability packages so protocol behavior, local testing, optimization, and delivery do not blur together.
+        </p>
+      </div>
+      <div class="hero-visual">
+        <img class="visual-field" src={`${base}assets/foundry-ribbon.svg`} alt="" width="900" height="640" />
+        <img class="mark" src={`${base}assets/castia-mark.svg`} alt="Castia split mold anvil mark" width="340" height="340" />
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="quickstart-title">
+      <h2 id="quickstart-title">Shape of an app</h2>
+      <div class="prompt-panel">
+        <div class="prompt-title">
+          <span>main.py</span>
+          <span>minimal</span>
+        </div>
+        <pre><code>from castia import Agent, Depends, Model, Teams
+
+app = Agent(name="my-agent")
+
+def model() -> Model:
+    return Model()
+
+@app.activity(Teams.direct, Teams.group, Teams.channel_mention)
+async def reply(text: str, model: Model = Depends(model)) -> str:
+    return await model.respond(text)
+
+if __name__ == "__main__":
+    app.run()</code></pre>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="packages-title">
+      <h2 id="packages-title">Framework parts</h2>
+      <div class="grid">
+        {packages.map(([name, description]) => (
+          <article class="card color-card">
+            <h3><code>{name}</code></h3>
+            <p>{description}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  </main>
+</BaseLayout>

@@ -1,0 +1,60 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+<BaseLayout title="Install Castia" description="Install Castia and scaffold a Foundry hosted agent.">
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Install</p>
+        <h1>Add Castia to a Python agent project.</h1>
+        <p class="lede">
+          Castia requires Python 3.11 or later. Use the package in the scenario repo, not by editing this monorepo.
+        </p>
+      </div>
+      <div class="hero-visual">
+        <img class="visual-field" src={`${base}assets/foundry-ribbon.svg`} alt="" width="900" height="640" />
+        <img class="mark" src={`${base}assets/castia-mark.svg`} alt="Castia split mold anvil mark" width="340" height="340" />
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="prompt-panel">
+        <div class="prompt-title">
+          <span>PowerShell</span>
+          <span>new project</span>
+        </div>
+        <pre><code>uv venv --python 3.13
+$python = (Resolve-Path .\.venv\Scripts\python.exe).Path
+uv pip install --python $python --prerelease=allow "castia[deploy,optimize,test]"
+$deployment = "&lt;your-model-deployment-name&gt;"
+& $python -m castia build scaffold .\my-agent --name my-agent --model $deployment
+Set-Location .\my-agent</code></pre>
+      </div>
+      <p class="note">
+        <code>deploy</code> adds YAML tooling. <code>optimize</code> adds candidate resolution. <code>test</code> adds local test support. Castia does not install Azure CLI or azd.
+      </p>
+    </section>
+
+    <section class="grid" aria-label="Install checks">
+      <article class="card color-card">
+        <span class="number">1</span>
+        <h3>Scaffold</h3>
+        <p>Create the local app files and baseline config. No cloud resources are created.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">2</span>
+        <h3>Check</h3>
+        <p>Run <code>castia build check</code> and protocol tests before making live calls.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">3</span>
+        <h3>Configure</h3>
+        <p>Set the Foundry project endpoint and model deployment name in the process that runs the agent.</p>
+      </article>
+    </section>
+  </main>
+</BaseLayout>

@@ -1,5 +1,7 @@
 # castia
 
+![Castia mark](docs/assets/castia-mark.svg)
+
 Idiomatic SDKs for [Microsoft Foundry](https://ai.azure.com) hosted agents.
 
 `castia` lets a hosted agent speak Foundry's three wire protocols — Activity
@@ -15,6 +17,10 @@ Using the Python package from another agent? Start with the
 a complete Responses agent with native MCP tools, offline tests, and the
 approval boundaries for live work. The [Python README](packages/python/README.md)
 and [lifecycle guide](packages/python/LIFECYCLE.md) cover the detailed APIs.
+
+For Copilot App setup, see the [scenario repo starter](docs/copilot-app.md).
+The scenario repo is where a specific demo should live; this repo keeps the
+reusable SDK, specs, and Copilot extras.
 
 ## Layout
 

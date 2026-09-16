@@ -1,0 +1,100 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+<BaseLayout title="Castia Copilot extras" description="Add Castia prompts and skills to a scenario repo.">
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Copilot extras</p>
+        <h1>Make a fresh session useful.</h1>
+        <p class="lede">
+          A scenario repo should give Copilot the task, the tests, and the approval boundaries before it starts writing agent code.
+        </p>
+        <div class="pill-row" aria-label="Extras">
+          <span class="pill">Prompts</span>
+          <span class="pill">Skills</span>
+          <span class="pill">Canvas lab</span>
+          <span class="pill">Scenario tests</span>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <img class="visual-field" src={`${base}assets/foundry-ribbon.svg`} alt="" width="900" height="640" />
+        <img class="mark" src={`${base}assets/castia-mark.svg`} alt="Castia split mold anvil mark" width="340" height="340" />
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="copy-title">
+      <h2 id="copy-title">Copy these into the scenario repo</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Why it helps</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>.github/prompts/build-castia-agent.prompt.md</code></td>
+              <td>Starts the build from README, tests, data, and repo instructions.</td>
+            </tr>
+            <tr>
+              <td><code>.github/prompts/test-castia-agent.prompt.md</code></td>
+              <td>Asks for local proof and a short transcript instead of a vague status update.</td>
+            </tr>
+            <tr>
+              <td><code>.github/skills/castia-lifecycle</code></td>
+              <td>Teaches Copilot the Castia build, test, evaluate, optimize, and deployment boundaries.</td>
+            </tr>
+            <tr>
+              <td><code>.github/skills/castia-optimizer</code></td>
+              <td>Keeps optimizer work on the Castia rails and separates it from azd deployment.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="prompt-panel">
+        <div class="prompt-title">
+          <span>scenario repo</span>
+          <span>PowerShell</span>
+        </div>
+        <pre><code>New-Item -ItemType Directory -Force .github\prompts, .github\skills
+
+Copy-Item ..\castia\.github\prompts\*.prompt.md .github\prompts\
+Copy-Item ..\castia\.github\skills\castia-lifecycle .github\skills\ -Recurse
+Copy-Item ..\castia\.github\skills\castia-optimizer .github\skills\ -Recurse</code></pre>
+      </div>
+      <p class="note">
+        Adjust the paths for your checkout. The canvas plugin should install through Customize once the Castia Agent Lab plugin exists. Until then, keep the local tests and prompts canonical.
+      </p>
+      <div class="actions">
+        <a class="button" href={`${base}customize/`}>Read the Customize plan</a>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="Fresh session workflow">
+      <article class="card color-card">
+        <span class="number">1</span>
+        <h3>Build</h3>
+        <p>Run the build prompt after the repo has a specific use case, fixtures, and checks.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">2</span>
+        <h3>Use the canvas</h3>
+        <p>The Castia canvas should become the local chat and trace surface for the scenario agent.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">3</span>
+        <h3>Gate live work</h3>
+        <p>Ask before provisioning, deploying, publishing to Teams, granting permissions, or spending money.</p>
+      </article>
+    </section>
+  </main>
+</BaseLayout>

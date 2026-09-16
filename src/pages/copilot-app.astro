@@ -1,0 +1,110 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+<BaseLayout
+  title="Copilot App starter for Castia scenarios"
+  description="Set up a scenario repo so a fresh Copilot App session can build a Castia agent."
+>
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Copilot App</p>
+        <h1>Give the agent a clean room.</h1>
+        <p class="lede">
+          The demo belongs in another repository with a specific use case and the data to test it. This repo keeps the reusable package and Copilot extras.
+        </p>
+        <div class="pill-row" aria-label="Scenario repo needs">
+          <span class="pill">Scenario repo</span>
+          <span class="pill">Local proof</span>
+          <span class="pill">Canvas test</span>
+          <span class="pill">Deploy later</span>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <img class="visual-field" src={`${base}assets/foundry-ribbon.svg`} alt="" width="900" height="640" />
+        <img class="mark" src={`${base}assets/castia-mark.svg`} alt="Castia split mold anvil mark" width="340" height="340" />
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="files-title">
+      <h2 id="files-title">Scenario repo files</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>.github/copilot-instructions.md</code></td>
+              <td>Durable repo rules, including model, cloud, and approval boundaries.</td>
+            </tr>
+            <tr>
+              <td><code>.github/prompts/build-castia-agent.prompt.md</code></td>
+              <td>A one click prompt for building the first agent.</td>
+            </tr>
+            <tr>
+              <td><code>.github/prompts/test-castia-agent.prompt.md</code></td>
+              <td>A one click prompt for trying the local agent and reporting evidence.</td>
+            </tr>
+            <tr>
+              <td><code>README.md</code></td>
+              <td>The human story, quickstart, and expected demo path.</td>
+            </tr>
+            <tr>
+              <td><code>tests/</code> or <code>evals/</code></td>
+              <td>The proof that the agent works for the chosen use case.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="Scenario repo contract">
+      <article class="card color-card">
+        <span class="number">1</span>
+        <h3>Start local</h3>
+        <p>Build or update the local agent. Run the smallest test or eval that proves the scenario.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">2</span>
+        <h3>Try the surface</h3>
+        <p>Use the Castia canvas when it exists. Keep one short transcript as evidence.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">3</span>
+        <h3>Ask for cloud work</h3>
+        <p>Provisioning, deployment, permissions, Teams publishing, and spend need approval in the session.</p>
+      </article>
+    </section>
+
+    <section class="section" aria-labelledby="prompt-title">
+      <div class="split">
+        <div>
+          <h2 id="prompt-title">Starter prompt</h2>
+          <p>
+            Keep <code>.github/prompts/build-castia-agent.prompt.md</code> canonical. The docs should point to the prompt Copilot actually runs.
+          </p>
+        </div>
+        <div class="prompt-panel">
+          <div class="prompt-title">
+            <span>.github/prompts/build-castia-agent.prompt.md</span>
+            <span>starter</span>
+          </div>
+          <pre><code>Build the smallest useful Castia agent for this repository.
+
+Read the repo instructions, README, tests, and sample data first.
+Keep cloud work gated.
+
+Report files changed, local command, test output, and blocked details.</code></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

@@ -10,6 +10,10 @@ dist/
 *.egg
 .eggs/
 
+# Node / docs site
+node_modules/
+.astro/
+
 # Virtual environments
 .venv/
 .wheel-venv/

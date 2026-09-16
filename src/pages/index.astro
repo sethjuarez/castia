@@ -1,0 +1,102 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+<BaseLayout
+  title="Castia"
+  description="Castia helps coding agents build, test, and ship Microsoft Foundry hosted agents."
+>
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Docs</p>
+        <h1>Build Foundry hosted agents with less ceremony.</h1>
+        <p class="lede">
+          Castia gives Python apps decorators, dependency injection, protocol adapters, tests, evals, optimization, and guarded deployment for Microsoft Foundry hosted agents.
+        </p>
+        <div class="pill-row" aria-label="Castia focus areas">
+          <span class="pill">Responses</span>
+          <span class="pill">Activity</span>
+          <span class="pill">Invocations</span>
+          <span class="pill">Copilot App ready</span>
+        </div>
+        <div class="actions">
+          <a class="button primary" href={`${base}copilot-extras/`}>Add Copilot extras</a>
+          <a class="button" href={`${base}install/`}>Install the SDK</a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <img class="visual-field" src={`${base}assets/foundry-ribbon.svg`} alt="" width="900" height="640" />
+        <img class="mark" src={`${base}assets/castia-mark.svg`} alt="Castia split mold anvil mark" width="340" height="340" />
+      </div>
+    </section>
+
+    <section class="hero-card card" aria-labelledby="quick-title">
+      <div class="prompt-panel">
+        <div class="prompt-title">
+          <span>scenario repo</span>
+          <span>copy first</span>
+        </div>
+        <pre><code>uv add --prerelease=allow "castia[deploy,optimize,test]"
+
+New-Item -ItemType Directory -Force .github\prompts, .github\skills
+
+# copy the Castia prompts and skills into the repo
+# then start with build-castia-agent.prompt.md</code></pre>
+      </div>
+      <div>
+        <p class="eyebrow">Start here</p>
+        <h2 id="quick-title">Give Copilot the package, the prompts, and the boundaries.</h2>
+        <p>
+          The fastest demo path is not this repo. Use Castia from a focused scenario repo with data, tests, and one clear agent job.
+        </p>
+        <div class="actions">
+          <a class="button" href={`${base}copilot-extras/`}>Read the setup</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="Castia workflow">
+      <article class="card color-card">
+        <span class="number">1</span>
+        <h3>Build the agent</h3>
+        <p>Use decorators and dependencies to write handlers for Responses, Activity, and Invocations.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">2</span>
+        <h3>Prove it locally</h3>
+        <p>Run readiness checks, protocol tests, eval config checks, and a local chat surface when one exists.</p>
+      </article>
+      <article class="card color-card">
+        <span class="number">3</span>
+        <h3>Ship on purpose</h3>
+        <p>Use lifecycle records, optimizer baselines, azd handoff, and explicit approval for live work.</p>
+      </article>
+    </section>
+
+    <section class="section" aria-labelledby="docs-title">
+      <h2 id="docs-title">Docs</h2>
+      <div class="doc-list">
+        <a class="doc-link" href={`${base}install/`}>
+          <strong>Install the SDK</strong>
+          <span>Add Castia to a Python project and run the first scaffold.</span>
+        </a>
+        <a class="doc-link" href={`${base}copilot-extras/`}>
+          <strong>Add Copilot extras</strong>
+          <span>Copy the prompts and skills that help a fresh Copilot App session build a scenario agent.</span>
+        </a>
+        <a class="doc-link" href={`${base}framework/`}>
+          <strong>Framework map</strong>
+          <span>See the protocol, runtime, hosting, messaging, eval, optimize, observe, and delivery pieces.</span>
+        </a>
+        <a class="doc-link" href={`${base}customize/`}>
+          <strong>Customize additions</strong>
+          <span>Plan the plugin, canvas, skills, and prompts that should install from Copilot App Customize.</span>
+        </a>
+      </div>
+    </section>
+  </main>
+</BaseLayout>
