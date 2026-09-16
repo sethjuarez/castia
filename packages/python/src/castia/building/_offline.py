@@ -69,7 +69,8 @@ def offline_scope(*, exclusive: bool = True) -> Iterator[ExitStack]:
             import httpx
             from opentelemetry import trace
 
-            from .. import dispatch, observability
+            from castia.observe import configuration as observability
+            from castia.runtime import dispatch
 
             # Import dispatch before patching the functions it binds by name.
             # Otherwise its initial import would retain a no-op after scope exit.

@@ -19,10 +19,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .live import Limits, LiveConfig, live_probes
-from .records import ExecutionRecord, summarize
-from .suite import FEATURE_CATALOG, FunctionalSuite, compare_reports, run_suite
-from .telemetry import (
+from castia.observe.live import Limits, LiveConfig, live_probes
+from castia.observe.records import ExecutionRecord, summarize
+from castia.observe.suite import (
+    FEATURE_CATALOG,
+    FunctionalSuite,
+    compare_reports,
+    run_suite,
+)
+from castia.observe.telemetry import (
     AppInsightsClient,
     ObserveError,
     TraceQuery,

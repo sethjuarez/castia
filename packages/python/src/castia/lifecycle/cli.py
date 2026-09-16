@@ -30,7 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
-from .operations import (
+from castia.lifecycle.operations import (
     AcceptanceGate,
     ReviewedTrace,
     compare_runs,
@@ -40,7 +40,7 @@ from .operations import (
     evaluate,
     stage_candidate,
 )
-from .records import (
+from castia.lifecycle.records import (
     AgentSnapshot,
     Candidate,
     DatasetSnapshot,
@@ -52,7 +52,7 @@ from .records import (
     canonical_json,
     plain,
 )
-from .storage import ArtifactStore, DeploymentJournal
+from castia.lifecycle.storage import ArtifactStore, DeploymentJournal
 
 _T = TypeVar("_T", AgentSnapshot, Candidate, DatasetSnapshot, Decision, Run)
 _ADAPTER = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", re.ASCII)

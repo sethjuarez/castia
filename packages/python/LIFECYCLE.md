@@ -6,13 +6,18 @@ Castia keeps lifecycle work in separate packages. Existing imports such as
 | Package | Owns |
 | --- | --- |
 | `castia.building` | Project generation, readiness checks, and local protocol tests |
-| `castia.observe` | Execution records, App Insights queries, functional checks, and reports |
+| `castia.evaluation` | Evaluation-suite configuration, rubrics, and azd evaluation commands |
+| `castia.observe` | Telemetry configuration, tracing, execution records, App Insights queries, functional checks, and reports |
+| `castia.optimizing` | Candidate configuration, baseline generation, and optimizer jobs |
 | `castia.lifecycle` | Snapshots, datasets, evaluations, candidate evidence, and promotion records |
-| `castia.delivery` | Explicit deployment of a named service through azd |
-| `castia.finetuning` | Inspection and management of existing training jobs |
+| `castia.delivery` | Manifest generation and explicit deployment of a named service through azd |
+| `castia.finetuning` | RFT preparation/submission and inspection of existing training jobs |
 
-The runtime does not import these packages when you import `castia`.
-Azure and OpenAI clients are created only by operations that need them.
+Runtime helpers load without initializing lifecycle tooling or cloud clients.
+Azure and OpenAI clients are created only by operations that need them. The
+[package map](README.md#package-organization) also covers protocols, runtime,
+hosting, messaging, inference, and integrations. Old flat module imports remain
+compatibility paths.
 
 ## What a passing check means
 
@@ -300,11 +305,13 @@ reconciliation before the journal can be opened for another write.
 
 ## Fine-tuning stays explicit
 
-The existing `castia.finetune` module builds graders and datasets and exposes the
-explicit submission command. Its RFT submission contract remains provisional
-until a real training job validates it.
+`castia.finetuning.rft` builds graders and datasets and supports the explicit
+submission command. The old `castia.finetune` import remains an alias.
+Its RFT submission contract remains provisional until a real training job
+validates it.
 
-`castia.finetuning` manages existing jobs. It has no training submission method.
+`FineTuningClient`, exported by `castia.finetuning`, manages existing jobs.
+That client has no training submission method.
 
 ```powershell
 python -m castia finetune list --project-endpoint $env:FOUNDRY_PROJECT_ENDPOINT

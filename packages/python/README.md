@@ -20,6 +20,43 @@ uv add castia
 
 Requires Python 3.11+.
 
+## Package organization
+
+Application imports stay short (`from castia import Agent, Model, Message`).
+Implementation code lives in capability packages under `src/castia`.
+
+| Package | Implementation |
+| --- | --- |
+| `protocols` | Activity wire models and accessors |
+| `runtime` | Agent/router composition, dependency injection, turn context, dispatch |
+| `hosting` | HTTP endpoints, local-run policy, credentials, agentic identity |
+| `messaging` | Activity routing, Teams surfaces, replies, cards, entities, invoke helpers, streaming, connector |
+| `inference` | Model calls and executable tool definitions |
+| `integrations` | Foundry toolbox adapters and Graph operations under `integrations.graph` |
+| `building` | Scaffolding, readiness checks, offline protocol testing |
+| `evaluation` | Evaluation-suite configuration, rubric validation, azd evaluation commands |
+| `observe` | Telemetry configuration and tracing, execution records, queries, drift checks |
+| `optimizing` | Candidate configuration, baseline generation, optimizer jobs |
+| `finetuning` | RFT preparation/submission and existing-job management |
+| `lifecycle` | Snapshots, datasets, evaluation evidence, acceptance and promotion records |
+| `delivery` | Manifest generation and guarded azd deployment |
+
+Each command family keeps its CLI handlers beside its implementation.
+`__main__.py` composes those commands.
+
+The old flat module names remain compatibility modules. For example,
+`castia.model` resolves to the same module as `castia.inference.model`, and
+`castia.optimizer` resolves to `castia.optimizing.jobs`. Existing imports and
+patch targets keep working. New implementation code imports the capability
+modules directly; the compatibility modules contain no business logic.
+
+Shared protocol definitions and behavioral fixtures belong in
+[`../../spec`](../../spec). These Python modules are handwritten today.
+The layout gives a future Typra integration places to attach generated types
+without making Python classes the specification for every runtime. Generated
+types alone will not establish parity; implementations also need to pass the
+same behavioral fixtures.
+
 ## Quickstart
 
 ```python
@@ -180,7 +217,7 @@ when content recording is enabled. Turn it on deliberately via
 `configure_observability`:
 
 ```python
-from castia.observability import configure_observability
+from castia.observe.configuration import configure_observability
 
 # Records prompt/response text onto GenAI spans so traces can be evaluated.
 configure_observability(enable_content_recording=True)

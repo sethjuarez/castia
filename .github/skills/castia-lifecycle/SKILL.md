@@ -178,7 +178,7 @@ python -m castia finetune submit --model o4-mini --dataset train.jsonl \
 > names, and that `fine_tuning.jobs.create` accepts the built payload are
 > **doc-derived** (Foundry RFT how-to) and **not yet confirmed against a live RFT
 > job**. The *offline* surface (builders + validators + CLI gates) is tested; the
-> wire acceptance is not. `castia.finetune`'s docstrings and
+> wire acceptance is not. `castia.finetuning.rft`'s docstrings and
 > `spec/conformance/graders/` carry `status: "provisional"`. Treat
 > `build_rft_job`/`submit_rft_job` output as provisional until a real submission
 > validates it, then flip the fixture to `"validated"` and drop the caveats.

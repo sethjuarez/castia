@@ -28,6 +28,15 @@ castia/
 Each SDK owns its native toolchain, lockfile, and release cadence. Versions and
 release tags are **per language** (e.g. `python-v0.1.0`), not repo-wide.
 
+Within the Python SDK, implementation code is grouped by capability, from
+protocols and hosting through evaluation and delivery. The
+[package map](packages/python/README.md#package-organization) lists the owners.
+Existing application imports remain compatible.
+
+The [spec guide](spec/README.md) separates shared data and behavior from runtime
+adapters. Typra generation is future work; the current Python implementation is
+handwritten, and Rust remains planned.
+
 ## Contributing
 
 Work inside the package you're changing (`packages/<lang>`). Cross-language

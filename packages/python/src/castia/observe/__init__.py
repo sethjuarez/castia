@@ -29,26 +29,36 @@ cancellation request, and never applies a candidate or deploys anything.
 Fine-tuning probes can only validate inputs or consume an existing deployment.
 """
 
-from .live import Limits, LiveConfig, LiveProbes, RestAdapter, live_probes
-from .probes import telemetry_probes
-from .records import ExecutionRecord, normalize_record, summarize
-from .suite import (
-    FEATURE_CATALOG,
-    Feature,
-    FeatureResult,
-    FunctionalSuite,
-    ProbeResult,
-    SuiteReport,
-    compare_reports,
-    run_suite,
-)
-from .telemetry import (
-    AppInsightsClient,
-    ObserveError,
-    TraceQuery,
-    VerificationResult,
-    verify_probe,
-)
+from importlib import import_module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from castia.observe.live import (
+        Limits,
+        LiveConfig,
+        LiveProbes,
+        RestAdapter,
+        live_probes,
+    )
+    from castia.observe.probes import telemetry_probes
+    from castia.observe.records import ExecutionRecord, normalize_record, summarize
+    from castia.observe.suite import (
+        FEATURE_CATALOG,
+        Feature,
+        FeatureResult,
+        FunctionalSuite,
+        ProbeResult,
+        SuiteReport,
+        compare_reports,
+        run_suite,
+    )
+    from castia.observe.telemetry import (
+        AppInsightsClient,
+        ObserveError,
+        TraceQuery,
+        VerificationResult,
+        verify_probe,
+    )
 
 __all__ = [
     "FEATURE_CATALOG",
@@ -74,3 +84,29 @@ __all__ = [
     "telemetry_probes",
     "verify_probe",
 ]
+
+_EXPORT_MODULES = {
+    **dict.fromkeys(("Limits", "LiveConfig", "LiveProbes", "RestAdapter", "live_probes"), "live"),
+    "telemetry_probes": "probes",
+    **dict.fromkeys(("ExecutionRecord", "normalize_record", "summarize"), "records"),
+    **dict.fromkeys((
+        "FEATURE_CATALOG", "Feature", "FeatureResult", "FunctionalSuite",
+        "ProbeResult", "SuiteReport", "compare_reports", "run_suite",
+    ), "suite"),
+    **dict.fromkeys((
+        "AppInsightsClient", "ObserveError", "TraceQuery", "VerificationResult", "verify_probe",
+    ), "telemetry"),
+}
+
+
+def __getattr__(name: str):
+    # Runtime tracing must not load the offline suite or live service clients.
+    if name not in _EXPORT_MODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(f"{__name__}.{_EXPORT_MODULES[name]}"), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .telemetry import classify_exception
+from castia.observe.telemetry import classify_exception
 
 STATUSES = frozenset({"pass", "fail", "blocked", "uncovered"})
 

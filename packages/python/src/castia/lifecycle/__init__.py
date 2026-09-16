@@ -18,7 +18,7 @@ Deployments happen only through explicitly supplied handoff callbacks. No import
 or operation here submits an optimizer, evaluation-service, or fine-tuning job.
 """
 
-from .operations import (
+from castia.lifecycle.operations import (
     AcceptanceGate,
     EvaluationCallback,
     ReviewedTrace,
@@ -30,7 +30,7 @@ from .operations import (
     evaluate,
     stage_candidate,
 )
-from .records import (
+from castia.lifecycle.records import (
     REFERENCE_ORIGINS,
     SCHEMA_VERSION,
     AgentSnapshot,
@@ -49,7 +49,7 @@ from .records import (
     content_hash,
     record_from_dict,
 )
-from .storage import (
+from castia.lifecycle.storage import (
     ArtifactStore,
     ConflictError,
     DeployCallback,

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from .scaffold import _no_links
+from castia.building.scaffold import _no_links
 
 
 @dataclass(frozen=True)

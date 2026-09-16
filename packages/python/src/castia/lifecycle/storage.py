@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .records import (
+from castia.lifecycle.records import (
     Candidate,
     Decision,
     Evidence,

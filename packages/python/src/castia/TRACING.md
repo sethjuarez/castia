@@ -11,7 +11,7 @@ non-deterministic query in the Foundry Traces portal.
 Two different things feed the badges, and only one of them is under our control.
 
 **1. Our own operation spans — stable, ours to set.** The spans we create in
-`tracing.py` (`invoke_agent`, `execute_tool`) carry `gen_ai.operation.name`, a
+`observe/tracing.py` (`invoke_agent`, `execute_tool`) carry `gen_ai.operation.name`, a
 fixed vocabulary the portal recognises: `invoke_agent` → Invoke Agent, `chat` →
 Chat, `execute_tool` → Execute Tool. We set these explicitly, at span creation,
 on spans we own. They render correctly and do not flicker.
@@ -37,7 +37,7 @@ for these spans every time, hours or days later.
 
 ## The one rule: stamp identity, restyle nothing
 
-`_AgentIdentitySpanProcessor.on_start` (in `observability.py`) runs on **every**
+`_AgentIdentitySpanProcessor.on_start` (in `observe/configuration.py`) runs on **every**
 span on the provider. Its only job is to stamp the agent-identity attributes the
 Foundry portal needs to associate the run with the agent:
 
@@ -48,7 +48,7 @@ Those keys are neutral — none is a mapping attribute the exporter keys off, so
 they do not change any span's exported `type`. Keep it that way. **Do not** stamp
 classification-affecting attributes (`gen_ai.operation.name`, `gen_ai.system`,
 `http.*`) onto framework or client spans from a blanket processor; set operation
-names only on spans we own, at creation, in `tracing.py`.
+names only on spans we own, at creation, in `observe/tracing.py`.
 
 This rule is about keeping the underlying App Insights `type` clean. It is good
 hygiene, but note it is **not** what makes the framework badge flicker — see next.

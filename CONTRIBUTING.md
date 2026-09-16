@@ -1,5 +1,28 @@
 # Contributing to castia
 
+## Where code belongs
+
+Use the Python [capability packages](packages/python/README.md#package-organization)
+for implementation changes. The flat modules directly under `src/castia` are
+compatibility imports; do not add behavior there. Internal imports use the
+capability paths. Keep public imports working, including module identity for
+callers that patch dependencies.
+
+Keep CLI handlers with their capability. The root CLI only composes commands.
+Keep Azure/OpenAI imports at the operation that needs them so importing the
+runtime does not initialize optional tooling or clients.
+
+Shared wire shapes and behavior belong in [`spec`](spec/README.md). When
+introducing Typra, keep the schema source in the shared spec and emitted files
+separate from handwritten code. Runtime adapters own credentials, HTTP clients,
+storage, and local process execution. Every new SDK must exercise the same
+behavioral fixtures; matching generated fields does not prove runtime parity.
+
+Run the Python tests after moving modules. The architecture tests cover both
+import paths, patch propagation, public exports, and imports that must stay
+lazy. Build the distribution as well so module moves do not leave files out of
+the installed package.
+
 ## Commit messages: Conventional Commits (required)
 
 Releases are automated with

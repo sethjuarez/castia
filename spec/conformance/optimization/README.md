@@ -35,7 +35,7 @@ the baseline resolvable no matter how the process is launched.
 
 The resolution itself lives in Foundry's `azure-ai-agentserver-optimization`
 runtime, not in castia — the SDK only *bridges* to it (see
-`packages/python/src/castia/optimization.py`, `load_agent_config`). Pinning the
+`packages/python/src/castia/optimizing/config.py`, `load_agent_config`). Pinning the
 precedence and the `config_dir` rule as a language-neutral fixture is exactly
 the cross-SDK fact a future Rust (or other) SDK must reimplement identically.
 The Python SDK reads this fixture in

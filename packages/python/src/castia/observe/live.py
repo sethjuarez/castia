@@ -16,8 +16,13 @@ from dataclasses import dataclass, field
 from typing import Any, Self
 from urllib.parse import quote, unquote, urlsplit
 
-from .suite import ProbeResult
-from .telemetry import ObserveError, classify_exception, http_error, positive
+from castia.observe.suite import ProbeResult
+from castia.observe.telemetry import (
+    ObserveError,
+    classify_exception,
+    http_error,
+    positive,
+)
 
 AI_SCOPE = "https://ai.azure.com/.default"
 OPTIMIZER_HEADERS = {"Foundry-Features": "AgentsOptimization=V2Preview"}
@@ -495,7 +500,7 @@ class LiveProbes(dict):
             raise ObserveError("prerequisite", "Toolbox requires explicit known tools, URL, and a safe test prompt.")
         # MCP authorization is required by the selected toolbox and is never reported.
         token = self.adapter.token(AI_SCOPE)
-        from ..toolbox import toolbox_mcp_tool
+        from castia.integrations.toolbox import toolbox_mcp_tool
         spec = toolbox_mcp_tool(
             endpoint=self.config.toolbox_url, token=token,
             allowed_tools=self.config.toolbox_tools,

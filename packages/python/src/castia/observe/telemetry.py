@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Self
 from urllib.parse import quote
 
-from .records import ExecutionRecord, normalize_record
+from castia.observe.records import ExecutionRecord, normalize_record
 
 
 class ObserveError(RuntimeError):

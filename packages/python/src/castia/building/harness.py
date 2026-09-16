@@ -24,12 +24,12 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import patch
 
-from ._offline import offline_scope
+from castia.building._offline import offline_scope
 
 if TYPE_CHECKING:
     import httpx
 
-    from ..application import Agent
+    from castia.runtime.application import Agent
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ class AgentTestHarness:
         connector_status: int = 200,
         raise_app_exceptions: bool = True,
     ) -> None:
-        from ..application import Agent
+        from castia.runtime.application import Agent
 
         if not isinstance(app, Agent):
             raise TypeError("app must be a castia.Agent")
@@ -137,7 +137,9 @@ class AgentTestHarness:
             stack.enter_context(offline_scope())
             import httpx
 
-            from .. import connector, dispatch, server
+            from castia.hosting import server
+            from castia.messaging import connector
+            from castia.runtime import dispatch
 
             async def anonymous(*args: Any, **kwargs: Any) -> dict[str, str]:
                 return {}

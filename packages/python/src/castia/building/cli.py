@@ -34,9 +34,9 @@ def register_commands(subparsers: argparse._SubParsersAction) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """Print JSON; return 0 for success, 1 for readiness failure, 2 for usage/I/O."""
-    from .preflight import preflight
-    from .scaffold import scaffold_project
-    from .testing import run_project_tests
+    from castia.building.preflight import preflight
+    from castia.building.scaffold import scaffold_project
+    from castia.building.testing import run_project_tests
 
     try:
         if args.build_action == "init":

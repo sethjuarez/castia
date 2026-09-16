@@ -6,7 +6,7 @@ import sys
 
 
 def main() -> int:
-    from ._offline import offline_scope
+    from castia.building._offline import offline_scope
 
     # The worker owns its process; each nested harness still acquires the normal
     # exclusive lock. Its exit restores these worker-level guards, not live I/O.

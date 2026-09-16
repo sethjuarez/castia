@@ -30,6 +30,13 @@ flow.
   `uv build`, and `git --no-pager diff --check`.
 - Keep `import castia` cheap: heavy Azure/OpenAI imports stay lazy, inside the
   methods that need them.
+- Put implementation code in the capability packages listed in
+  `packages/python/README.md`. The old flat modules are compatibility aliases;
+  internal imports use canonical capability paths. Keep CLI handlers beside
+  their capability and preserve module identity for legacy patch targets.
+- Shared schemas and behavioral fixtures belong in `spec/`. Typra generation
+  is not configured yet. Keep future generated types separate from handwritten
+  behavior and host adapters; data-model parity alone is not runtime parity.
 - Optimizer ownership is split deliberately: castia owns `.agent_configs`,
   toolbox optimizer sidecars, and `python -m castia optimize run/status/cancel/apply`;
   `azd` remains the deployment rail for hosted agents. Local drift checks use

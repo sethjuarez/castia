@@ -1,9 +1,9 @@
-"""Inspect existing fine-tuning jobs without starting training.
+"""Fine-tuning job management and explicit RFT preparation.
 
-Grader construction, validation, and explicit submission remain available from
-``castia.finetune``. This package deliberately has no submission method.
+The root exports inspect existing jobs without starting training. Grader
+construction, validation, and explicit submission live in ``castia.finetuning.rft``.
 """
 
-from .jobs import FineTuningClient, JobReference
+from castia.finetuning.jobs import FineTuningClient, JobReference
 
 __all__ = ["FineTuningClient", "JobReference"]

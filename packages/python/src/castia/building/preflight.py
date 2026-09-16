@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
-from ._offline import offline_scope
-from .scaffold import _no_links
+from castia.building._offline import offline_scope
+from castia.building.scaffold import _no_links
 
 if TYPE_CHECKING:
-    from ..application import Agent
+    from castia.runtime.application import Agent
 
 Status = Literal["pass", "fail", "warning", "skipped"]
 
@@ -67,7 +67,7 @@ def _local_file(root: Path, relative: str) -> Path:
 
 def _load_agent(root: Path, target: str) -> Agent:
     """Load trusted local registration without leaving import/cache mutations."""
-    from ..application import Agent
+    from castia.runtime.application import Agent
 
     module, sep, attr = target.partition(":")
     if (
@@ -166,7 +166,7 @@ def preflight(
             if not protocols:
                 add("registration", "fail", "Agent has no registered protocol handlers.")
             else:
-                from ..server import build_app
+                from castia.hosting.server import build_app
 
                 build_app(app._routes, app._wire, app._invokes)
                 add("registration", "pass", "Agent registration and ASGI route compilation succeeded.")
@@ -185,7 +185,7 @@ def preflight(
 
         code_mode = False
         try:
-            from ..deploy import generate_manifest
+            from castia.delivery.manifest import generate_manifest
 
             manifest = _local_file(root, "azure.yaml")
             doc = yaml.load(manifest.read_text(encoding="utf-8"))
@@ -304,7 +304,7 @@ def preflight(
             add("baseline", "fail", f"Invalid or missing baseline artifacts ({type(exc).__name__}).")
 
         try:
-            from ..evalsuite import load_suite, validate_suite
+            from castia.evaluation.suite import load_suite, validate_suite
 
             suite = load_suite(_local_file(root, "eval.yaml"))
             for evaluator in suite.evaluators:

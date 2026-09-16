@@ -6,9 +6,9 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 
-from .records import summarize
-from .suite import ProbeResult
-from .telemetry import AppInsightsClient, TraceQuery, verify_probe
+from castia.observe.records import summarize
+from castia.observe.suite import ProbeResult
+from castia.observe.telemetry import AppInsightsClient, TraceQuery, verify_probe
 
 
 def telemetry_probes(

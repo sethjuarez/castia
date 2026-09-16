@@ -19,6 +19,21 @@ _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
 
 
+@pytest.mark.parametrize("helper", ["invoke_agent", "execute_tool"])
+def test_lazy_trace_api_preserves_legacy_monkeypatches(helper):
+    from castia import tracing
+
+    api = mock.MagicMock()
+    expected = api.get_tracer.return_value.start_as_current_span.return_value.__enter__.return_value
+    with mock.patch("castia.tracing.trace", api), getattr(tracing, helper)("example") as span:
+        assert span is expected
+
+    api.get_tracer.assert_called_once_with("castia")
+    assert api.get_tracer.return_value.start_as_current_span.call_args.args == (
+        f"{helper} example",
+    )
+
+
 @contextmanager
 def _patched_instrumentor():
     """Patch the instrumentor + guard so only resolution logic runs."""
