@@ -16,7 +16,7 @@ only after telemetry is configured.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from castia.messaging.messages import Message
@@ -147,6 +147,45 @@ def make_return_dispatch(func: Handler) -> Callable[[str], Awaitable[str]]:
 
                 result = await func(**kwargs)
                 return result if isinstance(result, str) else ""
+        finally:
+            flush_telemetry()
+
+    return dispatch
+
+
+def make_stream_dispatch(func: Handler) -> Callable[[str], AsyncIterator[str]]:
+    """Adapt a user handler for a streaming return-body wire protocol."""
+    parameters = list(inspect.signature(func).parameters.values())
+
+    for param in parameters:
+        if param.annotation in (Activity, Message):
+            raise TypeError(
+                f"handler {func.__name__!r} asks for {param.annotation.__name__}, "
+                "which only exists on the Activity Protocol; a streaming wire "
+                "handler must take the input text and Depends(...) only."
+            )
+
+    async def dispatch(text: str) -> AsyncIterator[str]:
+        try:
+            with invoke_agent():
+                kwargs: dict[str, Any] = {}
+                for param in parameters:
+                    if isinstance(param.default, _Depends):
+                        kwargs[param.name] = await resolve(
+                            param.default.dependency, None
+                        )
+                    else:
+                        kwargs[param.name] = text
+
+                result = func(**kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                if hasattr(result, "__aiter__"):
+                    async for chunk in result:
+                        if isinstance(chunk, str) and chunk:
+                            yield chunk
+                elif isinstance(result, str) and result:
+                    yield result
         finally:
             flush_telemetry()
 

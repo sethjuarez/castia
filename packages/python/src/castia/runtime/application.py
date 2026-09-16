@@ -30,6 +30,7 @@ PUBLISHABLE_PROTOCOLS: tuple[str, ...] = ("activity", "responses", "invocations"
 
 # Canonical order the wire protocols are reported/emitted in.
 _WIRE_ORDER: tuple[str, ...] = ("responses", "invocations", "chat")
+_INTERNAL_WIRE: tuple[str, ...] = ("responses_stream",)
 
 
 class Router:
@@ -114,6 +115,15 @@ class Router:
         translation. Use as ``@app.responses()``.
         """
         return self._wire_decorator("responses")
+
+    def responses_stream(self) -> Callable[[Handler], Handler]:
+        """Serve ``func`` as the streaming variant of the Responses protocol.
+
+        When present, ``POST /responses`` with ``{"stream": true}`` returns an
+        SSE stream of real handler deltas. It does not add another publishable
+        protocol; hosted agents still advertise plain ``responses``.
+        """
+        return self._wire_decorator("responses_stream")
 
     def chat(self) -> Callable[[Handler], Handler]:
         """Serve ``func`` natively over the **Chat Completions** protocol (CAPI).
@@ -281,6 +291,8 @@ class Agent(Router):
         default = f"{self.name}-optimize" if self.name else None
         projected = Agent(name=name or default)
         projected._wire["responses"] = handler
+        if "responses_stream" in self._wire:
+            projected._wire["responses_stream"] = self._wire["responses_stream"]
         projected._tool_providers = list(self._tool_providers)
         return projected
 

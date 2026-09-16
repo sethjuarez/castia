@@ -79,6 +79,39 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
         dependencies._CACHE.update(previous)
 
 
+def test_responses_stream_uses_stream_handler_for_sse():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return f"single:{text}"
+
+    @app.responses_stream()
+    async def reply_stream(text: str):
+        yield "stream:"
+        yield text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses", json={"input": "hello", "stream": True}
+            )
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers["content-type"]
+            assert "event: response.output_text.delta" in response.text
+            assert '"delta":"stream:"' in response.text
+            assert '"delta":"hello"' in response.text
+            assert "event: response.completed" in response.text
+            assert '"output_text":"stream:hello"' in response.text
+
+            response = await test.client.post(
+                "/responses", json={"input": "hello", "stream": False}
+            )
+            assert response.json()["output_text"] == "single:hello"
+
+    asyncio.run(run())
+
+
 def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
     from castia.messaging import connector
 

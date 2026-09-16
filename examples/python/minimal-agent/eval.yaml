@@ -1,0 +1,8 @@
+name: minimal-agent-eval
+agent:
+  name: minimal-agent
+  config: .agent_configs/baseline/metadata.yaml
+evaluators:
+  - builtin.task_adherence
+dataset:
+  local_uri: eval-seed.jsonl

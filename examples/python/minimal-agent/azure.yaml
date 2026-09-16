@@ -1,0 +1,30 @@
+# Deployment intent only. No infrastructure is created by this scaffold.
+name: minimal-agent
+services:
+  minimal-agent:
+    project: .
+    host: azure.ai.agent
+    language: python
+    kind: hosted
+    name: minimal-agent
+    description: A Castia agent serving Responses, Invocations and Teams.
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint: main.py
+      dependencyResolution: remote_build
+    # Optional Docker alternative: remove codeConfiguration, set language: docker,
+    # and add docker: {path: ./Dockerfile, context: ., remoteBuild: true}.
+    protocols:
+      - protocol: activity
+        version: 2.0.0
+      - protocol: responses
+        version: 2.0.0
+      - protocol: invocations
+        version: 2.0.0
+    env:
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
+    container:
+      resources:
+        cpu: '0.5'
+        memory: 1Gi

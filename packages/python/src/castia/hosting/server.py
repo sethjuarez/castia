@@ -31,7 +31,7 @@ from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from castia.messaging.connector import send_reply
 from castia.messaging.routing import (
@@ -46,6 +46,7 @@ from castia.runtime.dispatch import (
     make_dispatch,
     make_invoke_dispatch,
     make_return_dispatch,
+    make_stream_dispatch,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,10 @@ def _responses_body(text: str) -> dict:
             }
         ],
     }
+
+
+def _sse_event(event_type: str, payload: dict) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 def _chat_body(text: str) -> dict:
@@ -252,11 +257,35 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
     responses_handler = wire.get("responses")
     if responses_handler is not None:
         responses_dispatch = make_return_dispatch(responses_handler)
+        responses_stream_handler = wire.get("responses_stream")
+        responses_stream_dispatch = (
+            make_stream_dispatch(responses_stream_handler)
+            if responses_stream_handler is not None
+            else None
+        )
 
         @app.post("/responses")
         async def responses(request: Request) -> Response:
             body = await request.json()
-            reply = await responses_dispatch(_responses_input(body.get("input")))
+            text = _responses_input(body.get("input"))
+            if body.get("stream") is True and responses_stream_dispatch is not None:
+
+                async def events():
+                    chunks: list[str] = []
+                    async for delta in responses_stream_dispatch(text):
+                        chunks.append(delta)
+                        yield _sse_event(
+                            "response.output_text.delta",
+                            {"type": "response.output_text.delta", "delta": delta},
+                        )
+                    yield _sse_event(
+                        "response.completed",
+                        _responses_body("".join(chunks)),
+                    )
+
+                return StreamingResponse(events(), media_type="text/event-stream")
+
+            reply = await responses_dispatch(text)
             return JSONResponse(_responses_body(reply))
 
         logger.info("Serving responses protocol on POST /responses")
