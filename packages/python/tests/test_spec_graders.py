@@ -3,7 +3,7 @@
 `spec/conformance/graders/grader_schema.json` is the language-neutral golden for
 the reinforcement fine-tuning reward-function schema -- the grader types,
 template namespaces, hyperparameter names, and dataset rules every castia SDK
-must reproduce. This test locks `castia.finetune`'s constants and validators to
+must reproduce. This test locks `castia.finetuning.rft`'s constants and validators to
 that fixture so the SDK and the documented contract cannot silently drift.
 
 The fixture is stamped PROVISIONAL/doc-derived: it encodes the documented shape,
@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from castia.finetune import (
+from castia.finetuning.rft import (
     _TEMPLATE_NS,
     GRADER_TYPES,
     RFT_HYPERPARAMETERS,

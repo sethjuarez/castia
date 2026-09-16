@@ -10,11 +10,19 @@ on:
       - "packages/python/**"
       - "spec/**"
       - ".github/workflows/python-ci.yml"
+      - ".github/workflows/release-please.yml"
+      - ".github/skills/**"
+      - "docs/**"
+      - "README.md"
   pull_request:
     paths:
       - "packages/python/**"
       - "spec/**"
       - ".github/workflows/python-ci.yml"
+      - ".github/workflows/release-please.yml"
+      - ".github/skills/**"
+      - "docs/**"
+      - "README.md"
 
 permissions:
   contents: read
@@ -26,6 +34,10 @@ defaults:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v5
 
@@ -36,18 +48,36 @@ jobs:
           enable-cache: false
 
       - name: Pin Python
-        run: uv python install 3.13
+        run: uv python install ${{ matrix.python }}
 
-      - name: Create venv and install (with deploy + test extras)
+      - name: Create venv and install lifecycle test dependencies
         run: |
-          uv venv
-          uv pip install -e ".[deploy,test]"
+          uv venv --python ${{ matrix.python }}
+          uv pip install -e ".[deploy,optimize,test]"
 
       - name: Ruff
         run: uvx ruff check .
 
       - name: Pytest
-        run: .venv/bin/python -m pytest -q
+        run: .venv/bin/python -m pytest -q -W error
 
-      - name: Build sanity check (wheel + sdist)
-        run: uv build
+      - name: Check workflow YAML
+        run: |
+          .venv/bin/python -c "from pathlib import Path; from ruamel.yaml import YAML; [YAML().load(p.read_text(encoding='utf-8')) for p in Path('../../.github/workflows').glob('*.yml')]"
+
+      - name: Build sdist and build the wheel from it
+        run: |
+          uv build --sdist
+          uv build --wheel dist/*.tar.gz --out-dir dist
+
+      - name: Check distribution metadata
+        run: uvx twine check --strict dist/*
+
+      - name: Check the installed wheel independently of editable source
+        run: |
+          uv venv .wheel-venv --python ${{ matrix.python }}
+          wheel=$(find "$PWD/dist" -maxdepth 1 -name '*.whl' -print -quit)
+          uv pip install --python .wheel-venv/bin/python "castia[deploy,optimize,test] @ file://$wheel"
+          uv pip check --python .wheel-venv/bin/python
+          .wheel-venv/bin/python -I -W error scripts/check_distribution.py
+          .wheel-venv/bin/python -I -m pytest -q -W error tests/test_package_architecture.py tests/test_building_harness.py

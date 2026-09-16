@@ -16,8 +16,8 @@ from castia import (
     apply_optimized_tools,
     tools_json,
 )
-from castia.toolbox import toolbox_mcp_tool
-from castia.tools import Tool
+from castia.inference.tools import Tool
+from castia.integrations.toolbox import toolbox_mcp_tool
 
 
 def _tool(name: str, description: str = "orig") -> Tool:

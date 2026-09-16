@@ -30,11 +30,19 @@ flow.
   `uv build`, and `git --no-pager diff --check`.
 - Keep `import castia` cheap: heavy Azure/OpenAI imports stay lazy, inside the
   methods that need them.
+- Put implementation code in the capability packages listed in
+  `packages/python/README.md`. Keep only `__init__.py`, `__main__.py`, and
+  `py.typed` at the source root, alongside capability folders. Use canonical
+  imports without legacy aliases or redirects. Keep CLI handlers beside their
+  capability.
+- Shared schemas and behavioral fixtures belong in `spec/`. Typra generation
+  is not configured yet. Keep future generated types separate from handwritten
+  behavior and host adapters; data-model parity alone is not runtime parity.
 - Optimizer ownership is split deliberately: castia owns `.agent_configs`,
   toolbox optimizer sidecars, and `python -m castia optimize run/status/cancel/apply`;
-  `azd` remains the deployment rail for hosted agents. The daily
-  `.github/workflows/foundry-optimizer-live.yml` job is the preview-service drift
-  canary and is billable when enabled.
+  `azd` remains the deployment rail for hosted agents. Local drift checks use
+  `python -m castia observe drift`. The optional
+  `.github/workflows/foundry-optimizer-live.yml` job is manual and billable.
 - For detailed optimizer work, use the repo-local skill at
   `.github/skills/castia-optimizer/SKILL.md`; `castia-lifecycle` remains the
   broader build/evaluate/optimize/RFT map.

@@ -1,57 +1,29 @@
 ---
 name: castia-optimizer
-description: "Make Castia Python hosted agents optimizer-ready and run the Castia-owned Foundry Agent Optimizer lifecycle. Use for toolbox MCP guidance overrides, `.agent_configs` baseline drift, `tools.json`, `python -m castia optimize run/status/cancel/apply`, daily live optimizer drift checks, or applying optimizer candidates before azd deployment. Triggers include: 'castia optimize', 'Foundry Agent Optimizer', 'toolbox optimizer', 'tools.json', '.agent_configs', 'OPTIMIZATION_CANDIDATE_ID', 'optimizer candidate', 'preview service drift', and 'federated toolbox tools'."
+description: "Use Castia's Foundry Agent Optimizer lifecycle, canonical .agent_configs baselines, native MCP toolbox guidance, and optimize run/status/cancel/apply commands. Covers offline previews, candidate resolution, live evidence limits, and the separate azd deployment handoff."
 ---
 
-# castia-optimizer — own optimizer correctness, hand deployment to azd
+# Castia optimizer usage
 
-Use this skill when an agent is working on Castia's optimizer path, especially
-toolbox/federated MCP tools, `.agent_configs`, or live Foundry Agent Optimizer
-jobs.
+Read the [consumer agent guide](../../../packages/python/AGENTS.md) for the
+complete runnable application. The [Python README](../../../packages/python/README.md#optimizer-readiness)
+owns the detailed optimizer commands. This skill records the constraints to
+check before calling them.
 
-## Boundary
+## Ownership and project shape
 
-Castia owns optimizer correctness:
+Castia owns baseline files, toolbox guidance sidecars, request construction,
+job inspection/cancellation, and candidate application. azd owns hosted
+deployment. `python -m castia deploy` only reconciles manifest protocols.
 
-- canonical `.agent_configs/baseline/` files;
-- toolbox optimizer sidecar definitions;
-- request construction for `python -m castia optimize run`;
-- job inspection/cancellation;
-- local candidate materialization with `python -m castia optimize apply`.
+Run from the consumer application root. Install
+`uv pip install --prerelease=allow "castia[deploy,optimize]"` in its environment.
+Use canonical modules such as `castia.optimizing.config`,
+`castia.optimizing.baseline`, and `castia.optimizing.jobs`; former flat modules
+are removed, without redirects.
 
-`azd` remains the hosted-agent deployment rail. Do not replace `azd deploy`; use
-Castia to prepare/apply config, then hand the selected candidate to azd through
-environment variables.
-
-## Free vs billable commands
-
-Run free gates before any service-side job:
-
-| Command | Cost | Purpose |
-|---|---:|---|
-| `python -m castia optimize --check` | Free | Report `.agent_configs/baseline` drift without writing. |
-| `python -m castia optimize` | Free | Refresh baseline `tools.json` and metadata pointers. |
-| `python -m castia optimize run --dry-run` | Free | Print the exact Foundry optimizer payload. |
-| `python -m castia optimize run` | Billable | Submit and wait for a Foundry optimizer job. |
-| `python -m castia optimize status --watch` | Free | Poll a Castia-submitted optimizer job. |
-| `python -m castia optimize apply` | Free | Fetch a candidate config and write it under `.agent_configs/<candidate-id>/`. |
-| `python -m castia optimize cancel` | Free | Cancel the latest or specified optimizer job. |
-
-## Required project shape
-
-An optimizer-ready Castia agent has:
-
-```text
-eval.yaml
-.agent_configs/
-  baseline/
-    metadata.yaml
-    instructions.md
-    tools.json          # optional, but required for tool-description optimization
-```
-
-`metadata.yaml` should include both optimizer metadata spellings for ecosystem
-compatibility:
+The project needs `eval.yaml` and `.agent_configs/baseline/`. Baseline metadata
+uses this shape.
 
 ```yaml
 model: gpt-4o
@@ -60,155 +32,96 @@ tool_file: tools.json
 tools_file: tools.json
 ```
 
-Runtime code should consume config through `configured_model()`:
+Use the same pure tool provider in `app.tools(...)` and in the request handler.
+The provider must not acquire credentials or call remote services.
+`python -m castia optimize` writes `tools.json` and both metadata pointers.
+Anchor `load_agent_config` to the application's config directory, pass it to
+`configured_model`, and verify its `source` before claiming the candidate loaded.
+Restart after changing a cached dependency's config.
+
+The optimizer requires a deployed Responses-only agent. For an agent serving
+other protocols too, `app.responses_only()` makes a sibling with the same
+Responses handler and declared tools. It still needs a separate deployment.
+
+## Preserve native MCP execution
+
+Use upstream names discovered through `tools/list`. In the verified web
+toolbox, those are `web` and `search_query`.
 
 ```python
-from castia import Depends, Model, Router, configured_model
+from castia import toolbox_mcp_tool
 
-router = Router()
-gpt = configured_model()
-
-@router.responses()
-async def reply(text: str, model: Model = Depends(gpt)) -> str:
-    return await model.respond(text)
+def web_tools():
+    tool = toolbox_mcp_tool(
+        allowed_tools=("web",),
+        server_description="Use web for current public facts and cite the sources.",
+        descriptions={"web": "Search current public web information."},
+        param_guidance={"web": {"search_query": "A concise public web search query."}},
+    )
+    return [tool] if tool else []
 ```
 
-The optimizer requires a Responses-capable hosted agent. If the app also
-supports Activity or Invocations, expose/deploy a responses-only sibling with
-`Agent.responses_only()` for optimization.
+At request time, rebuild the same spec with `token=await toolbox_token()` or
+the configured project connection. Pass it through `Model.respond_with_tools`.
+Registering it with `app.tools` alone does not attach it to a model request.
+The [consumer example](../../../packages/python/AGENTS.md#write-a-complete-responses-agent)
+shows both paths without putting a bearer in baseline files.
 
-## Toolbox/federated MCP tools
+Tool guidance changes `server_description`; it does not replace the remote
+schema or implement a local function wrapper. Castia emits selected tool names
+such as `web` to `tools.json`, stores optimizer guidance in a private
+`x-castia-optimizer-tool-definitions` sidecar, and removes `x-castia-*` fields
+before sending Responses payloads. The older `toolbox___web` spelling is an
+accepted override-key alias, not the name to emit in new configs.
 
-For toolbox tools, the service-visible tool name is the MCP tool name, such as
-`web`; it is not `server_label___web`. Use post-facto overrides when creating
-the raw MCP spec so the optimizer can see and improve the tool definition:
+[Issue #13](https://github.com/sethjuarez/castia/issues/13#issuecomment-5691920220)
+recorded 16/16 native web calls on `gpt-4o` version `2024-11-20`. A local
+consumer exercised direct guidance and controlled fixtures through
+`apply_candidate_config`, `load_agent_config`, `configured_model`, and
+`Model.respond_with_tools`. Only `server_description` varied; upstream schema
+and native execution were unchanged. It did not create a hosted deployment or
+generate a fresh optimizer candidate. Do not cite it as quality-improvement
+or training evidence.
 
-```python
-from castia import toolbox_mcp_tool, toolbox_token
+## Commands and effects
 
-tool = toolbox_mcp_tool(
-    token=await toolbox_token(),
-    allowed_tools=("web",),
-    server_description="Use the web toolbox only for current public facts.",
-    descriptions={
-        "web": "Search current public web information.",
-    },
-    param_guidance={
-        "web": {
-            "query": "A concise public web search query.",
-        },
-    },
-)
-```
+| Command suffix after `python -m castia` | Effect |
+| --- | --- |
+| `optimize --check` | FREE offline baseline drift check; writes nothing |
+| `optimize` | FREE offline baseline reconciliation; writes local files |
+| `optimize run --dry-run` | FREE offline payload preview |
+| `optimize run` | Billable job submission; waits unless `--no-wait` |
+| `optimize status --watch` | Remote polling; does not create a job |
+| `optimize apply` | Fetches a candidate and writes local config; does not deploy |
+| `optimize cancel` | Requests cancellation of an existing remote job |
 
-Castia emits these definitions into `tools.json` via a private
-`x-castia-optimizer-tool-definitions` sidecar and strips all `x-castia-*`
-metadata before sending Responses payloads. Keep legacy `server_label___tool`
-names only as aliases when applying candidates; do not emit that spelling in new
-optimizer configs.
+Inspect the preview's prompt, tools, evaluator references, dataset, deployed
+agent, models, and candidate cap before authorizing submission.
+After cancellation, inspect status to establish that the job stopped.
+The cancellation command reports a request, not completed cleanup.
+Use explicit project settings. The current wire contract is
+`/agent_optimization_jobs`, API version `v1`,
+`Foundry-Features: AgentsOptimization=V2Preview`, `{"inputs": ...}`, and scope
+`https://ai.azure.com/.default`.
 
-## Native optimizer workflow
+After apply, set `OPTIMIZATION_LOCAL_DIR` and `OPTIMIZATION_CANDIDATE_ID` in the
+intended service environment, then use the reviewed azd workflow.
+Setting them in a local shell does not update an already running hosted agent.
+Verify both deployment state and actual runtime behavior before promotion.
 
-1. Refresh and check the baseline:
+## Drift checks and training boundary
 
-   ```bash
-   cd packages/python
-   uv pip install -e ".[deploy,optimize,test]"
-   python -m castia optimize
-   python -m castia optimize --check
-   ```
+[LIFECYCLE.md](../../../packages/python/LIFECYCLE.md#inspect-traces-and-run-a-drift-suite)
+describes local observation suites, limits, and cleanup reporting.
+`observe drift --dry-run` is offline. `--live` permits configured live probes;
+optimizer submission additionally needs `--allow-optimizer-submit`.
+No observation command submits training or applies/deploys a candidate.
 
-2. Preview the service payload:
+The repository's `foundry-optimizer-live.yml` is an optional manual GitHub
+smoke, with no schedule. It uses the `foundry-live` environment and submits
+billable work against an existing agent. Check the workflow's current inputs
+and environment declarations before using it; do not infer authorization from
+its presence in the repository.
 
-   ```bash
-   FOUNDRY_PROJECT_ENDPOINT=https://.../api/projects/<project> \
-     python -m castia optimize run --dry-run
-   ```
-
-3. Submit only after the dry-run payload contains the expected prompt, tools,
-   evaluator refs, dataset, model, and candidate cap:
-
-   ```bash
-   FOUNDRY_PROJECT_ENDPOINT=https://.../api/projects/<project> \
-     python -m castia optimize run
-   ```
-
-4. Inspect or poll the job:
-
-   ```bash
-   python -m castia optimize status --watch
-   ```
-
-5. Apply the winning candidate locally:
-
-   ```bash
-   python -m castia optimize apply
-   ```
-
-6. Deploy with azd using the applied candidate:
-
-   ```bash
-   export OPTIMIZATION_LOCAL_DIR=.agent_configs
-   export OPTIMIZATION_CANDIDATE_ID=<candidate-id>
-   azd deploy
-   ```
-
-On Windows PowerShell, use `$env:OPTIMIZATION_LOCAL_DIR = ".agent_configs"` and
-`$env:OPTIMIZATION_CANDIDATE_ID = "<candidate-id>"`.
-
-## Service wire facts
-
-The Castia client matches the current azd/live service contract:
-
-- endpoint path: `/agent_optimization_jobs`;
-- API version: `v1`;
-- required header: `Foundry-Features: AgentsOptimization=V2Preview`;
-- submit body envelope: `{"inputs": <optimizer-request>}`;
-- auth scope: `https://ai.azure.com/.default`.
-
-If a live job starts failing, compare the request emitted by
-`optimize run --dry-run` against these facts before changing higher-level code.
-
-## Daily live drift workflow
-
-The repo includes `.github/workflows/foundry-optimizer-live.yml` as the preview
-service drift canary. It runs daily and on manual dispatch, builds a throwaway
-eval suite on the runner, submits one billable optimizer candidate, waits for
-completion, and applies the best candidate locally.
-
-Enable it by configuring the `foundry-live` GitHub environment:
-
-| Name | Type | Purpose |
-|---|---|---|
-| `AZURE_CLIENT_ID` | Secret | OIDC app/client id for Azure login. |
-| `AZURE_TENANT_ID` | Secret | Tenant id. |
-| `AZURE_SUBSCRIPTION_ID` | Secret | Subscription id. |
-| `FOUNDRY_PROJECT_ENDPOINT` | Variable | Target Foundry project endpoint. |
-| `FOUNDRY_OPTIMIZER_AGENT_NAME` | Variable | Pre-deployed smoke agent name. |
-| `FOUNDRY_OPTIMIZER_AGENT_VERSION` | Variable | Optional pinned agent version. |
-| `FOUNDRY_EVAL_MODEL` | Variable | Optional evaluator model, defaults to `gpt-4o`. |
-| `FOUNDRY_OPTIMIZE_MODEL` | Variable | Optional optimizer model, defaults to `gpt-5`. |
-
-The Azure principal must have enough Foundry access to submit optimizer jobs and
-invoke the pre-deployed smoke agent/toolbox.
-
-## Quality gate for optimizer changes
-
-Before concluding optimizer work, run from `packages/python`:
-
-```bash
-uv pip install -e ".[deploy,optimize,test]"
-python -m pytest -q -W error
-uvx ruff check .
-uv build
-git --no-pager diff --check
-```
-
-For changes to the live workflow, also parse all workflow YAML files locally:
-
-```bash
-python -c "from ruamel.yaml import YAML; import pathlib; [YAML().load(open(p, encoding='utf-8')) for p in pathlib.Path('../../.github/workflows').glob('*.yml')]"
-```
-
-Rubber-duck or code-review optimizer changes that touch service wire shape,
-candidate application, GitHub Actions, or release automation.
+RFT remains provisional and separately authorized. Native MCP or optimizer
+success does not establish that a grader or training request is accepted.

@@ -48,7 +48,7 @@ An eval **rubric** (`id` / `description` / `weight` dimensions from
 `read_rubric`) maps cleanly onto a `score_model` grader: each weighted dimension
 becomes a line in the judge's prompt and the judge returns a single weighted
 score in `[0, 1]`. This is the natural cross-SDK tie-in between the *evaluate*
-and *switch-models* steps (`castia.finetune.rubric_to_score_model`).
+and *switch-models* steps (`castia.finetuning.rft.rubric_to_score_model`).
 
 ### RFT hyperparameters
 
@@ -70,4 +70,4 @@ Rust (or other) SDK must reimplement identically. The Python SDK reads this
 fixture in `packages/python/tests/test_spec_graders.py` so the SDK's builders
 and validators cannot silently drift from the documented (if still provisional)
 contract. When a live RFT job confirms the wire shape, flip `status` to
-`validated` here and drop the caveats in `castia.finetune`.
+`validated` here and drop the caveats in `castia.finetuning.rft`.

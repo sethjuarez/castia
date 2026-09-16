@@ -10,14 +10,20 @@ messages, Adaptive Cards, entities, and invoke envelopes.
 This is a **polyglot monorepo**: one framework, multiple language SDKs that all
 implement the same protocols and are verified against a shared conformance spec.
 
+Using the Python package from another agent? Start with the
+[consumer agent guide](packages/python/AGENTS.md). It includes uv installation,
+a complete Responses agent with native MCP tools, offline tests, and the
+approval boundaries for live work. The [Python README](packages/python/README.md)
+and [lifecycle guide](packages/python/LIFECYCLE.md) cover the detailed APIs.
+
 ## Layout
 
 ```
 castia/
 ├─ spec/              # source of truth: protocol contracts + conformance fixtures
-├─ packages/
-│  └─ python/         # the Python SDK (PyPI: castia)  → see packages/python/README.md
-└─ docs/
+└─ packages/
+   └─ python/         # the Python SDK (PyPI: castia)
+      └─ AGENTS.md    # consumer guide for agents using the Python SDK
 ```
 
 | SDK | Path | Registry | Status |
@@ -27,6 +33,16 @@ castia/
 
 Each SDK owns its native toolchain, lockfile, and release cadence. Versions and
 release tags are **per language** (e.g. `python-v0.1.0`), not repo-wide.
+
+Within the Python SDK, implementation code is grouped by capability, from
+protocols and hosting through evaluation and delivery. The
+[package map](packages/python/README.md#package-organization) lists the owners.
+The short public API remains unchanged; lower-level imports use the capability
+paths.
+
+The [spec guide](spec/README.md) separates shared data and behavior from runtime
+adapters. Typra generation is future work; the current Python implementation is
+handwritten, and Rust remains planned.
 
 ## Contributing
 

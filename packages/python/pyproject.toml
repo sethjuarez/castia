@@ -41,7 +41,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/sethjuarez/castia"
 Repository = "https://github.com/sethjuarez/castia"
-Documentation = "https://castia.dev"
+Documentation = "https://github.com/sethjuarez/castia/blob/main/packages/python/README.md"
 
 [project.optional-dependencies]
 # Build-time only: used by `python -m castia deploy` to rewrite azure.yaml from

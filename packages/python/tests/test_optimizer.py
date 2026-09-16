@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from castia.__main__ import main
-from castia.optimizer import (
+from castia.optimizing.jobs import (
     OptimizerClient,
     apply_candidate_config,
     build_optimizer_request,
@@ -168,7 +168,7 @@ def test_optimizer_client_uses_expected_rest_paths(monkeypatch):
     class Credential:
         pass
 
-    monkeypatch.setattr("castia.optimizer.PipelineClient", FakePipelineClient)
+    monkeypatch.setattr("castia.optimizing.jobs.PipelineClient", FakePipelineClient)
     client = OptimizerClient(
         "https://example.ai.azure.com/api/projects/p",
         credential=Credential(),
@@ -284,7 +284,7 @@ def test_optimize_run_waits_and_saves_state_in_config_dir(
             assert job_id == "opt_1"
             return {"id": "opt_1", "status": "succeeded", "result": {"best": "cand_1"}}
 
-    monkeypatch.setattr("castia.optimizer.OptimizerClient", FakeClient)
+    monkeypatch.setattr("castia.optimizing.jobs.OptimizerClient", FakeClient)
     rc = main(
         [
             "optimize",

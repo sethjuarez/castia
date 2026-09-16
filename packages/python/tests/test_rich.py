@@ -17,8 +17,8 @@ import sys
 import pytest
 
 from castia import action_chips, adaptive_card, suggested_actions
-from castia.activity import Activity, ChannelAccount, ConversationAccount
-from castia.cards import ADAPTIVE_CARD_CONTENT_TYPE, Reaction
+from castia.messaging.cards import ADAPTIVE_CARD_CONTENT_TYPE, Reaction
+from castia.protocols.activity import Activity, ChannelAccount, ConversationAccount
 
 SERVICE_URL = "https://smba.trafficmanager.net/teams"
 CONVERSATION_ID = "19:meeting_abc@thread.v2"
@@ -50,7 +50,7 @@ class _FakeResponse:
 @pytest.fixture
 def calls(monkeypatch):
     """Capture every connector request and return a canned created id."""
-    from castia import connector
+    from castia.messaging import connector
 
     recorded: list[dict] = []
 
@@ -68,7 +68,7 @@ def calls(monkeypatch):
 
 
 def test_send_reply_shape(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     created = asyncio.run(connector.send_reply(_activity(), "hi there"))
 
@@ -89,14 +89,14 @@ def test_send_reply_shape(calls):
 
 
 def test_send_reply_empty_is_noop(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     assert asyncio.run(connector.send_reply(_activity(), "")) is None
     assert calls == []
 
 
 def test_send_typing_shape(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     asyncio.run(connector.send_typing(_activity()))
 
@@ -108,7 +108,7 @@ def test_send_typing_shape(calls):
 
 
 def test_add_reaction_is_put_with_no_body(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     ok = asyncio.run(connector.add_reaction(_activity(), Reaction.like))
 
@@ -123,7 +123,7 @@ def test_add_reaction_is_put_with_no_body(calls):
 
 
 def test_remove_reaction_is_delete(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     ok = asyncio.run(connector.remove_reaction(_activity(), Reaction.heart))
 
@@ -134,7 +134,7 @@ def test_remove_reaction_is_delete(calls):
 
 
 def test_reaction_type_is_url_encoded(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     asyncio.run(connector.add_reaction(_activity(), Reaction.check))
 
@@ -145,7 +145,7 @@ def test_reaction_type_is_url_encoded(calls):
 
 
 def test_update_activity_is_put_to_activity_id(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     ok = asyncio.run(
         connector.update_activity(_activity(), "edit-me", {"type": "message", "text": "v2"})
@@ -160,7 +160,7 @@ def test_update_activity_is_put_to_activity_id(calls):
 
 
 def test_delete_activity_is_delete(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     ok = asyncio.run(connector.delete_activity(_activity(), "drop-me"))
 
@@ -172,7 +172,7 @@ def test_delete_activity_is_delete(calls):
 
 
 def test_no_service_url_skips_call(calls):
-    from castia import connector
+    from castia.messaging import connector
 
     bare = Activity(type="message", id="x", conversation=ConversationAccount(id="c"))
     # No service_url -> nothing to call.
@@ -186,7 +186,7 @@ def test_no_service_url_skips_call(calls):
 @pytest.fixture
 def stream_calls(monkeypatch, calls):
     """As ``calls``, but also stub the once-minted auth header the streamer takes."""
-    from castia import connector
+    from castia.messaging import connector
 
     async def fake_auth(activity):
         return {"Authorization": "test"}
@@ -196,7 +196,7 @@ def stream_calls(monkeypatch, calls):
 
 
 def test_streamer_lifecycle(stream_calls):
-    from castia.streaming import Streamer
+    from castia.messaging.streaming import Streamer
 
     async def run():
         s = Streamer(_activity(), min_interval=0)
@@ -249,7 +249,7 @@ def test_streamer_lifecycle(stream_calls):
 
 
 def test_streamer_update_ignored_after_text(stream_calls):
-    from castia.streaming import Streamer
+    from castia.messaging.streaming import Streamer
 
     async def run():
         s = Streamer(_activity(), min_interval=0)
@@ -317,8 +317,8 @@ def test_action_chips_without_prompt_has_empty_body():
 
 
 def test_react_tool_adds_reaction(monkeypatch):
-    from castia import connector
-    from castia.tools import _react_to_message_impl
+    from castia.inference.tools import _react_to_message_impl
+    from castia.messaging import connector
 
     seen = {}
 
@@ -334,8 +334,8 @@ def test_react_tool_adds_reaction(monkeypatch):
 
 
 def test_react_tool_removes_reaction(monkeypatch):
-    from castia import connector
-    from castia.tools import _react_to_message_impl
+    from castia.inference.tools import _react_to_message_impl
+    from castia.messaging import connector
 
     async def fake_remove(activity, reaction_type="like"):
         return True
@@ -349,7 +349,7 @@ def test_react_tool_removes_reaction(monkeypatch):
 
 
 def test_react_tool_is_registered():
-    from castia.tools import agent_tools
+    from castia.inference.tools import agent_tools
 
     names = {t.name for t in agent_tools()}
     assert "react_to_message" in names
@@ -359,7 +359,7 @@ def test_react_tool_is_registered():
 
 
 def test_model_stream_yields_text_deltas():
-    from castia.model import Model
+    from castia.inference.model import Model
 
     class _Event:
         def __init__(self, type_, delta=""):
@@ -422,7 +422,7 @@ def test_importing_castia_stays_cheap():
 
 
 def test_message_entity_folds_all_facets_into_one_root():
-    from castia.entities import citation, message_entity, sensitivity_label
+    from castia.messaging.entities import citation, message_entity, sensitivity_label
 
     entity = message_entity(
         ai_generated=True,
@@ -440,13 +440,13 @@ def test_message_entity_folds_all_facets_into_one_root():
 
 
 def test_message_entity_is_none_when_nothing_requested():
-    from castia.entities import message_entity
+    from castia.messaging.entities import message_entity
 
     assert message_entity() is None
 
 
 def test_citation_builder_shape_and_keyword_cap():
-    from castia.entities import citation
+    from castia.messaging.entities import citation
 
     claim = citation(
         2,
@@ -472,14 +472,14 @@ def test_citation_builder_shape_and_keyword_cap():
 
 
 def test_feedback_channel_data_shape():
-    from castia.entities import feedback_channel_data
+    from castia.messaging.entities import feedback_channel_data
 
     assert feedback_channel_data() == {"feedbackLoop": {"type": "default"}}
     assert feedback_channel_data("custom") == {"feedbackLoop": {"type": "custom"}}
 
 
 def test_mention_entity_pairs_entity_and_tag():
-    from castia.entities import mention_entity
+    from castia.messaging.entities import mention_entity
 
     m = mention_entity("8:orgid:aad-123", "Ada")
     assert m == {
@@ -493,7 +493,7 @@ def test_mention_entity_pairs_entity_and_tag():
 
 
 def test_turn_cite_auto_increments_position():
-    from castia.context import Turn
+    from castia.runtime.context import Turn
 
     turn = Turn(activity=_activity())
     assert turn.cite("First") == 1
@@ -502,7 +502,7 @@ def test_turn_cite_auto_increments_position():
 
 
 def test_decorate_message_merges_turn_and_overrides():
-    from castia.context import Turn, decorate_message
+    from castia.runtime.context import Turn, decorate_message
 
     turn = Turn(activity=_activity())
     turn.ai_generated = True
@@ -524,7 +524,7 @@ def test_decorate_message_merges_turn_and_overrides():
 
 
 def test_decorate_message_no_turn_uses_only_overrides():
-    from castia.context import decorate_message
+    from castia.runtime.context import decorate_message
 
     payload: dict = {"type": "message"}
     decorate_message(payload, None, ai_generated=True)
@@ -538,8 +538,8 @@ def test_decorate_message_no_turn_uses_only_overrides():
 
 
 def test_send_reply_folds_turn_decorations(calls):
-    from castia import connector
-    from castia.context import turn_scope
+    from castia.messaging import connector
+    from castia.runtime.context import turn_scope
 
     activity = _activity()
 
@@ -560,8 +560,8 @@ def test_send_reply_folds_turn_decorations(calls):
 
 
 def test_say_ai_generated_and_feedback(calls):
-    from castia.context import turn_scope
-    from castia.messages import Message
+    from castia.messaging.messages import Message
+    from castia.runtime.context import turn_scope
 
     activity = _activity()
 
@@ -581,9 +581,9 @@ def test_say_ai_generated_and_feedback(calls):
 
 
 def test_say_mention_passthrough_coexists_with_root_entity(calls):
-    from castia.context import turn_scope
-    from castia.entities import mention_entity
-    from castia.messages import Message
+    from castia.messaging.entities import mention_entity
+    from castia.messaging.messages import Message
+    from castia.runtime.context import turn_scope
 
     activity = _activity()
 
@@ -609,8 +609,8 @@ def test_say_mention_passthrough_coexists_with_root_entity(calls):
 
 
 def test_cite_source_tool_accumulates_on_turn():
-    from castia.context import turn_scope
-    from castia.tools import _cite_source_impl
+    from castia.inference.tools import _cite_source_impl
+    from castia.runtime.context import turn_scope
 
     activity = _activity()
 
@@ -627,14 +627,14 @@ def test_cite_source_tool_accumulates_on_turn():
 
 
 def test_cite_source_tool_soft_fails_off_turn():
-    from castia.tools import _cite_source_impl
+    from castia.inference.tools import _cite_source_impl
 
     result = asyncio.run(_cite_source_impl(_activity(), name="A"))
     assert result["ok"] is False
 
 
 def test_tool_families_split_and_compose():
-    from castia.tools import activity_tools, agent_tools, graph_tools
+    from castia.inference.tools import activity_tools, agent_tools, graph_tools
 
     activity_names = {t.name for t in activity_tools()}
     graph_names = {t.name for t in graph_tools()}
@@ -814,7 +814,7 @@ def test_router_invoke_duplicate_name_conflicts():
 
 def test_make_invoke_dispatch_injects_message_and_returns_body():
     from castia import Message, card_action, message_invoke_response
-    from castia.dispatch import make_invoke_dispatch
+    from castia.runtime.dispatch import make_invoke_dispatch
 
     seen = {}
 
@@ -839,7 +839,7 @@ def test_make_invoke_dispatch_injects_message_and_returns_body():
 
 
 def test_make_invoke_dispatch_none_when_handler_returns_non_dict():
-    from castia.dispatch import make_invoke_dispatch
+    from castia.runtime.dispatch import make_invoke_dispatch
 
     async def handler(value) -> None:
         # A bare param receives the invoke value payload, not the message text.
@@ -854,7 +854,7 @@ def test_server_routes_invoke_to_handler_and_returns_body():
     import httpx
 
     from castia import InvokeNames, Router, card_invoke_response, decision_card
-    from castia.server import build_app
+    from castia.hosting.server import build_app
 
     router = Router()
 
@@ -891,7 +891,7 @@ def test_server_unknown_invoke_acks_empty_200():
     import httpx
 
     from castia import Router
-    from castia.server import build_app
+    from castia.hosting.server import build_app
 
     app = build_app([], {}, Router()._invokes)
 

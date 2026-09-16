@@ -13,12 +13,63 @@ hosting, Activity routing, and telemetry stay out of your file.
 ## Install
 
 ```bash
-pip install castia
-# or, with uv:
 uv add castia
+# With baseline resolution, CLI YAML tooling, and offline tests:
+uv add --prerelease=allow "castia[deploy,optimize,test]"
 ```
 
-Requires Python 3.11+.
+Requires Python 3.11+. For a standalone environment, use `uv venv` followed by
+`uv pip install --prerelease=allow "castia[deploy,optimize,test]"`.
+
+The [consumer agent guide](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md)
+has a complete Responses application,
+native MCP setup, credentials, and executable offline tests.
+Use [LIFECYCLE.md](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md)
+for build, observation, evidence, and deployment
+workflows. These Markdown guides are maintained in this repository.
+
+## Package organization
+
+Application imports stay short (`from castia import Agent, Model, Message`).
+Implementation code lives in capability packages under `src/castia`.
+
+| Package | Implementation |
+| --- | --- |
+| `protocols` | Activity wire models and accessors |
+| `runtime` | Agent/router composition, dependency injection, turn context, dispatch |
+| `hosting` | HTTP endpoints, local-run policy, credentials, agentic identity |
+| `messaging` | Activity routing, Teams surfaces, replies, cards, entities, invoke helpers, streaming, connector |
+| `inference` | Model calls and executable tool definitions |
+| `integrations` | Foundry toolbox adapters and Graph operations under `integrations.graph` |
+| `building` | Scaffolding, readiness checks, offline protocol testing |
+| `evaluation` | Evaluation-suite configuration, rubric validation, azd evaluation commands |
+| `observe` | Telemetry configuration and tracing, execution records, queries, drift checks |
+| `optimizing` | Candidate configuration, baseline generation, optimizer jobs |
+| `finetuning` | RFT preparation/submission and existing-job management |
+| `lifecycle` | Snapshots, datasets, evaluation evidence, acceptance and promotion records |
+| `delivery` | Manifest generation and guarded azd deployment |
+
+Each command family keeps its CLI handlers beside its implementation.
+`__main__.py` composes those commands.
+
+The package root contains only `__init__.py`, `__main__.py`, and `py.typed`,
+alongside the capability folders. Implementation imports use their canonical
+paths, such as `castia.inference.model` and `castia.optimizing.jobs`.
+There are no compatibility modules or import redirects.
+
+The former flat submodule paths have been removed. Change
+`from castia.model import Model` to `from castia import Model` or
+`from castia.inference.model import Model`. The root public API and CLI commands
+remain unchanged. Logger categories follow the canonical module names.
+The [tracing guide](https://github.com/sethjuarez/castia/blob/main/packages/python/TRACING.md)
+lives with the package documentation.
+
+Shared protocol definitions and behavioral fixtures belong in
+[`spec/`](https://github.com/sethjuarez/castia/tree/main/spec). These Python modules are handwritten today.
+The layout gives a future Typra integration places to attach generated types
+without making Python classes the specification for every runtime. Generated
+types alone will not establish parity; implementations also need to pass the
+same behavioral fixtures.
 
 ## Quickstart
 
@@ -115,32 +166,37 @@ tools and declare the same pure spec provider with `app.tools(...)` so
 `python -m castia optimize` can emit the federated tools to `tools.json`:
 
 ```python
-def contract_kb():
+def web_tools():
     tool = toolbox_mcp_tool(
-        allowed_tools=["contracts-kb-mcp___knowledge_base_retrieve"],
+        allowed_tools=("web",),
         descriptions={
-            "knowledge_base_retrieve": "Search governing contracts and billing policies."
+            "web": "Search current public web information."
         },
         param_guidance={
-            "knowledge_base_retrieve": {
-                "query": "A natural-language contract or billing-policy question."
+            "web": {
+                "search_query": "A concise public web search query."
             }
         },
     )
     return [tool] if tool else []
 
-app.tools(contract_kb)
+app.tools(web_tools)
 ```
 
-Override keys may be the selected toolbox tool name
-(`contracts-kb-mcp___knowledge_base_retrieve`) or the bare tool name
-(`knowledge_base_retrieve`). The Responses API reports `server_label`
-separately from the tool `name`, so castia emits the selected toolbox tool name
-to `tools.json`; the older `toolbox___...` spelling is accepted as an alias.
-Unknown or ambiguous names raise immediately. Runtime still uses the validated
-server-side `mcp` call path; castia folds the overrides into
-`server_description` for model-visible guidance and into a private optimizer
-sidecar that is stripped before the Responses API call.
+Use names from your server's `tools/list` result. For the verified web toolbox,
+the tool is `web` and its parameter is `search_query`, not `query`. Castia emits
+the selected tool name to `tools.json`; it accepts `toolbox___web` only as an
+older override-key spelling. Unknown or ambiguous tool names raise immediately.
+Guidance is folded into `server_description` and an optimizer sidecar. It does
+not replace the upstream tool schema or turn MCP into local function execution.
+Private sidecars are stripped before the Responses API call.
+
+`app.tools(...)` declares tools for baseline generation; it does not attach
+them to a model request. The handler must pass the same specs, with current
+authentication, to `respond_with_tools`. Keep token acquisition out of the
+registered provider so baseline checks remain offline. The
+[complete application](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#write-a-complete-responses-agent)
+shows both paths.
 
 **Deploying:** the `azd ai toolbox` extension writes `TOOLBOX_<NAME>_MCP_ENDPOINT`
 into the **azd** environment, but does **not** auto-inject it into a hosted
@@ -159,6 +215,12 @@ container — declare that env passthrough on your container yourself (there is 
 > `knowledge_base_mcp_tool` (Foundry IQ), connection-backed tools (Azure AI
 > Search / remote-MCP / A2A), the Activity path with a toolbox, and
 > approval-gated tools (`require_approval` other than `"never"`).
+
+The newer [issue #13 consumer proof](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#what-has-been-verified-live)
+verified direct and applied-candidate web guidance from a local process against
+live Foundry services. Its 16/16 calls preserve native MCP execution and the
+upstream schema. Those controlled fixtures were not a new optimizer run or a
+new hosted deployment.
 
 ## Protocols
 
@@ -180,7 +242,7 @@ when content recording is enabled. Turn it on deliberately via
 `configure_observability`:
 
 ```python
-from castia.observability import configure_observability
+from castia.observe.configuration import configure_observability
 
 # Records prompt/response text onto GenAI spans so traces can be evaluated.
 configure_observability(enable_content_recording=True)
@@ -226,13 +288,14 @@ python -m castia eval run
 evaluator/dataset `local_uri` and validates each rubric dimensions file.
 `generate` and `run` submit **billable** Foundry jobs, so both accept
 `--dry-run` to print the resolved `azd` command line without submitting
-anything. The `azd` wrappers need the build-time extra: `pip install
-'castia[deploy]'`.
+anything. The YAML checks need `uv pip install "castia[deploy]"`. The live wrappers also
+require a separately installed and authenticated azd with `azd ai agent eval`.
 
 The rubric dimensions file is a **bare JSON list** where each entry is keyed by
 `id` (a stable slug like `correct_outcome`), with an optional
 `always_applicable: true` on the catch-all dimension. That cross-SDK shape is
-pinned in the monorepo at [`spec/conformance/rubric/`](../../spec/conformance/rubric).
+pinned in the monorepo at
+[`spec/conformance/rubric/`](https://github.com/sethjuarez/castia/tree/main/spec/conformance/rubric).
 
 ## Optimizer-readiness
 
@@ -260,7 +323,9 @@ async def reply(text: str, model: Model = Depends(gpt)) -> str:
 `configured_model()` calls `load_agent_config()`, which is **best-effort**: if
 the optimizer package isn't installed, resolution fails, or no config is found,
 it degrades to environment defaults (`AZURE_AI_MODEL_DEPLOYMENT_NAME`, no
-instructions) — the agent runs identically with or without the optimizer.
+instructions). The agent can still start, but that fallback does not preserve
+the candidate's behavior. Inspect `AgentConfig.source` before reporting that a
+candidate loaded.
 
 Ship a baseline under `.agent_configs/baseline/`:
 
@@ -301,11 +366,17 @@ Foundry. Deployment is still an `azd` handoff: set
 `OPTIMIZATION_CANDIDATE_ID=<candidate-id>`, then deploy the hosted agent with
 your existing `azd` workflow.
 
-For preview-service drift detection, the repo includes
-`.github/workflows/foundry-optimizer-live.yml`. It runs daily (and on manual
-dispatch), submits one billable optimizer candidate against a pre-deployed
+For local functional checks, use `python -m castia observe drift` with an
+explicit project configuration and your local Azure credentials. See
+[the lifecycle guide](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md)
+for coverage, limits, and report handling.
+The CLI does not install a schedule or submit fine-tuning jobs.
+
+The optional `.github/workflows/foundry-optimizer-live.yml` workflow runs on
+manual dispatch only. It submits one billable optimizer candidate against a pre-deployed
 Foundry smoke agent, waits for completion, and applies the best candidate into a
-throwaway runner directory. Configure the `foundry-live` GitHub environment with
+throwaway runner directory. To use this optional workflow, configure the
+`foundry-live` GitHub environment with
 OIDC Azure login secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
 `AZURE_SUBSCRIPTION_ID`) and these variables:
 
@@ -323,7 +394,7 @@ local `.agent_configs/` → environment defaults. An explicit `config_dir`
 argument (or `OPTIMIZATION_LOCAL_DIR`) affects **only** the local source — pass
 it anchored to your app root so the baseline resolves the same under
 `python app.py` and `python -m castia`. That contract is pinned for every SDK in
-[`spec/conformance/optimization/`](../../spec/conformance/optimization).
+[`spec/conformance/optimization/`](https://github.com/sethjuarez/castia/tree/main/spec/conformance/optimization).
 
 ### Switching to a reasoning (or RFT-tuned) model
 
@@ -333,6 +404,8 @@ Those models take a `reasoning.effort` control that plain chat models don't.
 `Model` exposes it as `reasoning_effort` (`minimal|low|medium|high`):
 
 ```python
+from castia import use_model
+
 o4 = use_model("o4-mini-rft-2025", reasoning_effort="high")
 ```
 
@@ -350,18 +423,17 @@ override flows through to the resolved candidate automatically.
 > `app.responses_only()`, deploy that as its own service, optimize it, then apply
 > the winning `.agent_configs` candidate back to your live agent.
 
-The runtime resolver and the reconciler need the optimizer extra: `pip install
-'castia[optimize]'`.
+The runtime resolver and reconciler need the optimizer extra,
+`uv pip install --prerelease=allow "castia[optimize]"`.
 
 ## Reinforcement fine-tuning (RFT)
 
-RFT is the fourth lifecycle step — **build → evaluate → optimize → switch
-models**. It trains a *reasoning* model against a **grader** (a reward function)
-instead of labeled answers, minting a new fine-tuned deployment that becomes a
-candidate in the optimizer's model search. `castia` ships the build-time tooling
-to prepare, validate, and (behind one guarded seam) submit an RFT job — the same
-three-seam shape as the eval suite: pure builders, offline validators, and one
-billable submit seam.
+RFT is an optional, separately authorized training operation. It trains a
+reasoning model against a grader. A resulting model still needs a separate
+deployment before an application or optimizer search can use it.
+Castia supplies builders, offline validators, and an explicit billable submit
+command. Passing an offline check does not authorize training or checkpoint
+deployment.
 
 ```bash
 # Offline gate — validate an RFT dataset (+ grader), no Azure, free in CI:
@@ -370,7 +442,8 @@ python -m castia finetune check --dataset train.jsonl --validation val.jsonl --g
 # Bridge an eval rubric into a score_model grader (offline):
 python -m castia finetune grader --rubric rubric.json --model gpt-4o --out grader.json
 
-# Submit a billable RFT job (use --dry-run to print the payload and submit nothing):
+# Preview the RFT payload without uploads or submission:
+# Removing --dry-run starts billable training and needs separate approval.
 python -m castia finetune submit --model o4-mini --dataset train.jsonl \
   --validation val.jsonl --grader grader.json --reasoning-effort high --dry-run
 ```

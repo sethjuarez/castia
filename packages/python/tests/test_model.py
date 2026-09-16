@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from castia.model import _public_tool_spec
+from castia.inference.model import _public_tool_spec
 
 
 def test_public_tool_spec_strips_castia_private_metadata() -> None:

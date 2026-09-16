@@ -1,11 +1,10 @@
 name: foundry-optimizer-live
 
-# Daily live contract smoke for the preview Foundry Agent Optimizer API.
+# Optional manually dispatched smoke for the preview Foundry Agent Optimizer API.
 # This is intentionally separate from PR CI because it submits a billable
-# optimizer job against a pre-deployed smoke agent.
+# optimizer job against a pre-deployed smoke agent. Scheduled checks run locally
+# with castia observe drift; Azure credentials are not required in GitHub.
 on:
-  schedule:
-    - cron: "23 11 * * *"
   workflow_dispatch:
 
 permissions:

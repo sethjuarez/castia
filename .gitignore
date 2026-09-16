@@ -12,6 +12,7 @@ dist/
 
 # Virtual environments
 .venv/
+.wheel-venv/
 venv/
 env/
 
@@ -20,6 +21,9 @@ env/
 .ruff_cache/
 .mypy_cache/
 .pytype/
+
+# Local lifecycle evidence can contain private execution data
+.castia/
 
 # Environment / secrets
 .env

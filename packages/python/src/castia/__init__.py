@@ -4,44 +4,20 @@ Public surface:
 
     from castia import Agent, Teams, Message, Depends
 
-Everything else in this package is framework plumbing a customer never reads.
+Capability modules expose lower-level operations through explicit import paths.
 Importing this package is intentionally cheap (no instrumented SDK libraries) so
 telemetry can be configured before they load.
 """
 
 from __future__ import annotations
 
-from .application import PUBLISHABLE_PROTOCOLS, Agent, Router
-from .cards import (
-    Reaction,
-    action_chips,
-    adaptive_card,
-    decision_card,
-    suggested_actions,
+from castia.hosting.identity import (
+    AgenticIdentityError,
+    agentic_user_id,
+    require_agentic_user,
 )
-from .context import Turn, current_turn, current_turn_or_none
-from .dependencies import Depends
-from .entities import citation, mention_entity, sensitivity_label
-from .identity import AgenticIdentityError, agentic_user_id, require_agentic_user
-from .invokes import (
-    InvokeNames,
-    card_action,
-    card_invoke_response,
-    feedback_payload,
-    message_invoke_response,
-)
-from .messages import Message
-from .model import Model, get_model, use_model
-from .optimization import (
-    AgentConfig,
-    apply_optimized_tools,
-    configured_model,
-    load_agent_config,
-    tools_json,
-)
-from .streaming import Streamer
-from .surfaces import Teams
-from .toolbox import (
+from castia.inference.model import Model, get_model, use_model
+from castia.integrations.toolbox import (
     apply_optimized_toolbox_tools,
     compose_toolbox_endpoint,
     knowledge_base_mcp_tool,
@@ -50,7 +26,35 @@ from .toolbox import (
     toolbox_mcp_tool,
     toolbox_token,
 )
-from .tracing import OperationName, execute_tool, invoke_agent
+from castia.messaging.cards import (
+    Reaction,
+    action_chips,
+    adaptive_card,
+    decision_card,
+    suggested_actions,
+)
+from castia.messaging.entities import citation, mention_entity, sensitivity_label
+from castia.messaging.invokes import (
+    InvokeNames,
+    card_action,
+    card_invoke_response,
+    feedback_payload,
+    message_invoke_response,
+)
+from castia.messaging.messages import Message
+from castia.messaging.streaming import Streamer
+from castia.messaging.surfaces import Teams
+from castia.observe.tracing import OperationName, execute_tool, invoke_agent
+from castia.optimizing.config import (
+    AgentConfig,
+    apply_optimized_tools,
+    configured_model,
+    load_agent_config,
+    tools_json,
+)
+from castia.runtime.application import PUBLISHABLE_PROTOCOLS, Agent, Router
+from castia.runtime.context import Turn, current_turn, current_turn_or_none
+from castia.runtime.dependencies import Depends
 
 __all__ = [
     "PUBLISHABLE_PROTOCOLS",

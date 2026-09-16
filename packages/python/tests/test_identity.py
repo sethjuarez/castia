@@ -16,7 +16,7 @@ from castia import (
     agentic_user_id,
     require_agentic_user,
 )
-from castia.activity import Activity, ChannelAccount, RoleTypes
+from castia.protocols.activity import Activity, ChannelAccount, RoleTypes
 
 AGENT_USER_OID = "11111111-1111-1111-1111-111111111111"
 AGENT_APP_OID = "22222222-2222-2222-2222-222222222222"
