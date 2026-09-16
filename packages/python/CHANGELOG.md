@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/sethjuarez/castia/compare/python-v0.5.0...python-v0.6.0) (2026-09-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **python:** Legacy flat Python submodule imports were removed. Use the root public API or documented capability paths.
+
+### Features
+
+* **python:** complete agent lifecycle and organize SDK capabilities ([8ab56e4](https://github.com/sethjuarez/castia/commit/8ab56e454c6f6ca982616f3d377227b418f33308))
+
 ## [0.5.0](https://github.com/sethjuarez/castia/compare/python-v0.4.0...python-v0.5.0) (2026-09-10)
 
 
