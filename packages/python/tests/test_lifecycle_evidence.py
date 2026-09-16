@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from castia.finetune import validate_rft_splits
+from castia.finetuning.rft import validate_rft_splits
 from castia.lifecycle import (
     REFERENCE_ORIGINS,
     SCHEMA_VERSION,

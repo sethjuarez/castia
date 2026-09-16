@@ -11,7 +11,7 @@ as **Other**, exactly like an unset one.
 
 These helpers wrap a block of work in a correctly-shaped GenAI span so it reads
 as a first-class step in the portal. The model call already emits its own
-``chat`` span via the instrumentor enabled in :mod:`castia.observability`;
+``chat`` span via the instrumentor enabled in :mod:`castia.observe.configuration`;
 :func:`invoke_agent` gives that call an **Agent** parent, and
 :func:`execute_tool` labels a tool/function call **Tool**.
 
@@ -28,10 +28,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from opentelemetry import trace  # noqa: F401 -- compatibility module attribute
+from typing import Any
 
 #: ``gen_ai.provider.name`` / ``gen_ai.system`` value for Foundry-hosted models.
 #: Matches what the model call's own ``chat`` span carries, so parent and child
@@ -41,19 +38,10 @@ PROVIDER = "microsoft.foundry"
 _TRACER_NAME = "castia"
 
 
-def _trace_api():
-    # Preserve the patchable module attribute without loading OTel on import.
-    if "trace" not in globals():
-        from opentelemetry import trace
+def _get_tracer():
+    from opentelemetry import trace
 
-        globals()["trace"] = trace
-    return globals()["trace"]
-
-
-def __getattr__(name: str):
-    if name == "trace":
-        return _trace_api()
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return trace.get_tracer(_TRACER_NAME)
 
 
 class OperationName:
@@ -104,7 +92,7 @@ def invoke_agent(name: str | None = None, *, system: str = PROVIDER) -> Iterator
         "gen_ai.provider.name": system,
         **_identity_attributes(agent_name),
     }
-    tracer = _trace_api().get_tracer(_TRACER_NAME)
+    tracer = _get_tracer()
     with tracer.start_as_current_span(
         f"{OperationName.INVOKE_AGENT} {agent_name}", attributes=attributes
     ) as span:
@@ -124,7 +112,7 @@ def execute_tool(name: str, *, system: str = PROVIDER) -> Iterator[Any]:
         "gen_ai.provider.name": system,
         "gen_ai.tool.name": name,
     }
-    tracer = _trace_api().get_tracer(_TRACER_NAME)
+    tracer = _get_tracer()
     with tracer.start_as_current_span(
         f"{OperationName.EXECUTE_TOOL} {name}", attributes=attributes
     ) as span:

@@ -9,10 +9,10 @@ and uvicorn are cheap, uninstrumented imports, so pulling them here is safe).
 This replaces the old ``aiohttp`` + ``CloudAdapter`` + ``AgentApplication`` stack
 with plain FastAPI. The Activity protocol is handled directly:
 
-* parse the inbound Bot Framework Activity (:class:`castia.activity.Activity`),
+* parse the inbound Bot Framework Activity (:class:`castia.protocols.activity.Activity`),
 * route it to the first handler whose Teams-surface predicate matches,
 * run the handler and POST its reply out-of-band via
-  :func:`castia.connector.send_reply` (the connector chooses the reply
+  :func:`castia.messaging.connector.send_reply` (the connector chooses the reply
   identity by turn type),
 * return ``200`` -- always, so a handler error or an unsupported activity never
   becomes a platform-visible failure.
@@ -48,7 +48,7 @@ from castia.runtime.dispatch import (
     make_return_dispatch,
 )
 
-logger = logging.getLogger("castia.server")
+logger = logging.getLogger(__name__)
 # The root logger sits at WARNING, so INFO records (including the unknown-invoke
 # ack below) are dropped before the OTel handler can export them to App Insights.
 # Pin this module to INFO so invoke routing is observable in the traces table.

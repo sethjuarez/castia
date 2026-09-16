@@ -47,7 +47,7 @@ _FINAL = "final"
 class Streamer:
     """Drives one streamed reply for a single turn.
 
-    Create via :meth:`castia.messages.Message.stream`, then::
+    Create via :meth:`castia.messaging.messages.Message.stream`, then::
 
         s = msg.stream()
         await s.update("Thinking...")

@@ -53,7 +53,7 @@ async def _cite_source_impl(
     """Record a source citation on the turn; the framework folds it onto the reply.
 
     Does not send anything itself -- it accumulates a citation on the turn
-    context, which :func:`castia.context.decorate_message` stamps onto the
+    context, which :func:`castia.runtime.context.decorate_message` stamps onto the
     final answer message. Returns the ``[n]`` marker the model should weave into
     its answer text so the in-text reference lines up with the reference card.
     """

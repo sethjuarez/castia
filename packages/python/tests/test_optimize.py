@@ -1,4 +1,4 @@
-"""Unit tests for the optimizer-baseline generator (``castia.optimize``).
+"""Unit tests for the optimizer-baseline generator (``castia.optimizing.baseline``).
 
 Hermetic: builds an Agent in-memory and reconciles a temp ``.agent_configs``
 directory. Proves drift detection (missing/stale ``tools.json`` and the
@@ -11,9 +11,9 @@ from __future__ import annotations
 import json
 
 from castia import Agent
-from castia.optimize import generate_optimizer_config
-from castia.toolbox import toolbox_mcp_tool
-from castia.tools import Tool
+from castia.inference.tools import Tool
+from castia.integrations.toolbox import toolbox_mcp_tool
+from castia.optimizing.baseline import generate_optimizer_config
 
 
 def _tool(name: str) -> Tool:

@@ -10,7 +10,7 @@ cannot give cleanly:
   sensitivity banner, feedback buttons, importance -- as the turn runs, so the
   framework can fold them onto whatever message finally answers the user, whether
   that message comes from ``return "text"`` (the connector's :func:`send_reply`)
-  or from an explicit :meth:`castia.messages.Message.say`.
+  or from an explicit :meth:`castia.messaging.messages.Message.say`.
 
 This is the FastAPI ``Request`` pattern done with a :class:`contextvars.ContextVar`:
 the server opens a :func:`turn_scope` around the whole inbound handling (dispatch
@@ -18,7 +18,7 @@ the server opens a :func:`turn_scope` around the whole inbound handling (dispatc
 impl -- can call :func:`current_turn` to read identity or record a decoration.
 The contextvar is task-local, so concurrent turns never see each other's context.
 
-Kept dependency-light (the entity builders in :mod:`castia.entities` are pure;
+Kept dependency-light (the entity builders in :mod:`castia.messaging.entities` are pure;
 the ``Activity`` import is type-checking only) so importing it stays cheap.
 """
 
@@ -46,7 +46,7 @@ class Turn:
     Held in a contextvar for the duration of one inbound turn. ``activity`` is the
     parsed inbound turn (identity + conversation). The remaining fields are the
     decorations folded onto the answer message when it is sent; a handler sets
-    them directly, via :meth:`castia.messages.Message.say` keywords, or -- for
+    them directly, via :meth:`castia.messaging.messages.Message.say` keywords, or -- for
     citations -- via the model calling the ``cite_source`` tool.
     """
 

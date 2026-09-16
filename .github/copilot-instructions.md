@@ -31,9 +31,10 @@ flow.
 - Keep `import castia` cheap: heavy Azure/OpenAI imports stay lazy, inside the
   methods that need them.
 - Put implementation code in the capability packages listed in
-  `packages/python/README.md`. The old flat modules are compatibility aliases;
-  internal imports use canonical capability paths. Keep CLI handlers beside
-  their capability and preserve module identity for legacy patch targets.
+  `packages/python/README.md`. Keep only `__init__.py`, `__main__.py`, and
+  `py.typed` at the source root, alongside capability folders. Use canonical
+  imports without legacy aliases or redirects. Keep CLI handlers beside their
+  capability.
 - Shared schemas and behavioral fixtures belong in `spec/`. Typra generation
   is not configured yet. Keep future generated types separate from handwritten
   behavior and host adapters; data-model parity alone is not runtime parity.

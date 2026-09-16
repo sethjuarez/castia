@@ -1,16 +1,16 @@
-"""Hermetic unit tests for :mod:`castia.toolbox`.
+"""Hermetic unit tests for :mod:`castia.integrations.toolbox`.
 
 All pure builders -- no network, no real credential. Exercises endpoint
 resolution precedence, the ``mcp`` tool spec shape, auth folding (bearer header
 vs. ``project_connection_id``), and the Foundry IQ knowledge-base variant. The
-one impure seam (:func:`castia.toolbox.toolbox_token`) is not called here.
+one impure seam (:func:`castia.integrations.toolbox.toolbox_token`) is not called here.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from castia.toolbox import (
+from castia.integrations.toolbox import (
     AI_FOUNDRY_SCOPE,
     OPTIMIZER_TOOL_DEFINITIONS_KEY,
     compose_toolbox_endpoint,

@@ -11,8 +11,8 @@ import pytest
 from ruamel.yaml import YAML
 
 from castia.building import AgentTestHarness, preflight, scaffold_project
-from castia.evalsuite import load_suite, validate_suite
-from castia.optimize import generate_optimizer_config
+from castia.evaluation.suite import load_suite, validate_suite
+from castia.optimizing.baseline import generate_optimizer_config
 
 
 def load_main(root):

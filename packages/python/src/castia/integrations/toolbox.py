@@ -14,7 +14,7 @@ your code owns the tool loop -- so the way a toolbox reaches this agent is:
    selector -- there is no separate picker).
 3. This module reads it at startup and turns it into a single Responses-API
    ``mcp`` tool spec, which the model service resolves **server-side** within a
-   turn. Unlike :mod:`castia.tools` function tools, a toolbox tool needs no
+   turn. Unlike :mod:`castia.inference.tools` function tools, a toolbox tool needs no
    local impl -- the toolbox runs the tool and the model folds the result in.
 
 Server-side ``mcp`` specs do not declare each federated tool as a local
@@ -24,7 +24,7 @@ steer tool choice, and the OpenAI Responses MCP schema exposes
 ``descriptions`` map (and optional ``param_guidance``) when you need local
 post-facto wording for selected toolbox tools. The map is folded into
 ``server_description`` for runtime steering and into a private optimizer sidecar
-that :mod:`castia.optimize` serializes to ``tools.json``. This keeps the
+that :mod:`castia.optimizing.baseline` serializes to ``tools.json``. This keeps the
 validated server-side toolbox call path while making selected federated tools
 eligible for Foundry Agent Optimizer description rewrites. Because the builder
 is offline and cannot list a remote toolbox, overrides require ``allowed_tools``
@@ -49,7 +49,7 @@ Env forms are supported in this precedence (see :func:`resolve_toolbox_endpoint`
 
 The builders here are **pure** (offline-testable); :func:`toolbox_token` is the
 one impure seam -- it mints an Entra token for the toolbox audience from the
-container's managed identity, mirroring :func:`castia.credentials.bot_connector_token`.
+container's managed identity, mirroring :func:`castia.hosting.credentials.bot_connector_token`.
 
 .. note::
    Validated live (hal ``hello-world-autopilot`` v40, 2026-09-09): the Responses
@@ -221,7 +221,7 @@ def toolbox_mcp_tool(
     if token:
         # Concatenate rather than interpolate: the workspace secret-redaction
         # filter rewrites an interpolated-bearer literal on save. See
-        # castia.credentials.bearer for the same guard.
+        # castia.hosting.credentials.bearer for the same guard.
         merged["Authorization"] = "Bearer " + token
     if headers:
         merged.update(headers)
@@ -489,7 +489,7 @@ async def toolbox_token(scope: str = AI_FOUNDRY_SCOPE) -> str:
     The hosted agent authenticates to its toolbox as its own Entra identity;
     :class:`~azure.identity.aio.DefaultAzureCredential` resolves the container's
     managed identity in Foundry (and a developer login locally). Mirrors
-    :func:`castia.credentials.bot_connector_token`. Impure (network) -- kept
+    :func:`castia.hosting.credentials.bot_connector_token`. Impure (network) -- kept
     out of the unit-tested builders above.
     """
     from azure.identity.aio import DefaultAzureCredential

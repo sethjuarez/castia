@@ -1,4 +1,4 @@
-"""Keep capability ownership and the pre-reorganization import surface intact."""
+"""Keep the package root clean and enforce canonical capability imports."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import pytest
 
 import castia
 
-MODULE_ALIASES = {
+MODULE_PATHS = {
     "activity": "protocols.activity",
     "activity_routing": "messaging.routing",
     "application": "runtime.application",
@@ -96,36 +96,29 @@ def _python(code: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-@pytest.mark.parametrize(("legacy", "canonical"), MODULE_ALIASES.items())
-def test_legacy_modules_are_live_aliases(legacy, canonical, monkeypatch):
-    old = importlib.import_module(f"castia.{legacy}")
+@pytest.mark.parametrize(("removed", "canonical"), MODULE_PATHS.items())
+def test_only_canonical_modules_exist(removed, canonical):
     new = importlib.import_module(f"castia.{canonical}")
-    assert old is new
-    assert getattr(castia, legacy) is new
     assert Path(new.__file__).resolve() == PACKAGE_ROOT.joinpath(
         *canonical.split(".")
     ).with_suffix(".py")
-
-    marker = object()
-    monkeypatch.setattr(f"castia.{legacy}._architecture_probe", marker, raising=False)
-    assert new._architecture_probe is marker
-    replacement = object()
-    monkeypatch.setattr(new, "_architecture_probe", replacement)
-    assert old._architecture_probe is replacement
+    assert importlib.util.find_spec(f"castia.{removed}") is None
+    assert removed not in vars(castia)
+    with pytest.raises(ModuleNotFoundError) as error:
+        importlib.import_module(f"castia.{removed}")
+    assert error.value.name == f"castia.{removed}"
 
 
-@pytest.mark.parametrize("canonical_first", [False, True])
-def test_module_aliases_work_in_either_import_order(canonical_first):
+def test_fresh_process_has_no_legacy_module_aliases():
     _python(
         "import importlib, json, sys\n"
-        f"aliases = json.loads({json.dumps(MODULE_ALIASES)!r})\n"
-        "for legacy, canonical in aliases.items():\n"
+        f"paths = json.loads({json.dumps(MODULE_PATHS)!r})\n"
+        "for legacy, canonical in paths.items():\n"
         "    old_name, new_name = 'castia.' + legacy, 'castia.' + canonical\n"
-        f"    names = (new_name, old_name) if {canonical_first!r} else (old_name, new_name)\n"
-        "    first, second = (importlib.import_module(name) for name in names)\n"
-        "    assert first is second, names\n"
-        "    assert sys.modules[old_name] is sys.modules[new_name], names\n"
-        "    assert getattr(sys.modules['castia'], legacy) is second, names\n"
+        "    importlib.import_module(new_name)\n"
+        "    assert old_name not in sys.modules, old_name\n"
+        "    assert importlib.util.find_spec(old_name) is None, old_name\n"
+        "    assert legacy not in vars(sys.modules['castia']), old_name\n"
     )
 
 
@@ -139,20 +132,20 @@ def test_public_exports_keep_their_identity():
 
 
 @pytest.mark.parametrize(
-    ("legacy", "name"),
+    ("module", "name"),
     [
-        ("activity", "Activity"),
-        ("application", "Agent"),
-        ("dependencies", "Depends"),
-        ("model", "Model"),
-        ("optimization", "AgentConfig"),
+        ("protocols.activity", "Activity"),
+        ("runtime.application", "Agent"),
+        ("runtime.dependencies", "Depends"),
+        ("inference.model", "Model"),
+        ("optimizing.config", "AgentConfig"),
     ],
 )
-def test_old_pickled_global_references_still_resolve(legacy, name):
-    reference = f"ccastia.{legacy}\n{name}\n.".encode("ascii")
-    resolved = pickle.loads(reference)
-    canonical = importlib.import_module(f"castia.{MODULE_ALIASES[legacy]}")
-    assert resolved is getattr(canonical, name)
+def test_pickled_globals_use_canonical_modules(module, name):
+    canonical = importlib.import_module(f"castia.{module}")
+    value = getattr(canonical, name)
+    assert value.__module__ == f"castia.{module}"
+    assert pickle.loads(pickle.dumps(value)) is value
 
 
 def test_root_import_does_not_load_host_clients_or_cli():
@@ -175,25 +168,17 @@ def test_root_import_does_not_load_host_clients_or_cli():
     ]
 
 
-def test_root_modules_are_only_public_entrypoints_and_compatibility():
-    allowed = set(MODULE_ALIASES) | {"__init__", "__main__", "_compat"}
-    unexpected = {path.stem for path in PACKAGE_ROOT.glob("*.py")} - allowed
-    assert not unexpected, f"Place implementation in a capability package: {unexpected}"
-    for legacy in MODULE_ALIASES:
-        tree = ast.parse((PACKAGE_ROOT / f"{legacy}.py").read_text(encoding="utf-8"))
-        assert not any(
-            isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-            for node in ast.walk(tree)
-        ), f"Compatibility module {legacy} contains implementation"
+def test_root_contains_only_entrypoints_and_type_marker():
+    assert {path.name for path in PACKAGE_ROOT.iterdir() if path.is_file()} == {
+        "__init__.py", "__main__.py", "py.typed",
+    }
 
 
 def test_implementation_imports_use_capability_paths():
-    legacy_modules = {f"castia.{name}" for name in MODULE_ALIASES}
+    legacy_modules = {f"castia.{name}" for name in MODULE_PATHS}
     violations = []
     for path in PACKAGE_ROOT.rglob("*.py"):
         relative = path.relative_to(PACKAGE_ROOT)
-        if len(relative.parts) == 1 and path.stem in MODULE_ALIASES:
-            continue
         parts = relative.with_suffix("").parts
         package = ".".join(("castia", *parts[:-1]))
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -236,4 +221,6 @@ def test_protocol_models_do_not_depend_on_host_implementations():
             for target in targets:
                 assert target.split(".")[0] not in forbidden, (relative, target)
                 if target == "castia" or target.startswith("castia."):
-                    assert target.startswith("castia.protocols"), (relative, target)
+                    assert target == "castia.protocols" or target.startswith(
+                        "castia.protocols."
+                    ), (relative, target)

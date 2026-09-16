@@ -1,4 +1,4 @@
-"""Unit tests for the optimizer config bridge (``castia.optimization``).
+"""Unit tests for the optimizer config bridge (``castia.optimizing.config``).
 
 ``load_agent_config`` is best-effort and non-fatal: it prefers the optimizer's
 ``load_config()`` resolution but degrades to environment defaults whenever the
@@ -15,7 +15,7 @@ from __future__ import annotations
 import sys
 import types
 
-from castia.optimization import AgentConfig, configured_model, load_agent_config
+from castia.optimizing.config import AgentConfig, configured_model, load_agent_config
 
 _OPT_MODULE = "azure.ai.agentserver.optimization"
 
@@ -149,7 +149,7 @@ def test_configured_model_threads_model_instructions_and_tools(monkeypatch):
             captured["instructions"] = instructions
             captured["tool_definitions"] = tool_definitions
 
-    monkeypatch.setattr("castia.model.Model", _FakeModel)
+    monkeypatch.setattr("castia.inference.model.Model", _FakeModel)
     defs = ({"function": {"name": "search", "description": "Search."}},)
     provider = configured_model(AgentConfig("gpt-4o", "be nice", "local", defs))
     model = provider()

@@ -18,10 +18,10 @@ it is entirely determined by the inbound turn:
   the conversation roster participant is the agent's *agentic user*, not the bot
   app. A bot-app token is answered ``403 BotNotInConversationRoster``, so the
   call must carry a **delegated agentic-user** token for the Agent 365 APX
-  audience (:data:`~castia.credentials.APX_PRODUCTION_SCOPE`), minted via the
+  audience (:data:`~castia.hosting.credentials.APX_PRODUCTION_SCOPE`), minted via the
   ``user_fic`` chain.
 * **Bot turn** (hosted, non-agentic): an app token pinned to the Azure Bot's
-  ``msaAppId`` (:func:`~castia.credentials.bot_connector_token`).
+  ``msaAppId`` (:func:`~castia.hosting.credentials.bot_connector_token`).
 * **Local run** (``azd ai agent run`` / M365 Agents Playground): the emulator
   accepts an anonymous call, so no ``Authorization`` header is sent.
 
@@ -56,7 +56,7 @@ from castia.protocols.activity import Activity
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-logger = logging.getLogger("castia.connector")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

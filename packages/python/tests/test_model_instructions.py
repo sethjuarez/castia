@@ -16,8 +16,8 @@ from typing import ClassVar
 
 import pytest
 
-from castia.model import Model, _instructions_param, _reasoning_param
-from castia.toolbox import toolbox_mcp_tool
+from castia.inference.model import Model, _instructions_param, _reasoning_param
+from castia.integrations.toolbox import toolbox_mcp_tool
 
 
 class _Response:

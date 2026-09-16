@@ -44,11 +44,16 @@ Implementation code lives in capability packages under `src/castia`.
 Each command family keeps its CLI handlers beside its implementation.
 `__main__.py` composes those commands.
 
-The old flat module names remain compatibility modules. For example,
-`castia.model` resolves to the same module as `castia.inference.model`, and
-`castia.optimizer` resolves to `castia.optimizing.jobs`. Existing imports and
-patch targets keep working. New implementation code imports the capability
-modules directly; the compatibility modules contain no business logic.
+The package root contains only `__init__.py`, `__main__.py`, and `py.typed`,
+alongside the capability folders. Implementation imports use their canonical
+paths, such as `castia.inference.model` and `castia.optimizing.jobs`.
+There are no compatibility modules or import redirects.
+
+The former flat submodule paths have been removed. Change
+`from castia.model import Model` to `from castia import Model` or
+`from castia.inference.model import Model`. The root public API and CLI commands
+remain unchanged. Logger categories follow the canonical module names.
+The [tracing guide](TRACING.md) lives with the package documentation.
 
 Shared protocol definitions and behavioral fixtures belong in
 [`../../spec`](../../spec). These Python modules are handwritten today.

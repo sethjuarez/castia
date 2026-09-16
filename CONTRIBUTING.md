@@ -3,10 +3,10 @@
 ## Where code belongs
 
 Use the Python [capability packages](packages/python/README.md#package-organization)
-for implementation changes. The flat modules directly under `src/castia` are
-compatibility imports; do not add behavior there. Internal imports use the
-capability paths. Keep public imports working, including module identity for
-callers that patch dependencies.
+for implementation changes. Keep the source root limited to `__init__.py`,
+`__main__.py`, and `py.typed`, alongside capability folders. Internal imports use
+the capability paths. Keep the short public API in `castia.__init__`; do not add
+legacy aliases or import redirects.
 
 Keep CLI handlers with their capability. The root CLI only composes commands.
 Keep Azure/OpenAI imports at the operation that needs them so importing the
@@ -18,10 +18,10 @@ separate from handwritten code. Runtime adapters own credentials, HTTP clients,
 storage, and local process execution. Every new SDK must exercise the same
 behavioral fixtures; matching generated fields does not prove runtime parity.
 
-Run the Python tests after moving modules. The architecture tests cover both
-import paths, patch propagation, public exports, and imports that must stay
-lazy. Build the distribution as well so module moves do not leave files out of
-the installed package.
+Run the Python tests after moving modules. The architecture tests enforce the
+clean root, canonical imports, public exports, and imports that must stay lazy.
+Build the distribution as well so module moves do not leave files out of the
+installed package.
 
 ## Commit messages: Conventional Commits (required)
 

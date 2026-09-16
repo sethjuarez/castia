@@ -31,7 +31,8 @@ release tags are **per language** (e.g. `python-v0.1.0`), not repo-wide.
 Within the Python SDK, implementation code is grouped by capability, from
 protocols and hosting through evaluation and delivery. The
 [package map](packages/python/README.md#package-organization) lists the owners.
-Existing application imports remain compatible.
+The short public API remains unchanged; lower-level imports use the capability
+paths.
 
 The [spec guide](spec/README.md) separates shared data and behavior from runtime
 adapters. Typra generation is future work; the current Python implementation is

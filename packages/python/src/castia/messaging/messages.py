@@ -40,7 +40,7 @@ class Message:
         """The agent's own mailbox identity for this turn, or ``None``.
 
         Populated only when the turn runs as the agent's Agentic-User (see
-        :func:`castia.identity.agentic_user_id`).
+        :func:`castia.hosting.identity.agentic_user_id`).
         """
         return agentic_user_id(self._activity)
 
@@ -48,7 +48,7 @@ class Message:
         """Return the agent's agentic user id, or raise ``AgenticIdentityError``.
 
         Fail-fast gate for acting as the agent itself (e.g. sending mail). See
-        :func:`castia.identity.require_agentic_user`.
+        :func:`castia.hosting.identity.require_agentic_user`.
         """
         return require_agentic_user(self._activity)
 
@@ -72,21 +72,21 @@ class Message:
     ) -> str | None:
         """Send a reply to the conversation, optionally with a card / actions.
 
-        Pass ``attachments`` from :func:`castia.cards.adaptive_card` and
-        ``suggestions`` from :func:`castia.cards.suggested_actions`. The reply
+        Pass ``attachments`` from :func:`castia.messaging.cards.adaptive_card` and
+        ``suggestions`` from :func:`castia.messaging.cards.suggested_actions`. The reply
         *decoration* keywords stamp message-level metadata Teams renders around
-        the answer (see :mod:`castia.entities`):
+        the answer (see :mod:`castia.messaging.entities`):
 
         * ``ai_generated`` -- show the "AI generated" label.
-        * ``citations`` -- a list from :func:`castia.entities.citation` (or
+        * ``citations`` -- a list from :func:`castia.messaging.entities.citation` (or
           accumulated via the ``cite_source`` tool / :meth:`Turn.cite`); referenced
           as ``[n]`` markers in ``text``.
         * ``sensitivity`` -- a banner from
-          :func:`castia.entities.sensitivity_label`.
+          :func:`castia.messaging.entities.sensitivity_label`.
         * ``feedback`` -- ``"default"`` or ``"custom"`` to add thumbs up/down.
         * ``importance`` -- ``"high"`` / ``"urgent"`` to flag the message.
         * ``entities`` -- raw extra entities (e.g. an
-          :func:`castia.entities.mention_entity`) with a matching ``<at>``
+          :func:`castia.messaging.entities.mention_entity`) with a matching ``<at>``
           tag in ``text``.
 
         Any decoration accumulated on the turn (e.g. citations from a tool) is
@@ -149,7 +149,7 @@ class Message:
         return await delete_activity(self._activity, activity_id)
 
     def stream(self, *, min_interval: float = 0.75) -> Streamer:
-        """Open a live-typing :class:`~castia.streaming.Streamer` for this turn.
+        """Open a live-typing :class:`~castia.messaging.streaming.Streamer` for this turn.
 
         The handler drives it and returns ``None`` so the server does not also
         send a reply::

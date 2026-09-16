@@ -2,7 +2,7 @@
 
 Two small builders that return plain wire dicts, so a handler can hand the
 framework something richer than a text string without importing the Teams SDK's
-card object model. Both are consumed by :meth:`castia.messages.Message.say`
+card object model. Both are consumed by :meth:`castia.messaging.messages.Message.say`
 (and the streamer's ``finish``) via the ``attachments`` / ``suggestedActions``
 fields of a Bot Framework message activity.
 
@@ -24,7 +24,7 @@ class Reaction:
     ``reactionType`` is an open string on the wire, so any Teams reaction id
     works; these are the common ones (the classic six plus a few of the extended
     emoji ids used in the SDK's own examples). Pass any of these -- or a raw id
-    string -- to :meth:`castia.messages.Message.react`.
+    string -- to :meth:`castia.messaging.messages.Message.react`.
     """
 
     like = "like"
@@ -145,7 +145,7 @@ def decision_card(
     stale -- these buttons are ``Action.Execute`` and carry a ``verb``. A tap
     fires an ``adaptiveCard/action`` *invoke* (request/response), so the bot's
     ``@router.invoke(InvokeNames.adaptive_card_action)`` handler can return a
-    replacement card (:func:`castia.invokes.card_invoke_response`) and the
+    replacement card (:func:`castia.messaging.invokes.card_invoke_response`) and the
     card mutates in place to a terminal state. That is the proper fix for stale
     action cards: once resolved, the buttons are gone.
 

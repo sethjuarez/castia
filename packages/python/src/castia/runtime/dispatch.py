@@ -8,8 +8,8 @@ posts it back through the connector; a wire route puts it in the HTTP body). The
 handler itself stays an ordinary function -- the decorator returns it unchanged.
 
 There is no SDK ``TurnContext`` anymore: an activity handler receives the parsed
-:class:`castia.activity.Activity` (directly, or wrapped as a
-:class:`castia.messages.Message`) and the message text. Imported by ``server``
+:class:`castia.protocols.activity.Activity` (directly, or wrapped as a
+:class:`castia.messaging.messages.Message`) and the message text. Imported by ``server``
 only after telemetry is configured.
 """
 
@@ -83,8 +83,8 @@ def make_invoke_dispatch(func: Handler) -> InvokeDispatch:
     than the message text, since that is what an invoke handler acts on.
 
     Return an invoke-response body (build one with
-    :func:`castia.invokes.card_invoke_response` /
-    :func:`castia.invokes.message_invoke_response`) or ``None`` for an empty
+    :func:`castia.messaging.invokes.card_invoke_response` /
+    :func:`castia.messaging.invokes.message_invoke_response`) or ``None`` for an empty
     ``200`` ack (e.g. acknowledging a feedback submission).
     """
     parameters = list(inspect.signature(func).parameters.values())

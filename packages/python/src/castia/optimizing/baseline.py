@@ -11,7 +11,7 @@ and so can silently drift from what the agent actually serves:
 * ``metadata.yaml``'s ``tool_file`` pointer -- must reference ``tools.json`` for
   the optimizer to load it.
 
-Like :mod:`castia.deploy`, this is a pure build-time reconciler: it reads the
+Like :mod:`castia.delivery.manifest`, this is a pure build-time reconciler: it reads the
 composed :class:`~castia.Agent`, computes the desired baseline assets, and
 either writes them or (``check=True``) reports drift for CI. It never runs the
 agent or touches Azure. The human-authored parts of the baseline (``model``,

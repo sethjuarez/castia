@@ -13,19 +13,19 @@ from unittest import mock
 
 import pytest
 
-from castia import observability
+from castia.observe import configuration as observability
 
 _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
 
 
 @pytest.mark.parametrize("helper", ["invoke_agent", "execute_tool"])
-def test_lazy_trace_api_preserves_legacy_monkeypatches(helper):
-    from castia import tracing
+def test_operation_spans_use_trace_api(helper):
+    from castia.observe import tracing
 
     api = mock.MagicMock()
     expected = api.get_tracer.return_value.start_as_current_span.return_value.__enter__.return_value
-    with mock.patch("castia.tracing.trace", api), getattr(tracing, helper)("example") as span:
+    with mock.patch("opentelemetry.trace.get_tracer", api.get_tracer), getattr(tracing, helper)("example") as span:
         assert span is expected
 
     api.get_tracer.assert_called_once_with("castia")

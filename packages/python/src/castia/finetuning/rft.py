@@ -1,8 +1,8 @@
 """Reinforcement fine-tuning (RFT) tooling -- the last lifecycle step.
 
 The agent lifecycle is *build -> evaluate -> optimize -> switch models*. The
-first three are covered by the model runtime, :mod:`castia.evalsuite`, and
-:mod:`castia.optimize`. This module is the fourth: it prepares and (behind one
+first three are covered by the model runtime, :mod:`castia.evaluation.suite`, and
+:mod:`castia.optimizing.baseline`. This module is the fourth: it prepares and (behind one
 guarded seam) submits a **reinforcement fine-tuning** job that mints a new,
 stronger *reasoning-model* deployment. That deployment then becomes a candidate
 in the optimizer's ``model_search_space`` -- i.e. "switch models via RFT" is
@@ -227,7 +227,7 @@ def rubric_to_score_model(
     """Bridge an eval **rubric** into a ``score_model`` RFT grader.
 
     The eval rubric (``id`` / ``description`` / ``weight`` dimensions from
-    :func:`castia.evalsuite.read_rubric`) and the RFT grader are different
+    :func:`castia.evaluation.suite.read_rubric`) and the RFT grader are different
     shapes, but a rubric is exactly a weighted judging spec -- so it maps cleanly
     onto an LLM-judge (``score_model``) grader. Each dimension becomes a weighted
     line in the judge's system prompt; the judge returns a single weighted score
@@ -508,7 +508,7 @@ def build_rft_job(
 def _openai_client(endpoint: str | None = None):
     """Build the Foundry-backed OpenAI client (deferred import, impure).
 
-    Mirrors :class:`castia.model.Model`'s auth path so submission runs as the
+    Mirrors :class:`castia.inference.model.Model`'s auth path so submission runs as the
     same identity. Raises a clean error when the project endpoint is unset.
     """
     resolved = endpoint or os.environ.get("FOUNDRY_PROJECT_ENDPOINT")

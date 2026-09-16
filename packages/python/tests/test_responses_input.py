@@ -12,7 +12,7 @@ silently reintroduces the string-only assumption.
 
 from __future__ import annotations
 
-from castia.server import _responses_input
+from castia.hosting.server import _responses_input
 
 
 def test_plain_string_passthrough() -> None:

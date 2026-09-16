@@ -4,7 +4,7 @@ Public surface:
 
     from castia import Agent, Teams, Message, Depends
 
-Everything else in this package is framework plumbing a customer never reads.
+Capability modules expose lower-level operations through explicit import paths.
 Importing this package is intentionally cheap (no instrumented SDK libraries) so
 telemetry can be configured before they load.
 """

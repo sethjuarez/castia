@@ -1,4 +1,4 @@
-"""Pure, offline tests for the eval-suite tooling (:mod:`castia.evalsuite`).
+"""Pure, offline tests for the eval-suite tooling (:mod:`castia.evaluation.suite`).
 
 No Azure, no credentials, no ``azd``: the argv builders are pure, ``read_rubric``
 / ``validate_suite`` are filesystem-only, and the one impure seam (``run_azd``)
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from castia import evalsuite
-from castia.evalsuite import (
+from castia.evaluation import suite as evalsuite
+from castia.evaluation.suite import (
     build_generate_argv,
     build_run_argv,
     build_update_argv,

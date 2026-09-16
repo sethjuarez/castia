@@ -27,7 +27,7 @@ def activity(**changes):
 
 
 def test_real_wire_endpoints_and_strict_isolated_overrides():
-    from castia import dependencies
+    from castia.runtime import dependencies
 
     def production():
         pytest.fail("Real dependency must not run")
@@ -80,7 +80,7 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
 
 
 def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
-    from castia import connector
+    from castia.messaging import connector
 
     async def forbidden(*args, **kwargs):
         pytest.fail("Connector authentication must not run")
@@ -165,7 +165,9 @@ def test_failing_connector_is_captured_not_reported_as_success():
 def test_restoration_and_generator_cleanup_even_on_failure(failure):
     from opentelemetry import trace
 
-    from castia import connector, dispatch, observability
+    from castia.messaging import connector
+    from castia.observe import configuration as observability
+    from castia.runtime import dispatch
 
     original = (
         connector._send, connector.authorization, dispatch.resolve,
@@ -234,7 +236,7 @@ def test_entry_failure_cleanup_and_overlap_rejected():
 
 
 def test_network_and_subprocess_disabled_and_telemetry_not_flushed(monkeypatch):
-    from castia import dispatch
+    from castia.runtime import dispatch
 
     def forbidden():
         pytest.fail("telemetry flush attempted")
@@ -264,7 +266,7 @@ def test_network_and_subprocess_disabled_and_telemetry_not_flushed(monkeypatch):
 
 
 def test_sync_fixture_and_async_override_teardown_errors_restore_patches():
-    from castia import dispatch
+    from castia.runtime import dispatch
 
     original = dispatch.resolve
     events = []

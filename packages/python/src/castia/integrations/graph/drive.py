@@ -1,9 +1,9 @@
 """Experimental: create a document on the agent's own Agentic-User OneDrive.
 
-Sibling to :mod:`castia.mail`. Same auth path -- **no MCP** -- a direct
+Sibling to :mod:`castia.integrations.graph.mail`. Same auth path -- **no MCP** -- a direct
 Microsoft Graph REST call. On a turn that carries the agent's Agentic-User
 identity, we mint a *delegated* Graph token (the ``user_fic`` chain in
-:mod:`castia.credentials`) and ``PUT`` file content into the agent's own
+:mod:`castia.hosting.credentials`) and ``PUT`` file content into the agent's own
 OneDrive (``/me/drive/root:/{path}:/content``). Needs the ``Files.ReadWrite``
 delegated scope to be among the blueprint's consented permissions.
 

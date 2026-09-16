@@ -1,6 +1,6 @@
 """Activity selectors for the Microsoft Teams surfaces supported by this agent.
 
-Each selector is a plain predicate over the hand-rolled :class:`castia.activity.Activity`
+Each selector is a plain predicate over the hand-rolled :class:`castia.protocols.activity.Activity`
 (no SDK ``TurnContext`` wrapper anymore -- the server calls these directly on the
 parsed inbound activity). A surface is a message on the ``msteams`` channel of a
 particular conversation type; the channel mention surface additionally requires

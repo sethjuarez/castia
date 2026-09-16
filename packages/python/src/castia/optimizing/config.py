@@ -26,7 +26,7 @@ The optimizer's on-disk contract (``.agent_configs/<candidate>/``):
 
 Tool descriptions are an optimizer target only when a ``tools.json`` is present:
 :func:`apply_optimized_tools` folds any rewritten descriptions back onto the
-agent's :class:`~castia.tools.Tool` list by name.
+agent's :class:`~castia.inference.tools.Tool` list by name.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from castia.inference.model import Model
     from castia.inference.tools import Tool
 
-_logger = logging.getLogger("castia.optimization")
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -174,7 +174,7 @@ def apply_optimized_tools(
     The optimizer may rewrite tool (and tool-parameter) descriptions as a
     distinct optimization target from the system prompt. Its ``tools.json``
     entries are in nested OpenAI form (``{"type":"function","function":{...}}``);
-    for each entry whose ``function.name`` matches a :class:`~castia.tools.Tool`
+    for each entry whose ``function.name`` matches a :class:`~castia.inference.tools.Tool`
     we return a **new** tool (``Tool`` is deliberately frozen/immutable) carrying
     the rewritten ``description`` and any rewritten parameter descriptions.
     Tools with no matching definition pass through unchanged, so an empty or
@@ -293,7 +293,7 @@ def configured_model(
 
     Drop-in for :func:`castia.get_model` that threads the baseline (or
     optimizer-injected candidate) ``model`` + ``instructions`` + tool-definition
-    rewrites into every :class:`~castia.model.Model` it builds, so an optimized
+    rewrites into every :class:`~castia.inference.model.Model` it builds, so an optimized
     prompt or toolbox description takes effect without any handler change::
 
         from castia import Depends, Model, configured_model

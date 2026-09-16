@@ -93,7 +93,7 @@ class Model:
 
         Opens the Responses API in streaming mode and yields each
         ``response.output_text.delta`` as it arrives, so a handler can feed a
-        :class:`~castia.streaming.Streamer` and let Teams render the reply
+        :class:`~castia.messaging.streaming.Streamer` and let Teams render the reply
         being typed live::
 
             s = msg.stream()
@@ -123,7 +123,7 @@ class Model:
         max_iterations: int = 4,
         extra_specs: list[dict] | None = None,
     ) -> str:
-        """Answer ``text`` letting the model call outbound :class:`~castia.tools.Tool` s.
+        """Answer ``text`` letting the model call outbound :class:`~castia.inference.tools.Tool` s.
 
         Runs the Responses-API tool loop: offer the tool specs, execute any
         function calls the model emits (each wrapped in an ``execute_tool`` span,
@@ -133,7 +133,7 @@ class Model:
         is returned to the model as the tool output rather than raising.
 
         ``extra_specs`` appends raw tool specs the model resolves **server-side**
-        (e.g. a Foundry-toolbox ``mcp`` tool from :mod:`castia.toolbox`); they
+        (e.g. a Foundry-toolbox ``mcp`` tool from :mod:`castia.integrations.toolbox`); they
         carry no local impl and are ignored by the ``function_call`` loop.
         """
         import json

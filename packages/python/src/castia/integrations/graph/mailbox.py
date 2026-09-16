@@ -1,6 +1,6 @@
 """Experimental: read the agent's own mailbox via Microsoft Graph.
 
-The receive-side counterpart to :mod:`castia.mail`. On a turn carrying the
+The receive-side counterpart to :mod:`castia.integrations.graph.mail`. On a turn carrying the
 agent's Agentic-User identity we mint a *delegated* Microsoft Graph token for the
 agent's own mailbox and ``GET /me/messages`` -- proving the agent can not only
 send but also *receive* mail. **No MCP**: a direct Graph REST call.

@@ -15,11 +15,11 @@ Bot Framework message activity:
 * ``channelData`` -- the ``feedbackLoop`` toggle for the thumbs up/down buttons.
 * the activity's top-level ``importance`` field.
 
-Like :mod:`castia.cards`, everything here is pure wire-dict construction -- no
+Like :mod:`castia.messaging.cards`, everything here is pure wire-dict construction -- no
 network, no Azure, safe to import anywhere. The framework folds these onto the
-outgoing message via :func:`castia.context.decorate_message`; a handler rarely
+outgoing message via :func:`castia.runtime.context.decorate_message`; a handler rarely
 calls these directly (it passes ``ai_generated=``/``citations=``/... to
-:meth:`castia.messages.Message.say`), but they are public so a handler can
+:meth:`castia.messaging.messages.Message.say`), but they are public so a handler can
 build an entity by hand when it needs to.
 
 Schemas mirror the Teams "AI-generated content" contract:

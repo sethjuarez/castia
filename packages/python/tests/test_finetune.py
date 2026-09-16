@@ -1,4 +1,4 @@
-"""Unit tests for the RFT tooling (``castia.finetune``).
+"""Unit tests for the RFT tooling (``castia.finetuning.rft``).
 
 Hermetic: exercises the *pure* grader builders, offline validators, and the pure
 payload builder against in-memory fixtures. Nothing here uploads a file or
@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from castia.evalsuite import RubricDimension
-from castia.finetune import (
+from castia.evaluation.suite import RubricDimension
+from castia.finetuning.rft import (
     GRADER_TYPES,
     build_rft_job,
     build_rft_method,

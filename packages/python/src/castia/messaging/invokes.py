@@ -19,7 +19,7 @@ This module is the small, pure surface for that shape:
   of the two invoke families into a plain dict.
 
 Nothing here touches the network or Azure -- pure data, safe to import anywhere
-(mirrors :mod:`castia.cards` / :mod:`castia.entities`).
+(mirrors :mod:`castia.messaging.cards` / :mod:`castia.messaging.entities`).
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ class InvokeNames:
       submission here so the bot can record it; the handler returns an empty
       ``200`` ack.
     * :attr:`adaptive_card_action` -- a user tapped an ``Action.Execute`` button
-      on a Universal Action card (see :func:`castia.cards.decision_card`). The
+      on a Universal Action card (see :func:`castia.messaging.cards.decision_card`). The
       handler returns a replacement card or message.
     """
 
@@ -65,7 +65,7 @@ def card_invoke_response(card: dict[str, Any]) -> dict[str, Any]:
     """An ``InvokeResponse`` body that **replaces** the acting card with ``card``.
 
     Accepts either a full attachment (``{"contentType", "content"}`` from
-    :func:`castia.cards.adaptive_card` / :func:`castia.cards.decision_card`)
+    :func:`castia.messaging.cards.adaptive_card` / :func:`castia.messaging.cards.decision_card`)
     or a bare card ``content`` dict; either way the card *content* is what Teams
     swaps in. This is the stale-card fix: return a terminal card (no buttons, or
     a "done" state) and the tapped card mutates in place.
@@ -106,7 +106,7 @@ def card_action(activity: Activity) -> dict[str, Any]:
     The wire ``value`` is
     ``{"action": {"type": "Action.Execute", "verb": "<verb>", "data": {...}},
     "trigger": "manual"}``. ``verb`` identifies which button fired;  ``data`` is
-    that button's payload (from :func:`castia.cards.decision_card`).
+    that button's payload (from :func:`castia.messaging.cards.decision_card`).
     """
     value = activity.value or {}
     action = value.get("action") or {}

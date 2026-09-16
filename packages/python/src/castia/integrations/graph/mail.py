@@ -3,7 +3,7 @@
 Proof-of-concept for the agentic-email path -- **no MCP**, a direct Graph REST
 call. On a turn that carries the agent's Agentic-User identity, we mint a
 *delegated* Microsoft Graph token for the agent's own mailbox (the ``user_fic``
-chain in :mod:`castia.credentials`, replacing the SDK's
+chain in :mod:`castia.hosting.credentials`, replacing the SDK's
 ``get_agentic_user_token``) and call ``sendMail``.
 
 Every failure is captured in the returned dict rather than raised, so the

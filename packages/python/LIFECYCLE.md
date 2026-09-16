@@ -16,8 +16,8 @@ Castia keeps lifecycle work in separate packages. Existing imports such as
 Runtime helpers load without initializing lifecycle tooling or cloud clients.
 Azure and OpenAI clients are created only by operations that need them. The
 [package map](README.md#package-organization) also covers protocols, runtime,
-hosting, messaging, inference, and integrations. Old flat module imports remain
-compatibility paths.
+hosting, messaging, inference, and integrations. Use those canonical paths for
+lower-level imports; the old flat modules have been removed.
 
 ## What a passing check means
 
@@ -306,9 +306,8 @@ reconciliation before the journal can be opened for another write.
 ## Fine-tuning stays explicit
 
 `castia.finetuning.rft` builds graders and datasets and supports the explicit
-submission command. The old `castia.finetune` import remains an alias.
-Its RFT submission contract remains provisional until a real training job
-validates it.
+submission command. Its RFT submission contract remains provisional until a
+real training job validates it.
 
 `FineTuningClient`, exported by `castia.finetuning`, manages existing jobs.
 That client has no training submission method.

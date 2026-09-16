@@ -1,7 +1,7 @@
 """Hosted-vs-local run detection for the agent.
 
 Once the Microsoft Agents SDK is gone, "auth" is no longer a connection manager
-to construct -- the token chains live in :mod:`castia.credentials`. All that
+to construct -- the token chains live in :mod:`castia.hosting.credentials`. All that
 remains here is the single environmental question every reply path asks: *is this
 a hosted Foundry turn, or a local ``azd ai agent run`` (M365 Agents Playground)
 turn?* Local turns are answered anonymously (the emulator expects no bearer

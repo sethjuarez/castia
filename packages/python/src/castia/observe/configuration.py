@@ -184,7 +184,8 @@ class _AgentIdentitySpanProcessor(SpanProcessor):
     hardcoded ``span_type = "default"`` row and collapses them with ``any()``, so
     the framework/HTTP badge can flip to "Other" between reads with no data change.
     That flip is portal-side, not from this processor; the exported type in App
-    Insights stays correct. See ``TRACING.md`` for the full write-up and repro.
+    Insights stays correct. See ``packages/python/TRACING.md`` for the full
+    write-up and repro.
     """
 
     def __init__(self, attributes: dict[str, str]) -> None:

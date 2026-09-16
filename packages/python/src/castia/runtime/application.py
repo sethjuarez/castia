@@ -49,7 +49,7 @@ class Router:
         self._routes: list[tuple[tuple[Teams, ...], Handler]] = []
         self._wire: dict[str, Handler] = {}
         self._invokes: dict[str, Handler] = {}
-        # Zero-arg providers each returning a list of ``castia.tools.Tool`` or
+        # Zero-arg providers each returning a list of ``castia.inference.tools.Tool`` or
         # optimizer-aware raw specs (for example toolbox MCP specs).
         # Tools are the agent's *outbound* capabilities; declaring them here (as
         # opposed to only passing them to ``respond_with_tools`` inside a
@@ -91,7 +91,7 @@ class Router:
         fire-and-forget; an *invoke* turn (``activity.type == "invoke"``) blocks
         on a synchronous answer -- the handler's returned dict becomes the
         ``InvokeResponse`` body. Route on the invoke ``name`` (see
-        :class:`castia.invokes.InvokeNames`), e.g.
+        :class:`castia.messaging.invokes.InvokeNames`), e.g.
         ``@app.invoke(InvokeNames.adaptive_card_action)`` for Universal Actions
         or ``@app.invoke(InvokeNames.feedback)`` for thumbs submissions. Like the
         wire decorators, one handler per name -- a duplicate raises in
@@ -152,7 +152,7 @@ class Router:
         """Declare the agent's outbound tool providers.
 
         Each ``provider`` is a zero-arg callable returning a list of
-        :class:`~castia.tools.Tool` or optimizer-aware raw specs such as
+        :class:`~castia.inference.tools.Tool` or optimizer-aware raw specs such as
         :func:`castia.toolbox_mcp_tool`. Declaring them makes the tool set
         *discoverable* by the framework -- distinct from merely passing tools or
         ``extra_specs`` to ``model.respond_with_tools`` inside a handler -- so the

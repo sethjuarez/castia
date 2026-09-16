@@ -35,7 +35,7 @@ class RoleTypes:
 
     A closed set of the roles this agent distinguishes. ``agent`` is a
     traditional bot (the Bot Framework wire value is ``"bot"``); ``agentic_user``
-    and ``agentic_identity`` are the two agentic modes (see :mod:`castia.identity`).
+    and ``agentic_identity`` are the two agentic modes (see :mod:`castia.hosting.identity`).
     """
 
     user = "user"

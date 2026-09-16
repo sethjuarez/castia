@@ -81,7 +81,7 @@ def test_cold_platform_metadata_before_guards_and_nested_harness():
         from castia.building import AgentTestHarness
         from castia.building._offline import OfflineOperationError, offline_scope
 
-        assert "castia.dispatch" not in sys.modules
+        assert "castia.runtime.dispatch" not in sys.modules
         platform._uname_cache = None
         platform._platform_cache.clear()
         original_popen = subprocess.Popen
