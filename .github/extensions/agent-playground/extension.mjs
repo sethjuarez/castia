@@ -332,7 +332,7 @@ function renderHtml() {
       --cp-text-soft: var(--text-color-muted, #6f6f6f);
       --cp-accent: var(--color-focus-outline, var(--cp-link));
       --cp-accent-hover: var(--color-focus-outline, var(--cp-link));
-      --cp-accent-soft: var(--true-color-blue-muted, var(--background-color-subtle, #f5f5f5));
+      --cp-accent-soft: color-mix(in srgb, var(--cp-accent) 10%, var(--cp-surface));
       --cp-accent-fg: var(--color-white, #ffffff);
       --cp-success: var(--true-color-green, #16a34a);
       --cp-danger: var(--true-color-red, #dc2626);
@@ -375,15 +375,15 @@ function renderHtml() {
     }
     button, input, textarea { font: inherit; }
     button {
-      border: 1px solid var(--cp-border);
+      border: 1px solid transparent;
       border-radius: 0.625rem;
       padding: 8px 12px;
-      background: var(--cp-surface);
+      background: var(--cp-surface-soft);
       color: var(--cp-text);
       cursor: pointer;
       font-weight: 600;
     }
-    button:hover { border-color: var(--cp-border-strong); }
+    button:hover { border-color: var(--cp-border); }
     button:disabled { cursor: not-allowed; opacity: 0.62; }
     button.primary {
       border-color: var(--cp-accent);
@@ -416,17 +416,13 @@ function renderHtml() {
     }
     .hero {
       padding: 8px 12px;
-      border-bottom: 1px solid var(--cp-border);
       background: var(--cp-bg-elevated);
     }
     .endpoint-card {
       display: grid;
       grid-template-columns: 1fr auto auto;
       gap: 8px;
-      padding: 8px;
-      border: 1px solid var(--cp-border);
-      border-radius: 0.625rem;
-      background: var(--cp-panel-strong);
+      align-items: center;
     }
     .content {
       display: grid;
@@ -441,8 +437,6 @@ function renderHtml() {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       min-height: 0;
-      border: 1px solid var(--cp-border);
-      border-radius: 16px;
       background: var(--cp-panel);
       overflow: hidden;
     }
@@ -451,8 +445,7 @@ function renderHtml() {
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--cp-border);
+      padding: 8px 4px 10px;
       background: var(--cp-panel-strong);
     }
     .panel-title {
@@ -468,11 +461,11 @@ function renderHtml() {
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: 1px 7px;
-      background: var(--cp-surface-soft);
+      padding: 0;
+      background: transparent;
       color: var(--cp-text-muted);
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
     }
     .muted { color: var(--cp-text-muted); }
     .health {
@@ -492,13 +485,12 @@ function renderHtml() {
     .transcript {
       height: 100%;
       overflow: auto;
-      padding: 12px;
+      padding: 8px 2px 16px;
     }
     .empty {
       display: grid;
       place-items: center;
       min-height: 100%;
-      border: 1px dashed var(--cp-border-strong);
       border-radius: 16px;
       color: var(--cp-text-muted);
       text-align: center;
@@ -507,30 +499,45 @@ function renderHtml() {
     }
     .turn {
       display: grid;
-      gap: 10px;
-      margin-bottom: 14px;
+      gap: 12px;
+      margin-bottom: 12px;
     }
     .bubble {
-      border: 1px solid var(--cp-border);
       border-radius: 16px;
       background: var(--cp-surface);
       overflow: hidden;
+      box-shadow: var(--cp-shadow);
     }
     .bubble.user {
-      margin-left: 32px;
-      border-color: var(--cp-accent);
+      justify-self: end;
+      width: min(calc(100% - 48px), 1120px);
+      max-width: calc(100% - 48px);
+      background: var(--cp-surface-soft);
+    }
+    .bubble.agent {
+      justify-self: start;
+      width: min(calc(100% - 48px), 1120px);
+      max-width: calc(100% - 48px);
       background: var(--cp-accent-soft);
     }
-    .bubble.agent { margin-right: 32px; }
     .bubble-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--cp-border);
+      padding: 10px 12px 0;
       color: var(--cp-text-muted);
       font-size: 12px;
+      font-weight: 600;
+    }
+    .speaker {
+      letter-spacing: 0.01em;
+    }
+    .speaker.user {
+      color: var(--cp-text-muted);
+    }
+    .speaker.agent {
+      color: var(--cp-accent);
       font-weight: 700;
     }
     .bubble-body {
@@ -561,13 +568,14 @@ function renderHtml() {
       40% { transform: translateY(-3px); opacity: 1; }
     }
     details {
-      border-top: 1px solid var(--cp-border);
-      padding: 8px 12px;
+      padding: 0 12px 10px;
     }
     summary {
       cursor: pointer;
       color: var(--cp-link);
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 500;
+      list-style-position: inside;
     }
     pre {
       max-height: 240px;
@@ -582,25 +590,24 @@ function renderHtml() {
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: 2px 8px;
-      background: var(--cp-surface-soft);
+      padding: 0;
+      background: transparent;
       color: var(--cp-text-muted);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
     }
     .badge.ok {
-      background: var(--cp-surface-soft);
+      background: transparent;
       color: var(--cp-success);
     }
     .badge.fail {
-      background: var(--cp-surface-soft);
+      background: transparent;
       color: var(--cp-danger);
     }
     .composer {
       display: grid;
       gap: 10px;
       padding: 10px 12px 12px;
-      border-top: 1px solid var(--cp-border);
       background: var(--cp-bg-elevated);
     }
     .composer-actions {
@@ -621,6 +628,8 @@ function renderHtml() {
       .bubble.agent {
         margin-left: 0;
         margin-right: 0;
+        max-width: calc(100% - 24px);
+        width: calc(100% - 24px);
       }
     }
   </style>
@@ -713,13 +722,13 @@ function renderHtml() {
           : renderMarkdown(answer);
         return '<article class="turn">' +
           '<section class="bubble user">' +
-          '<div class="bubble-head"><span>User · turn ' + (index + 1) + '</span><span>' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
+          '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
           '<div class="bubble-body">' + escapeHtml(turn.input) + '</div>' +
           '</section>' +
           '<section class="bubble agent">' +
-          '<div class="bubble-head"><span>Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
+          '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
-          '<details><summary>Raw request/response</summary><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></details>' +
+          '<details><summary>Details</summary><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></details>' +
           '</section>' +
           '</article>';
       }).join("");
