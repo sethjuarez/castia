@@ -23,6 +23,11 @@ clean root, canonical imports, public exports, and imports that must stay lazy.
 Build the distribution as well so module moves do not leave files out of the
 installed package.
 
+Before a release, follow the [Python quality gates](packages/python/RELEASING.md#quality-gates).
+They check both supported CI versions and the installed wheel independently of
+the editable checkout. Consumer documentation must use the same canonical
+imports and CLI flags as the implementation.
+
 ## Commit messages: Conventional Commits (required)
 
 Releases are automated with

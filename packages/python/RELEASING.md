@@ -1,65 +1,105 @@
 # Releasing `castia` (Python)
 
-Releases are automated by [release-please](https://github.com/googleapis/release-please)
-and published to PyPI with **Trusted Publishing** (OIDC) — no API token is stored
-in the repository. You should never build or upload from a laptop.
+Python releases use [release-please](https://github.com/googleapis/release-please)
+and PyPI Trusted Publishing. Publish from the GitHub workflow, never from a
+developer machine. Do not edit the package version, `CHANGELOG.md`, or
+`.release-please-manifest.json` by hand.
 
-## One-time PyPI setup (before the first publish)
+## Release flow
 
-`castia` is not on PyPI yet, so register a **pending** trusted publisher:
+1. Open a PR targeting `main` with a Conventional Commit title. Use
+   `feat(python)!: ...` when shipping features with breaking import changes.
+   The squash title determines the release; branch commit messages alone do not.
+2. Wait for both Python CI jobs and review the code, documentation, and migration
+   guidance before merging.
+3. release-please opens or updates the Python release PR with the calculated
+   version and changelog. Review that PR separately.
+4. Merging the release PR creates `python-v<version>` and a GitHub release.
+   The same workflow checks out that tag, builds the distribution, checks the
+   installed wheel, and publishes through the `pypi` environment.
 
-1. Go to <https://pypi.org/manage/account/publishing/>.
-2. Add a new pending publisher with exactly:
-   - **PyPI project name:** `castia`
-   - **Owner:** `sethjuarez`
-   - **Repository name:** `castia`
-   - **Workflow name:** `release-please.yml`
-   - **Environment name:** `pypi`
-3. (Recommended) In the GitHub repo, create a **`pypi` environment**
-   (Settings → Environments) and add required reviewers so a human approves each
-   publish.
+Merging a feature PR does not immediately publish a package. Merging the
+release PR authorizes publication, subject to any environment approval.
+Do not create release tags manually.
 
-After the first successful publish, the pending publisher becomes a normal
-trusted publisher automatically.
+Before 1.0, features increment the minor version and fixes increment the patch.
+Breaking changes increment the minor version because
+`bump-minor-pre-major` is enabled. Future language packages will have separate
+release PRs and tags.
 
-## The steady-state flow
+## Quality gates
 
-1. Merge Conventional-Commit PRs into `main` (see [`CONTRIBUTING.md`](../../CONTRIBUTING.md)).
-2. release-please maintains an open **release PR** titled like
-   `chore(main): release python 0.2.0`. It bumps `pyproject.toml`'s version and
-   updates `CHANGELOG.md`.
-3. **Merging that release PR** creates the tag `python-v<version>` and a GitHub
-   release, then the `release-please` workflow's `publish-python` job builds the
-   wheel + sdist and uploads them to PyPI.
+`python-ci` runs on Python 3.11 and 3.13. Both jobs install the `deploy`,
+`optimize`, and `test` extras, then run:
 
-You do not push tags by hand; merging the release PR is the release action.
+- Ruff and the full test suite with warnings treated as errors.
+- An sdist build, followed by a wheel built from that sdist.
+- Strict Twine metadata checks.
+- Installation into a separate environment, followed by dependency checks,
+  isolated CLI help and Responses smoke checks, and package architecture and
+  offline agent tests against the installed wheel.
 
-## First release (0.1.0) bootstrap
+The artifact check rejects imports from an editable source checkout. It also
+checks the installed version, package root files, lazy imports, and public
+exports. The publish job repeats the metadata and installed-artifact smoke
+checks on the release tag before uploading.
 
-`.release-please-manifest.json` starts the `packages/python` component at
-`0.0.0`. The commit that introduces release-please carries a
-`Release-As: 0.1.0` footer, which makes release-please open its first release PR
-at **0.1.0** (matching the version already in `pyproject.toml`) regardless of the
-commit types before it. Merging that first release PR publishes `castia 0.1.0`.
+CI uses offline tests. Live Foundry checks require an approved project and
+explicit authorization for billable calls. Record the SDK revision, model,
+target, selected coverage, failures, and actual tool calls where relevant.
+See [LIFECYCLE.md](LIFECYCLE.md) for the live runner.
+Do not describe a local consumer calling Foundry as a new hosted deployment,
+or controlled candidate fixtures as optimizer-generated improvements.
 
-No sticky configuration is left behind: after 0.1.0 ships, the manifest advances
-to `0.1.0` and subsequent versions are derived normally from Conventional
-Commits.
+RFT submission remains provisional until a real training job validates its
+wire contract. A release check must not submit training or deploy a trained
+checkpoint as an incidental smoke test.
 
-## Versioning scheme
+## Reproduce the checks on Windows
 
-- Per-language tags: the Python SDK releases as `python-v<version>` (e.g.
-  `python-v0.1.0`). A future Rust SDK would release independently as
-  `rust-v<version>`.
-- Pre-1.0: `feat` → minor, `fix` → patch, breaking changes are **not**
-  auto-promoted to a major (`bump-minor-pre-major`).
+From `packages/python`, with `uv` installed and fresh test environments:
 
-## Verifying a release build locally (optional)
-
-You never publish locally, but you can reproduce what CI builds:
-
-```bash
-cd packages/python
-uv build
-uvx twine check dist/*
+```powershell
+uv venv --python 3.13
+uv pip install -e ".[deploy,optimize,test]"
+uvx ruff check .
+.\.venv\Scripts\python.exe -m pytest -q -W error
+$artifacts = Join-Path ([System.IO.Path]::GetTempPath()) ("castia-release-" + [guid]::NewGuid())
+uv build --sdist --out-dir $artifacts
+$sdist = Get-ChildItem "$artifacts\*.tar.gz"
+uv build --wheel $sdist.FullName --out-dir $artifacts
+uvx twine check --strict "$artifacts\*"
+uv venv .wheel-venv --python 3.13
+$wheel = Get-ChildItem "$artifacts\*.whl"
+$wheelUri = ([System.Uri]$wheel.FullName).AbsoluteUri
+uv pip install --python .wheel-venv\Scripts\python.exe "castia[deploy,optimize,test] @ $wheelUri"
+uv pip check --python .wheel-venv\Scripts\python.exe
+.\.wheel-venv\Scripts\python.exe -I -W error scripts\check_distribution.py
+.\.wheel-venv\Scripts\python.exe -I -m pytest -q -W error tests\test_package_architecture.py tests\test_building_harness.py
+git --no-pager diff --check
 ```
+
+Use a fresh artifact directory for release verification so old distributions
+cannot be mistaken for the current build. Repeat the source and artifact tests
+with Python 3.11. The workflows contain the equivalent Linux commands.
+
+## Trusted Publishing setup and recovery
+
+`castia` is already published on PyPI. Its trusted publisher must match:
+
+| Setting | Value |
+|---|---|
+| PyPI project | `castia` |
+| GitHub owner / repository | `sethjuarez` / `castia` |
+| Workflow | `release-please.yml` |
+| Environment | `pypi` |
+
+Required reviewers on the GitHub `pypi` environment can gate publication.
+Do not add API tokens to the repository to work around an OIDC failure.
+
+If publication fails, inspect the failed workflow and fix the reported cause.
+Check whether PyPI already has that version before attempting recovery;
+published version files cannot be replaced. Do not rerun an entire successful
+release workflow blindly. A second release-please invocation may not emit the
+same release-created output. Preserve the tag and inspect the failed publish
+job's retry options instead.
