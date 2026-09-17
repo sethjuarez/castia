@@ -3,7 +3,7 @@
 Project-scoped Copilot canvas extension for chatting with an agent through
 the Responses protocol. The guided story is intentionally small: choose one
 Foundry project with a deployed model, make it work locally, make it work in
-Foundry, then guide the A365 step to try it in Teams.
+Foundry, then guide the Microsoft 365 Copilot/Teams publish-and-hire check.
 
 Open the canvas with:
 
@@ -62,13 +62,15 @@ as `requirements.txt`; it does not run against editable local SDK source. If the
 local agent uses a newer SDK API than the deployed dependency provides, the
 hosted session can fail readiness even though deployment succeeds.
 
-The Teams view keeps the A365 handoff lightweight:
+The Teams view keeps the Microsoft 365 handoff lightweight:
 
 - shows whether the hosted agent/version has been resolved;
-- guides the user through opening the A365 Teams step, selecting or installing
-  the agent in Teams, and sending the same smoke-test prompt;
-- lets the user mark the Teams test complete without automating tenant or Teams
-  permission changes.
+- presents three large gates: **Publish in Foundry**, **Approve request in
+  A365**, and **Hire in Teams**;
+- calls out the active version, Microsoft 365 app metadata, tenant scope,
+  approval, Teams install/hire action, and smoke-test confirmation;
+- lets the user mark the Teams test complete without automating tenant,
+  publication, approval, or Teams permission changes.
 
 Transcript state is in memory for the open canvas instance. Closing or reloading
 the extension clears the transcript, deploy log, and Teams confirmation state.

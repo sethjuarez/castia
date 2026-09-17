@@ -2,11 +2,13 @@ import { spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
 const DEFAULT_SERVICE_NAME = "minimal-agent";
 const DEFAULT_AGENT_ROOT = join(process.cwd(), "examples", "python", "minimal-agent");
+const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const servers = new Map();
 const tokenCache = new Map();
 
@@ -1314,6 +1316,11 @@ function renderHtml() {
       min-height: 0;
       padding: 4px 2px 16px;
     }
+    .teams-view {
+      grid-template-rows: auto auto;
+      align-content: start;
+      overflow: auto;
+    }
     .deploy-summary {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1387,6 +1394,60 @@ function renderHtml() {
       font-size: 12px;
       font-weight: 700;
     }
+    .teams-gates {
+      display: grid;
+      gap: 10px;
+      position: relative;
+      margin-top: 4px;
+    }
+    .teams-gates::before {
+      content: "";
+      position: absolute;
+      top: 44px;
+      bottom: 44px;
+      left: 23px;
+      width: 2px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #7c3aed, #242424, #6264a7);
+      opacity: 0.28;
+    }
+    .teams-gate {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding: 14px;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-surface);
+      box-shadow: var(--cp-shadow);
+    }
+    .gate-icon {
+      display: inline-grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-panel-strong);
+      color: var(--cp-accent);
+      font-size: 18px;
+      font-weight: 800;
+      box-shadow: var(--cp-shadow);
+    }
+    .gate-logo {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+    .gate-title {
+      font-weight: 800;
+    }
+    .gate-meta {
+      margin-top: 2px;
+      color: var(--cp-text-muted);
+    }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -1454,7 +1515,7 @@ function renderHtml() {
         </button>
         <button id="teamsStep" class="step" type="button">
           <span class="step-index">3</span>
-          <span><span class="step-title">Teams</span><span id="teamsStepText" class="step-subtitle">Try it</span></span>
+          <span><span class="step-title">Teams</span><span id="teamsStepText" class="step-subtitle">Hire it</span></span>
           <span id="teamsStepState" class="step-state">Later</span>
         </button>
       </div>
@@ -1537,14 +1598,23 @@ function renderHtml() {
         </div>
         <div class="guide-card">
           <div>
-            <div class="guide-title">Try the hosted agent in Teams</div>
-            <div class="guide-copy">Use the A365 Teams step after the Foundry deployment is resolved. The canvas keeps this as guidance so you stay in control of tenant and Teams permissions.</div>
+            <div class="guide-title">Publish and hire the hosted agent</div>
+            <div class="guide-copy">After Foundry hosted chat works, finish the user-controlled Microsoft 365 handoff in three steps.</div>
           </div>
-          <ol class="guide-steps">
-            <li><span class="guide-number">1</span><span>Open the A365 Teams step for this hosted agent.</span></li>
-            <li><span class="guide-number">2</span><span>Select or install the agent in Teams for the right tenant/user context.</span></li>
-            <li><span class="guide-number">3</span><span>Send the same smoke-test prompt in Teams and confirm the hosted agent answers.</span></li>
-          </ol>
+          <div class="teams-gates">
+            <div class="teams-gate">
+              <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-service-AI-Foundry.svg" alt="" /></span>
+              <div><div class="gate-title">Publish in Foundry</div><div class="gate-meta">Confirm the active hosted version, then use Publish → Teams and Microsoft 365 Copilot. Review name, version, descriptions, developer, and scope.</div></div>
+            </div>
+            <div class="teams-gate">
+              <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-a365-agents.svg" alt="" /></span>
+              <div><div class="gate-title">Approve request in A365</div><div class="gate-meta">Complete the Microsoft 365 publish request or admin approval flow for the chosen tenant scope.</div></div>
+            </div>
+            <div class="teams-gate">
+              <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-teams.svg" alt="" /></span>
+              <div><div class="gate-title">Hire in Teams</div><div class="gate-meta">Install or hire the agent from Teams, send the same smoke-test prompt, and confirm it matches hosted Foundry behavior.</div></div>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -1658,7 +1728,7 @@ function renderHtml() {
       teamsStep.classList.toggle("done", teamsOk);
       localStepText.textContent = !connected ? "Project" : localOk ? "Answered" : "Run it";
       foundryStepText.textContent = foundryOk ? "Hosted" : "Deploy it";
-      teamsStepText.textContent = teamsOk ? "Tested" : "Try it";
+      teamsStepText.textContent = teamsOk ? "Tested" : "Hire it";
       localStepState.textContent = !connected ? "First" : localOk ? "Done" : "Start";
       foundryStepState.textContent = versionLabel || (foundryOk ? "Ready" : localOk ? "Next" : "Later");
       teamsStepState.textContent = teamsOk ? "Done" : foundryOk ? "Next" : "Later";
@@ -1679,8 +1749,8 @@ function renderHtml() {
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = true;
-        guideTitle.textContent = "Make it work in Teams";
-        guideCopy.textContent = "Follow the A365 Teams step, try the same smoke prompt, then mark it tested.";
+        guideTitle.textContent = "Publish and hire it in Teams";
+        guideCopy.textContent = "Confirm the active Foundry version, publish it to Microsoft 365, approve it if needed, hire it in Teams, then run the same smoke prompt.";
         primaryGuideAction.textContent = teamsOk ? "Teams tested" : "Mark Teams tested";
         setActiveStep("teams");
       } else {
@@ -2209,6 +2279,33 @@ async function handleRequest(req, res, state) {
         }
         if (req.method === "GET" && url.pathname === "/favicon.ico") {
             sendNoContent(res);
+            return;
+        }
+        if (req.method === "GET" && url.pathname === "/assets/icon-service-AI-Foundry.svg") {
+            const svg = await readFile(join(EXTENSION_ROOT, "assets", "icon-service-AI-Foundry.svg"), "utf8");
+            res.writeHead(200, {
+                "Content-Type": "image/svg+xml; charset=utf-8",
+                "Cache-Control": "no-store",
+            });
+            res.end(svg);
+            return;
+        }
+        if (req.method === "GET" && url.pathname === "/assets/icon-teams.svg") {
+            const svg = await readFile(join(EXTENSION_ROOT, "assets", "icon-teams.svg"), "utf8");
+            res.writeHead(200, {
+                "Content-Type": "image/svg+xml; charset=utf-8",
+                "Cache-Control": "no-store",
+            });
+            res.end(svg);
+            return;
+        }
+        if (req.method === "GET" && url.pathname === "/assets/icon-a365-agents.svg") {
+            const svg = await readFile(join(EXTENSION_ROOT, "assets", "icon-a365-agents.svg"), "utf8");
+            res.writeHead(200, {
+                "Content-Type": "image/svg+xml; charset=utf-8",
+                "Cache-Control": "no-store",
+            });
+            res.end(svg);
             return;
         }
         if (req.method === "GET" && url.pathname === "/api/state") {

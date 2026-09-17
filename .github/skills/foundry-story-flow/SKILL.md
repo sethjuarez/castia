@@ -2,7 +2,7 @@
 
 Use this repo-local playbook when exercising the simplest hosted-agent story:
 make the agent work locally, make the same agent work in Foundry, then guide the
-A365 Teams check.
+Microsoft 365 Copilot/Teams publish-and-hire check.
 
 ## Goal
 
@@ -11,7 +11,7 @@ Keep the user path small:
 1. Choose or create one Foundry project with a deployed model.
 2. Local: run and test the agent.
 3. Foundry: deploy and test the hosted agent.
-4. Teams: guide the A365 Teams step.
+4. Teams: guide the Microsoft 365 Copilot/Teams publish-and-hire check.
 
 Do not lead with Castia, metadata, protocol plumbing, fingerprints, or Azure
 resource taxonomy. Surface those only as troubleshooting details.
@@ -104,13 +104,22 @@ version pinned in the agent's deployment requirements.
 
 ## Teams step
 
-Do not automate tenant permission changes or Teams installation. Guide the user
-through the A365 Teams step:
+Do not automate tenant permission changes, Teams installation, organization
+publication, or admin approval. Guide the user through the Microsoft 365
+Copilot/Teams publish-and-hire check:
 
-1. Open the A365 Teams step for the hosted agent.
-2. Select or install the agent in the right tenant/user context.
-3. Send the same smoke-test prompt.
-4. Mark Teams tested only after the user confirms it answered.
+Show three large gates:
+
+1. **Publish in Foundry** — confirm the intended hosted version is active, then
+   use **Publish** -> **Teams and Microsoft 365 Copilot**. Review app metadata
+   and choose personal testing or organization distribution.
+2. **Approve request in A365** — complete the Microsoft 365 publish request or
+   admin approval flow for the selected tenant scope.
+3. **Hire in Teams** — install or hire the agent from Teams, send the same
+   smoke-test prompt, and confirm the Teams answer matches hosted Foundry
+   behavior.
+
+Mark Teams tested only after the user confirms it answered.
 
 Teams is complete when the user confirms the smoke prompt worked there.
 
@@ -125,6 +134,6 @@ Teams is complete when the user confirms the smoke prompt worked there.
   - `Prepare deploy`
   - `Deploy it`
   - `Hosted ready`
-  - `Try Teams`
+  - `Hire it`
   - `Tested`
 - Never claim a hosted deployment or Teams test succeeded unless it was verified.
