@@ -18,4 +18,10 @@ Authenticate azd in the intended tenant with access to that subscription. azd re
 
 Run `python -m castia build check --deployment` after exporting the same nonsecret context into your shell. The check reads process settings, not azd's persisted environment, and does not load `.env.example`. Without `--deployment`, missing deployment context is advisory so offline protocol development can continue. Passing this gate is not a live deployment guarantee.
 
+The hosted container installs `requirements.txt`, not the editable SDK source
+from this repository. Before deploying, make sure `main.py` boots with the
+published dependency versions pinned there. If local code uses a newer SDK API,
+either publish and bump the pinned package or keep the code backwards compatible
+with the pinned version.
+
 The default manifest uses Python 3.13 with remote dependency build; no local Docker/ACR setup is needed for this mode. The included Dockerfile is an explicit alternative; see the commented manifest instructions.

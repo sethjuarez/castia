@@ -25,10 +25,12 @@ async def reply(text: str, model=ModelDependency) -> str:
     return await model.respond(text)
 
 
-@app.responses_stream()
-async def reply_stream(text: str, model=ModelDependency):
-    async for delta in model.stream(text):
-        yield delta
+if hasattr(app, "responses_stream"):
+
+    @app.responses_stream()
+    async def reply_stream(text: str, model=ModelDependency):
+        async for delta in model.stream(text):
+            yield delta
 
 
 if __name__ == "__main__":

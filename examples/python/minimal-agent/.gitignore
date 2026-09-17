@@ -4,3 +4,6 @@
 !.env.example
 __pycache__/
 .pytest_cache/
+appPackage.zip
+.appPackage.zip.azd-generated
+TEAMS_APP_SETUP.md

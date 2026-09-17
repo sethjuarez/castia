@@ -1,8 +1,14 @@
+import { spawn } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { dirname, join, relative } from "node:path";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
+const DEFAULT_SERVICE_NAME = "minimal-agent";
+const DEFAULT_AGENT_ROOT = join(process.cwd(), "examples", "python", "minimal-agent");
 const servers = new Map();
+const tokenCache = new Map();
 
 function normalizeEndpoint(value) {
     const endpoint = String(value || DEFAULT_ENDPOINT).trim().replace(/\/+$/, "");
@@ -59,6 +65,521 @@ function responseText(body) {
     return body ?? "";
 }
 
+function isLoopbackEndpoint(endpoint) {
+    try {
+        const { hostname } = new URL(endpoint);
+        return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+    } catch {
+        return false;
+    }
+}
+
+function isFoundryResponsesEndpoint(endpoint) {
+    try {
+        const { pathname } = new URL(endpoint);
+        return /\/endpoint\/protocols\/openai\/responses$/i.test(pathname);
+    } catch {
+        return false;
+    }
+}
+
+function responsesUrl(endpoint) {
+    if (isFoundryResponsesEndpoint(endpoint)) return endpoint;
+    return `${endpoint.replace(/\/+$/, "")}/responses`;
+}
+
+async function azureAccessToken(resource) {
+    const cached = tokenCache.get(resource);
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+        return cached.token;
+    }
+    const result = await runCommand("az", [
+        "account",
+        "get-access-token",
+        "--resource",
+        resource,
+        "--query",
+        "accessToken",
+        "--output",
+        "tsv",
+    ]);
+    if (result.code !== 0) {
+        throw new Error(result.output || "Azure login is required to call the hosted agent.");
+    }
+    const token = result.output.trim();
+    if (!token) {
+        throw new Error("Azure CLI did not return an access token for the hosted agent.");
+    }
+    tokenCache.set(resource, { token, expiresAt: Date.now() + 50 * 60 * 1000 });
+    return token;
+}
+
+async function requestHeadersForEndpoint(endpoint, accept) {
+    const headers = {
+        "Content-Type": "application/json",
+        ...(accept ? { Accept: accept } : {}),
+    };
+    if (/^https:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint)) {
+        headers.Authorization = `Bearer ${await azureAccessToken("https://ai.azure.com")}`;
+    }
+    return headers;
+}
+
+function activeEndpoint(state) {
+    return state.target === "hosted" ? state.hosted.responsesEndpoint || "" : selectedLocalEndpoint(state);
+}
+
+function selectedAgent(state) {
+    return (
+        state.agents.find((agent) => agent.id === state.selectedAgentId) ||
+        state.agents[0] || {
+            id: "minimal-agent",
+            serviceName: DEFAULT_SERVICE_NAME,
+            displayName: DEFAULT_SERVICE_NAME,
+            root: DEFAULT_AGENT_ROOT,
+            rootLabel: "examples\\python\\minimal-agent",
+            envPrefix: serviceEnvPrefix(DEFAULT_SERVICE_NAME),
+        }
+    );
+}
+
+function selectedLocalEndpoint(state) {
+    const agent = selectedAgent(state);
+    return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
+}
+
+function emptyHostedContext(agent) {
+    return {
+        agentName: agent.displayName || agent.serviceName,
+        agentId: null,
+        version: null,
+        responsesEndpoint: null,
+        activityEndpoint: null,
+        invocationsEndpoint: null,
+        projectEndpoint: null,
+        modelDeployment: null,
+        lastRefresh: null,
+        lastRefreshExitCode: null,
+    };
+}
+
+function emptyFoundryConnection() {
+    return {
+        projectEndpoint: null,
+        modelDeployment: null,
+        subscriptionId: null,
+        location: null,
+        projectId: null,
+        accountName: null,
+        projectName: null,
+        connectedAt: null,
+        lastConnectExitCode: null,
+        lastDiscoveryMessage: null,
+    };
+}
+
+function parseFoundryProjectEndpoint(endpoint) {
+    try {
+        const parsed = new URL(endpoint);
+        const projectMatch = parsed.pathname.match(/\/api\/projects\/([^/]+)$/i);
+        return {
+            accountName: parsed.hostname.split(".")[0],
+            projectName: projectMatch ? decodeURIComponent(projectMatch[1]) : null,
+        };
+    } catch {
+        return { accountName: null, projectName: null };
+    }
+}
+
+function subscriptionFromResourceId(id) {
+    return String(id || "").match(/\/subscriptions\/([^/]+)/i)?.[1] || null;
+}
+
+function resourceGroupFromResourceId(id) {
+    return String(id || "").match(/\/resourceGroups\/([^/]+)/i)?.[1] || null;
+}
+
+async function setAzdEnvValues(cwd, values, log) {
+    let exitCode = 0;
+    for (const [key, value] of Object.entries(values)) {
+        if (!value) continue;
+        const result = await runCommand("azd", ["env", "set", key, value], { cwd });
+        exitCode ||= result.code;
+        log?.push(`$ azd env set ${key} ${key.includes("ENDPOINT") ? value : String(value)}\n`);
+        if (result.code !== 0) {
+            log?.push(result.output || `Failed to set ${key}.\n`);
+        }
+    }
+    return exitCode;
+}
+
+async function discoverManagementContext(agent, endpoint) {
+    const parsed = parseFoundryProjectEndpoint(endpoint);
+    if (!parsed.accountName || !parsed.projectName) {
+        return { ...parsed, message: "Could not parse account/project from endpoint." };
+    }
+    const accountResult = await runCommand("az", ["cognitiveservices", "account", "list", "--output", "json"], {
+        cwd: agent.root,
+    });
+    if (accountResult.code !== 0) {
+        return { ...parsed, message: accountResult.output || "Azure CLI account lookup failed." };
+    }
+    let accounts = [];
+    try {
+        accounts = JSON.parse(accountResult.output || "[]");
+    } catch {
+        return { ...parsed, message: "Azure CLI returned unreadable account data." };
+    }
+    const matches = accounts.filter((account) => account?.name === parsed.accountName);
+    if (matches.length !== 1) {
+        return {
+            ...parsed,
+            message: matches.length
+                ? `Found ${matches.length} accounts named ${parsed.accountName}; choose the subscription manually.`
+                : `Could not find Azure AI account ${parsed.accountName} in the current Azure login.`,
+        };
+    }
+    const account = matches[0];
+    const accountId = account.id;
+    return {
+        ...parsed,
+        subscriptionId: subscriptionFromResourceId(accountId),
+        resourceGroup: account.resourceGroup || resourceGroupFromResourceId(accountId),
+        location: account.location,
+        projectId: `${accountId}/projects/${parsed.projectName}`,
+        message: "Derived deployment context from the Foundry project endpoint.",
+    };
+}
+
+function serviceEnvPrefix(serviceName) {
+    return `AGENT_${String(serviceName || "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase()}`;
+}
+
+function normalizeRootLabel(root) {
+    const label = relative(process.cwd(), root) || ".";
+    return label.split(/[\\/]+/).join("\\");
+}
+
+function parseHostedServices(yaml, filePath) {
+    const root = dirname(filePath);
+    const lines = yaml.split(/\r?\n/);
+    const servicesLine = lines.findIndex((line) => /^services:\s*$/.test(line));
+    if (servicesLine === -1) return [];
+    const services = [];
+    let current = null;
+    for (const line of lines.slice(servicesLine + 1)) {
+        const serviceMatch = line.match(/^ {2}([A-Za-z0-9_-]+):\s*$/);
+        if (serviceMatch) {
+            if (current?.isHosted) services.push(current);
+            current = {
+                serviceName: serviceMatch[1],
+                displayName: serviceMatch[1],
+                project: ".",
+                isHosted: false,
+            };
+            continue;
+        }
+        if (!current) continue;
+        if (/^\S/.test(line)) break;
+        const propertyMatch = line.match(/^ {4}([A-Za-z0-9_]+):\s*(.*)$/);
+        if (!propertyMatch) continue;
+        const [, key, rawValue] = propertyMatch;
+        const value = rawValue.trim().replace(/^['"]|['"]$/g, "");
+        if (key === "host" && value === "azure.ai.agent") current.isHosted = true;
+        if (key === "kind" && value === "hosted") current.isHosted = true;
+        if (key === "project") current.project = value || ".";
+        if (key === "name" && value) current.displayName = value;
+    }
+    if (current?.isHosted) services.push(current);
+    return services.map((service) => {
+        const agentRoot = join(root, service.project || ".");
+        const rootLabel = normalizeRootLabel(agentRoot);
+        return {
+            id: `${rootLabel}:${service.serviceName}`,
+            serviceName: service.serviceName,
+            displayName: service.displayName,
+            root: agentRoot,
+            rootLabel,
+            envPrefix: serviceEnvPrefix(service.serviceName),
+        };
+    });
+}
+
+async function findAzureYamlFiles(dir, depth = 0) {
+    if (depth > 4) return [];
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    const files = [];
+    for (const entry of entries) {
+        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".venv") continue;
+        const path = join(dir, entry.name);
+        if (entry.isFile() && entry.name === "azure.yaml") {
+            files.push(path);
+        } else if (entry.isDirectory()) {
+            files.push(...(await findAzureYamlFiles(path, depth + 1)));
+        }
+    }
+    return files;
+}
+
+async function discoverAgents() {
+    const files = await findAzureYamlFiles(process.cwd());
+    const agents = [];
+    for (const file of files) {
+        const yaml = await readFile(file, "utf8").catch(() => "");
+        agents.push(...parseHostedServices(yaml, file));
+    }
+    if (agents.length) {
+        return agents.sort((a, b) => a.rootLabel.localeCompare(b.rootLabel) || a.serviceName.localeCompare(b.serviceName));
+    }
+    const rootLabel = normalizeRootLabel(DEFAULT_AGENT_ROOT);
+    return [
+        {
+            id: `${rootLabel}:${DEFAULT_SERVICE_NAME}`,
+            serviceName: DEFAULT_SERVICE_NAME,
+            displayName: DEFAULT_SERVICE_NAME,
+            root: DEFAULT_AGENT_ROOT,
+            rootLabel,
+            envPrefix: serviceEnvPrefix(DEFAULT_SERVICE_NAME),
+        },
+    ];
+}
+
+function setSelectedAgent(state, agentId) {
+    const agent = state.agents.find((candidate) => candidate.id === agentId) || state.agents[0];
+    state.selectedAgentId = agent.id;
+    state.hostedByAgent[agent.id] ||= emptyHostedContext(agent);
+    state.localEndpoints[agent.id] ||= DEFAULT_ENDPOINT;
+    state.hosted = state.hostedByAgent[agent.id];
+    return agent;
+}
+
+function parseAzdEnv(output) {
+    const values = {};
+    for (const line of String(output || "").split(/\r?\n/)) {
+        const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
+        if (!match) continue;
+        let value = match[2].trim();
+        if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+        ) {
+            value = value.slice(1, -1);
+        }
+        values[match[1]] = value;
+    }
+    return values;
+}
+
+function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
+    return new Promise((resolve) => {
+        const output = [];
+        const child = spawn(command, args, {
+            cwd,
+            shell: process.platform === "win32",
+            env: { ...process.env, AZURE_DEV_USER_AGENT: "agent_playground" },
+        });
+        const append = (chunk) => {
+            const text = chunk.toString();
+            output.push(text);
+            onOutput?.(text);
+        };
+        child.stdout.on("data", append);
+        child.stderr.on("data", append);
+        child.on("error", (error) => {
+            const text = `${error.name}: ${error.message}`;
+            output.push(text);
+            onOutput?.(text);
+            resolve({ code: 1, output: output.join("") });
+        });
+        child.on("close", (code) => {
+            resolve({ code: code ?? 0, output: output.join("") });
+        });
+    });
+}
+
+async function refreshHostedContext(state) {
+    const agent = selectedAgent(state);
+    const result = await runCommand("azd", ["env", "get-values"], { cwd: agent.root });
+    const values = parseAzdEnv(result.output);
+    const prefix = agent.envPrefix;
+    state.hostedByAgent[agent.id] = {
+        ...state.hostedByAgent[agent.id],
+        agentName: values[`${prefix}_NAME`] || state.hostedByAgent[agent.id].agentName,
+        agentId: values[`${prefix}_ID`] || state.hostedByAgent[agent.id].agentId,
+        version: values[`${prefix}_VERSION`] || state.hostedByAgent[agent.id].version,
+        responsesEndpoint:
+            values[`${prefix}_RESPONSES_ENDPOINT`] || state.hostedByAgent[agent.id].responsesEndpoint,
+        activityEndpoint:
+            values[`${prefix}_ACTIVITY_ENDPOINT`] || state.hostedByAgent[agent.id].activityEndpoint,
+        invocationsEndpoint:
+            values[`${prefix}_INVOCATIONS_ENDPOINT`] || state.hostedByAgent[agent.id].invocationsEndpoint,
+        projectEndpoint:
+            values.AZURE_AI_PROJECT_ENDPOINT ||
+            values.AZURE_AIPROJECT_ENDPOINT ||
+            values.FOUNDRY_PROJECT_ENDPOINT ||
+            state.foundryConnection.projectEndpoint ||
+            state.hostedByAgent[agent.id].projectEndpoint,
+        modelDeployment:
+            values.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
+            values.AZURE_OPENAI_DEPLOYMENT_NAME ||
+            state.foundryConnection.modelDeployment ||
+            state.hostedByAgent[agent.id].modelDeployment,
+        lastRefresh: new Date().toISOString(),
+        lastRefreshExitCode: result.code,
+    };
+    state.hosted = state.hostedByAgent[agent.id];
+    if (state.hosted.projectEndpoint && state.hosted.modelDeployment) {
+        state.foundryConnection = {
+            ...state.foundryConnection,
+            projectEndpoint: state.hosted.projectEndpoint,
+            modelDeployment: state.hosted.modelDeployment,
+        };
+    }
+    return { result, values };
+}
+
+async function hydrateFoundryConnectionFromAzd(state) {
+    const agent = selectedAgent(state);
+    const result = await runCommand("azd", ["env", "get-values"], { cwd: agent.root });
+    if (result.code !== 0) return;
+    const values = parseAzdEnv(result.output);
+    const projectEndpoint =
+        values.FOUNDRY_PROJECT_ENDPOINT ||
+        values.AZURE_AI_PROJECT_ENDPOINT ||
+        values.AZURE_AIPROJECT_ENDPOINT ||
+        null;
+    const modelDeployment =
+        values.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
+        values.AZURE_OPENAI_DEPLOYMENT_NAME ||
+        null;
+    if (!projectEndpoint && !modelDeployment) return;
+    const prefix = agent.envPrefix;
+
+    state.foundryConnection = {
+        ...state.foundryConnection,
+        projectEndpoint: projectEndpoint || state.foundryConnection.projectEndpoint,
+        modelDeployment: modelDeployment || state.foundryConnection.modelDeployment,
+        subscriptionId: values.AZURE_SUBSCRIPTION_ID || state.foundryConnection.subscriptionId,
+        location: values.AZURE_LOCATION || state.foundryConnection.location,
+        projectId: values.AZURE_AI_PROJECT_ID || state.foundryConnection.projectId,
+        accountName: values.AZURE_AI_ACCOUNT_NAME || state.foundryConnection.accountName,
+        projectName: values.AZURE_AI_PROJECT_NAME || state.foundryConnection.projectName,
+        connectedAt: new Date().toISOString(),
+        lastConnectExitCode: 0,
+        lastDiscoveryMessage: "Loaded Foundry project from the selected azd environment.",
+    };
+
+    const hosted = state.hostedByAgent[agent.id] || emptyHostedContext(agent);
+    state.hostedByAgent[agent.id] = {
+        ...hosted,
+        agentName: values[`${prefix}_NAME`] || hosted.agentName,
+        agentId: values[`${prefix}_ID`] || hosted.agentId,
+        version: values[`${prefix}_VERSION`] || hosted.version,
+        responsesEndpoint: values[`${prefix}_RESPONSES_ENDPOINT`] || hosted.responsesEndpoint,
+        activityEndpoint: values[`${prefix}_ACTIVITY_ENDPOINT`] || hosted.activityEndpoint,
+        invocationsEndpoint: values[`${prefix}_INVOCATIONS_ENDPOINT`] || hosted.invocationsEndpoint,
+        projectEndpoint: projectEndpoint || hosted.projectEndpoint,
+        modelDeployment: modelDeployment || hosted.modelDeployment,
+        lastRefresh: new Date().toISOString(),
+        lastRefreshExitCode: 0,
+    };
+    state.hosted = state.hostedByAgent[agent.id];
+}
+
+async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
+    const agent = selectedAgent(state);
+    const endpoint = String(projectEndpoint || "").trim().replace(/\/+$/, "");
+    const deployment = String(modelDeployment || "").trim();
+    if (!/^https:\/\/[^/\s]+\/api\/projects\/[^/\s]+$/i.test(endpoint)) {
+        throw new CanvasError("invalid_foundry_endpoint", "Enter a Foundry project endpoint ending in /api/projects/<project>.");
+    }
+    if (!deployment) {
+        throw new CanvasError("model_deployment_required", "Enter the model deployment name.");
+    }
+    const log = state.deployment.log;
+    const discovery = await discoverManagementContext(agent, endpoint);
+    const exitCode = await setAzdEnvValues(
+        agent.root,
+        {
+            FOUNDRY_PROJECT_ENDPOINT: endpoint,
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: deployment,
+            AZURE_SUBSCRIPTION_ID: discovery.subscriptionId,
+            AZURE_LOCATION: discovery.location,
+            AZURE_AI_PROJECT_ID: discovery.projectId,
+            AZURE_RESOURCE_GROUP: discovery.resourceGroup,
+            AZURE_AI_ACCOUNT_NAME: discovery.accountName,
+            AZURE_AI_PROJECT_NAME: discovery.projectName,
+        },
+        log,
+    );
+    state.foundryConnection = {
+        projectEndpoint: endpoint,
+        modelDeployment: deployment,
+        subscriptionId: discovery.subscriptionId || null,
+        location: discovery.location || null,
+        projectId: discovery.projectId || null,
+        accountName: discovery.accountName || null,
+        projectName: discovery.projectName || null,
+        connectedAt: new Date().toISOString(),
+        lastConnectExitCode: exitCode,
+        lastDiscoveryMessage: discovery.message || null,
+    };
+    state.hosted.projectEndpoint = endpoint;
+    state.hosted.modelDeployment = deployment;
+    state.deployment.needsProvision = false;
+    if (discovery.message) {
+        state.deployment.log.push(`${discovery.message}\n`);
+    }
+    return { discovery, exitCode };
+}
+
+async function streamAzdLifecycle(res, state, { commandName, args }) {
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+    });
+    const agent = selectedAgent(state);
+    state.deployment = {
+        running: true,
+        exitCode: null,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        command: `azd ${args.join(" ")}`,
+        needsProvision: false,
+        log: [`$ azd ${args.join(" ")}\n`],
+    };
+    writeEvent(res, "snapshot", stateSnapshot(state));
+    const result = await runCommand("azd", args, {
+        cwd: agent.root,
+        onOutput: (text) => {
+            state.deployment.log.push(text);
+            writeEvent(res, "snapshot", stateSnapshot(state));
+        },
+    });
+    const output = state.deployment.log.join("");
+    state.deployment.running = false;
+    state.deployment.exitCode = result.code;
+    state.deployment.completedAt = new Date().toISOString();
+    state.deployment.needsProvision =
+        commandName === "deploy" &&
+        result.code !== 0 &&
+        /infrastructure has not been provisioned|Run 'azd provision'/i.test(output);
+    if (state.deployment.needsProvision) {
+        state.deployment.log.push("\nNext: prepare this repo for hosted deployment, then deploy again.\n");
+    }
+    if (commandName === "provision" || result.code === 0) {
+        state.deployment.log.push(`\n$ azd env get-values\n`);
+        const refresh = await refreshHostedContext(state);
+        state.deployment.log.push(refresh.result.output || "(no output)\n");
+    }
+    if (commandName === "provision" && result.code === 0) {
+        state.deployment.log.push("\nDeploy prep complete. Deploy is ready.\n");
+    }
+    writeEvent(res, "snapshot", stateSnapshot(state));
+    res.end();
+}
+
 function transcriptStats(messages) {
     const completed = messages.filter((message) => message.response?.ok);
     const failed = messages.filter(
@@ -82,12 +603,9 @@ function transcriptStats(messages) {
 async function callAgentStream(endpoint, payload, onDelta) {
     const started = Date.now();
     try {
-        const response = await fetch(`${endpoint}/responses`, {
+        const response = await fetch(responsesUrl(endpoint), {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "text/event-stream",
-            },
+            headers: await requestHeadersForEndpoint(endpoint, "text/event-stream"),
             body: JSON.stringify({ ...payload, stream: true }),
             signal: AbortSignal.timeout(60000),
         });
@@ -189,9 +707,10 @@ function writeEvent(res, name, payload) {
 async function callAgent(endpoint, path, payload) {
     const started = Date.now();
     try {
-        const response = await fetch(`${endpoint}${path}`, {
+        const url = path === "/responses" ? responsesUrl(endpoint) : `${endpoint}${path}`;
+        const response = await fetch(url, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: await requestHeadersForEndpoint(endpoint),
             body: JSON.stringify(payload),
             signal: AbortSignal.timeout(60000),
         });
@@ -220,6 +739,14 @@ async function callAgent(endpoint, path, payload) {
 
 async function checkReadiness(endpoint) {
     const started = Date.now();
+    if (isFoundryResponsesEndpoint(endpoint)) {
+        return {
+            ok: true,
+            status: "hosted",
+            durationMs: 0,
+            body: "Hosted Responses endpoint discovered. Send a prompt to test it.",
+        };
+    }
     try {
         const response = await fetch(`${endpoint}/readiness`, {
             signal: AbortSignal.timeout(10000),
@@ -242,8 +769,18 @@ async function checkReadiness(endpoint) {
 }
 
 function stateSnapshot(state) {
+    const agent = selectedAgent(state);
     return {
-        endpoint: state.endpoint,
+        endpoint: activeEndpoint(state),
+        localEndpoint: selectedLocalEndpoint(state),
+        target: state.target,
+        agents: state.agents,
+        selectedAgentId: state.selectedAgentId,
+        selectedAgent: agent,
+        foundryConnection: state.foundryConnection,
+        hosted: state.hosted,
+        deployment: state.deployment,
+        teams: state.teams,
         messages: state.messages,
         lastHealth: state.lastHealth,
         stats: transcriptStats(state.messages),
@@ -415,14 +952,192 @@ function renderHtml() {
       overflow: hidden;
     }
     .hero {
-      padding: 8px 12px;
+      display: grid;
+      gap: 10px;
+      padding: 10px 12px;
       background: var(--cp-bg-elevated);
     }
-    .endpoint-card {
+    .journey {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid transparent;
+      border-radius: 16px;
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+      text-align: left;
+      box-shadow: none;
+    }
+    .step:hover {
+      border-color: var(--cp-border);
+    }
+    .step.active {
+      border-color: var(--cp-border);
+      background: var(--cp-surface);
+      box-shadow: var(--cp-shadow);
+    }
+    .step.done {
+      border-color: color-mix(in srgb, var(--cp-success) 24%, transparent);
+    }
+    .step-index {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: var(--cp-panel-strong);
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .step.active .step-index {
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+    }
+    .step.done .step-index {
+      background: var(--cp-success);
+      color: var(--cp-accent-fg);
+    }
+    .step-title {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+    .step-subtitle {
+      display: block;
+      margin-top: 1px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .step-state {
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .action-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 16px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+    }
+    .action-title {
+      font-weight: 800;
+    }
+    .action-copy {
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      margin-top: 2px;
+    }
+    .action-buttons {
+      display: flex;
       gap: 8px;
       align-items: center;
+    }
+    .secondary {
+      color: var(--cp-text-muted);
+    }
+    .advanced-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(110px, 0.5fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .advanced-row[hidden] { display: none; }
+    .project-hint {
+      grid-column: 1 / -1;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+    }
+    .agent-picker {
+      position: relative;
+      min-width: 0;
+    }
+    .agent-picker-button {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      border-color: var(--cp-border);
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font-weight: 500;
+      text-align: left;
+    }
+    .agent-picker-button:hover {
+      border-color: var(--cp-border-strong);
+      background: var(--cp-panel-strong);
+    }
+    .agent-picker-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .agent-picker-chevron {
+      width: 8px;
+      height: 8px;
+      border-right: 1.5px solid var(--cp-text-muted);
+      border-bottom: 1.5px solid var(--cp-text-muted);
+      transform: translateY(-2px) rotate(45deg);
+    }
+    .agent-menu {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      max-height: 260px;
+      overflow: auto;
+      padding: 4px;
+      border: 1px solid var(--cp-border);
+      border-radius: 0.75rem;
+      background: var(--cp-panel-strong);
+      color: var(--cp-text);
+      box-shadow: var(--cp-shadow);
+    }
+    .agent-menu[hidden] { display: none; }
+    .agent-option {
+      display: grid;
+      gap: 2px;
+      width: 100%;
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 0.5rem;
+      background: transparent;
+      color: var(--cp-text);
+      text-align: left;
+      font-weight: 500;
+    }
+    .agent-option:hover,
+    .agent-option.active {
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
+    .agent-option-folder {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 500;
     }
     .content {
       display: grid;
@@ -433,6 +1148,11 @@ function renderHtml() {
       padding: 8px 12px;
       overflow: hidden;
     }
+    .content.deploy-mode {
+      grid-template-rows: minmax(0, 1fr);
+    }
+    .view { min-height: 0; }
+    .view[hidden] { display: none; }
     .panel {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -586,6 +1306,87 @@ function renderHtml() {
       background: var(--cp-surface-soft);
       color: var(--cp-text);
     }
+    .deploy-view,
+    .teams-view {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 12px;
+      min-height: 0;
+      padding: 4px 2px 16px;
+    }
+    .deploy-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .deploy-card {
+      padding: 12px;
+      border-radius: 16px;
+      background: var(--cp-surface-soft);
+      box-shadow: var(--cp-shadow);
+    }
+    .deploy-label {
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .deploy-value {
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+    .terminal {
+      min-height: 0;
+      overflow: auto;
+      margin: 0;
+      max-height: none;
+      background: var(--cp-surface-soft);
+      box-shadow: var(--cp-shadow);
+    }
+    .guide-card {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 16px;
+      background: var(--cp-surface-soft);
+      box-shadow: var(--cp-shadow);
+    }
+    .guide-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .guide-copy {
+      color: var(--cp-text-muted);
+    }
+    .guide-steps {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .guide-steps li {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 10px;
+      border-radius: 12px;
+      background: var(--cp-surface);
+    }
+    .guide-number {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--cp-accent-soft);
+      color: var(--cp-accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -620,7 +1421,10 @@ function renderHtml() {
       gap: 8px;
     }
     @media (max-width: 820px) {
-      .endpoint-card,
+      .advanced-row,
+      .journey,
+      .action-card,
+      .deploy-summary,
       .content {
         grid-template-columns: 1fr;
       }
@@ -637,14 +1441,52 @@ function renderHtml() {
 <body>
   <div class="app">
     <section class="hero">
-      <div class="endpoint-card">
+      <div class="journey" aria-label="Agent journey">
+        <button id="localStep" class="step active" type="button">
+          <span class="step-index">1</span>
+          <span><span class="step-title">Local</span><span id="localStepText" class="step-subtitle">Project</span></span>
+          <span id="localStepState" class="step-state">First</span>
+        </button>
+        <button id="foundryStep" class="step" type="button">
+          <span class="step-index">2</span>
+          <span><span class="step-title">Foundry</span><span id="foundryStepText" class="step-subtitle">Deploy it</span></span>
+          <span id="foundryStepState" class="step-state">Next</span>
+        </button>
+        <button id="teamsStep" class="step" type="button">
+          <span class="step-index">3</span>
+          <span><span class="step-title">Teams</span><span id="teamsStepText" class="step-subtitle">Try it</span></span>
+          <span id="teamsStepState" class="step-state">Later</span>
+        </button>
+      </div>
+      <div class="action-card">
+        <div>
+          <div id="guideTitle" class="action-title">Make it work locally</div>
+          <div id="guideCopy" class="action-copy">Check the local agent, then send a prompt.</div>
+        </div>
+        <div class="action-buttons">
+          <button id="primaryGuideAction" class="primary" type="button">Choose project</button>
+          <button id="testHostedAction" class="secondary" type="button" hidden>Test hosted</button>
+          <button id="advancedToggle" class="secondary" type="button" hidden>Settings</button>
+        </div>
+      </div>
+      <div id="advancedRow" class="advanced-row" hidden>
+        <div class="agent-picker">
+          <button id="agentPickerButton" class="agent-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <span id="agentPickerLabel" class="agent-picker-label">Agent</span>
+            <span class="agent-picker-chevron" aria-hidden="true"></span>
+          </button>
+          <div id="agentMenu" class="agent-menu" role="listbox" hidden></div>
+        </div>
         <input id="endpoint" aria-label="Agent endpoint" spellcheck="false" placeholder="http://127.0.0.1:8088" />
-        <button id="saveEndpoint" type="button">Save endpoint</button>
+        <input id="foundryEndpoint" aria-label="Foundry project endpoint" spellcheck="false" placeholder="https://.../api/projects/..." />
+        <input id="modelDeployment" aria-label="Model deployment" spellcheck="false" placeholder="gpt-5.5" />
+        <button id="connectFoundry" type="button" hidden>Use project</button>
         <button id="checkHealth" type="button">Check readiness</button>
+        <div class="project-hint">Start by choosing an existing Foundry project with a deployed model, or create one first and paste its project endpoint plus model deployment name.</div>
       </div>
     </section>
     <main class="content">
-      <section class="panel">
+      <section id="chatView" class="panel view">
         <div class="panel-header">
           <div>
             <div class="panel-title">Transcript</div>
@@ -661,6 +1503,50 @@ function renderHtml() {
           <div class="empty">Send a prompt to test <code>POST /responses</code>.</div>
         </div>
       </section>
+      <section id="deployView" class="deploy-view view" hidden>
+        <div class="deploy-summary">
+          <div class="deploy-card">
+            <div class="deploy-label">Foundry target</div>
+            <div id="foundryTarget" class="deploy-value">Not discovered</div>
+          </div>
+          <div class="deploy-card">
+            <div class="deploy-label">Hosted agent</div>
+            <div id="hostedAgent" class="deploy-value">minimal-agent</div>
+          </div>
+          <div class="deploy-card">
+            <div class="deploy-label">Active version</div>
+            <div id="hostedVersion" class="deploy-value">Not deployed</div>
+          </div>
+        </div>
+        <pre id="deployLog" class="terminal"></pre>
+      </section>
+      <section id="teamsView" class="teams-view view" hidden>
+        <div class="deploy-summary">
+          <div class="deploy-card">
+            <div class="deploy-label">Teams status</div>
+            <div id="teamsStatus" class="deploy-value">Not tested</div>
+          </div>
+          <div class="deploy-card">
+            <div class="deploy-label">Hosted agent</div>
+            <div id="teamsAgent" class="deploy-value">Not resolved</div>
+          </div>
+          <div class="deploy-card">
+            <div class="deploy-label">Foundry version</div>
+            <div id="teamsVersion" class="deploy-value">Not deployed</div>
+          </div>
+        </div>
+        <div class="guide-card">
+          <div>
+            <div class="guide-title">Try the hosted agent in Teams</div>
+            <div class="guide-copy">Use the A365 Teams step after the Foundry deployment is resolved. The canvas keeps this as guidance so you stay in control of tenant and Teams permissions.</div>
+          </div>
+          <ol class="guide-steps">
+            <li><span class="guide-number">1</span><span>Open the A365 Teams step for this hosted agent.</span></li>
+            <li><span class="guide-number">2</span><span>Select or install the agent in Teams for the right tenant/user context.</span></li>
+            <li><span class="guide-number">3</span><span>Send the same smoke-test prompt in Teams and confirm the hosted agent answers.</span></li>
+          </ol>
+        </div>
+      </section>
     </main>
     <section id="composer" class="composer">
       <textarea id="prompt" placeholder="Ask the agent something... Enter sends, Shift+Enter adds a line." required></textarea>
@@ -668,13 +1554,46 @@ function renderHtml() {
         <button id="clear" type="button">Clear transcript</button>
         <div class="right-actions">
           <button class="primary" id="send" type="button">Send</button>
+          <button class="primary" id="provisionButton" type="button" hidden>Prepare deploy</button>
+          <button class="primary" id="deployButton" type="button" hidden>Deploy changes</button>
+          <button class="primary" id="teamsTestedButton" type="button" hidden>Mark Teams tested</button>
         </div>
       </div>
     </section>
   </div>
   <script>
     const endpointInput = document.getElementById("endpoint");
-    const saveEndpoint = document.getElementById("saveEndpoint");
+    const foundryEndpointInput = document.getElementById("foundryEndpoint");
+    const modelDeploymentInput = document.getElementById("modelDeployment");
+    const connectFoundryButton = document.getElementById("connectFoundry");
+    const agentPickerButton = document.getElementById("agentPickerButton");
+    const agentPickerLabel = document.getElementById("agentPickerLabel");
+    const agentMenu = document.getElementById("agentMenu");
+    const localStep = document.getElementById("localStep");
+    const foundryStep = document.getElementById("foundryStep");
+    const teamsStep = document.getElementById("teamsStep");
+    const localStepText = document.getElementById("localStepText");
+    const foundryStepText = document.getElementById("foundryStepText");
+    const teamsStepText = document.getElementById("teamsStepText");
+    const localStepState = document.getElementById("localStepState");
+    const foundryStepState = document.getElementById("foundryStepState");
+    const teamsStepState = document.getElementById("teamsStepState");
+    const guideTitle = document.getElementById("guideTitle");
+    const guideCopy = document.getElementById("guideCopy");
+    const primaryGuideAction = document.getElementById("primaryGuideAction");
+    const testHostedAction = document.getElementById("testHostedAction");
+    const advancedToggle = document.getElementById("advancedToggle");
+    const advancedRow = document.getElementById("advancedRow");
+    const chatView = document.getElementById("chatView");
+    const deployView = document.getElementById("deployView");
+    const teamsView = document.getElementById("teamsView");
+    const foundryTarget = document.getElementById("foundryTarget");
+    const hostedAgent = document.getElementById("hostedAgent");
+    const hostedVersion = document.getElementById("hostedVersion");
+    const deployLog = document.getElementById("deployLog");
+    const teamsStatus = document.getElementById("teamsStatus");
+    const teamsAgent = document.getElementById("teamsAgent");
+    const teamsVersion = document.getElementById("teamsVersion");
     const checkHealthButton = document.getElementById("checkHealth");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
@@ -685,9 +1604,16 @@ function renderHtml() {
     const transcript = document.getElementById("transcript");
     const promptInput = document.getElementById("prompt");
     const sendButton = document.getElementById("send");
+    const provisionButton = document.getElementById("provisionButton");
+    const deployButton = document.getElementById("deployButton");
+    const teamsTestedButton = document.getElementById("teamsTestedButton");
     const clearButton = document.getElementById("clear");
     let inFlight = false;
     let lastSend = { input: "", at: 0 };
+    let activeView = "chat";
+    let latestState = null;
+    let agentMenuOpen = false;
+    let settingsOpen = false;
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
@@ -695,7 +1621,12 @@ function renderHtml() {
     }
 
     function renderSnapshot(state) {
-      endpointInput.value = state.endpoint;
+      latestState = state;
+      renderAgentPicker(state);
+      endpointInput.value = state.target === "hosted" ? (state.hosted.responsesEndpoint || "") : state.localEndpoint;
+      endpointInput.placeholder = state.target === "hosted" ? "Foundry Responses endpoint not discovered yet" : "http://127.0.0.1:8088";
+      foundryEndpointInput.value = state.foundryConnection?.projectEndpoint || state.hosted?.projectEndpoint || "";
+      modelDeploymentInput.value = state.foundryConnection?.modelDeployment || state.hosted?.modelDeployment || "";
       turnCount.textContent = state.stats.total + " turns";
       passCount.textContent = state.stats.completed + " pass";
       failCount.textContent = state.stats.failed + " fail";
@@ -704,6 +1635,143 @@ function renderHtml() {
       if (state.lastHealth) {
         setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms");
       }
+      renderDeploy(state);
+      renderTeams(state);
+      renderJourney(state);
+      renderView();
+    }
+
+    function setActiveStep(step) {
+      localStep.classList.toggle("active", step === "local");
+      foundryStep.classList.toggle("active", step === "foundry");
+      teamsStep.classList.toggle("active", step === "teams");
+    }
+
+    function renderJourney(state) {
+      const localOk = state.lastHealth?.ok || state.messages?.some((message) => message.target !== "hosted" && message.response?.ok);
+      const connected = Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
+      const foundryOk = Boolean(state.hosted?.version || state.hosted?.responsesEndpoint);
+      const versionLabel = state.hosted?.version ? "v" + state.hosted.version : "";
+      const teamsOk = Boolean(state.teams?.testedAt);
+      localStep.classList.toggle("done", localOk);
+      foundryStep.classList.toggle("done", foundryOk);
+      teamsStep.classList.toggle("done", teamsOk);
+      localStepText.textContent = !connected ? "Project" : localOk ? "Answered" : "Run it";
+      foundryStepText.textContent = foundryOk ? "Hosted" : "Deploy it";
+      teamsStepText.textContent = teamsOk ? "Tested" : "Try it";
+      localStepState.textContent = !connected ? "First" : localOk ? "Done" : "Start";
+      foundryStepState.textContent = versionLabel || (foundryOk ? "Ready" : localOk ? "Next" : "Later");
+      teamsStepState.textContent = teamsOk ? "Done" : foundryOk ? "Next" : "Later";
+      if (activeView === "deploy") {
+        const needsProvision = Boolean(state.deployment?.needsProvision);
+        primaryGuideAction.hidden = false;
+        testHostedAction.hidden = !(connected && foundryOk);
+        guideTitle.textContent = !connected ? "Choose a Foundry project" : "Make it work in Foundry";
+        guideCopy.textContent = !connected
+          ? "Local cannot answer until this agent points at a Foundry project with a deployed model."
+          : needsProvision
+          ? "Prepare this repo for hosted deployment into the connected Foundry project."
+          : foundryOk
+          ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
+          : "Deploy the selected agent, then use the same transcript against the hosted target.";
+        primaryGuideAction.textContent = !connected ? (settingsOpen ? "Use project" : "Choose project") : needsProvision ? "Prepare deploy" : "Deploy";
+        setActiveStep("foundry");
+      } else if (activeView === "teams") {
+        primaryGuideAction.hidden = false;
+        testHostedAction.hidden = true;
+        guideTitle.textContent = "Make it work in Teams";
+        guideCopy.textContent = "Follow the A365 Teams step, try the same smoke prompt, then mark it tested.";
+        primaryGuideAction.textContent = teamsOk ? "Teams tested" : "Mark Teams tested";
+        setActiveStep("teams");
+      } else {
+        primaryGuideAction.hidden = connected && state.target !== "hosted" && localOk;
+        testHostedAction.hidden = true;
+        guideTitle.textContent = !connected ? "Choose a Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
+        guideCopy.textContent = !connected
+          ? "Use an existing project/model, or create one first, before starting the local run."
+          : state.target === "hosted"
+          ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
+          : "Check readiness if needed, then send a prompt to the local agent.";
+        primaryGuideAction.textContent = !connected ? (settingsOpen ? "Use project" : "Choose project") : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : "Check local";
+        setActiveStep(state.target === "hosted" ? "foundry" : "local");
+      }
+      const settingsAllowed = connected && activeView !== "deploy" && state.target !== "hosted";
+      if (!settingsAllowed) settingsOpen = false;
+      advancedRow.hidden = !settingsOpen || !settingsAllowed;
+      advancedToggle.hidden = !settingsAllowed;
+      advancedToggle.textContent = settingsOpen ? "Hide settings" : "Settings";
+    }
+
+    function renderAgentPicker(state) {
+      const selected = state.selectedAgent || (state.agents || [])[0];
+      agentPickerLabel.textContent = selected
+        ? (selected.displayName || selected.serviceName) + " · " + selected.rootLabel
+        : "No hosted agents";
+      agentMenu.innerHTML = (state.agents || []).map((agent) => {
+        const active = agent.id === state.selectedAgentId;
+        return '<button type="button" role="option" class="agent-option ' + (active ? "active" : "") + '" aria-selected="' + String(active) + '" data-agent-id="' + escapeHtml(agent.id) + '">' +
+          '<span>' + escapeHtml(agent.displayName || agent.serviceName) + '</span>' +
+          '<span class="agent-option-folder">' + escapeHtml(agent.rootLabel) + '</span>' +
+          '</button>';
+      }).join("");
+      agentMenu.hidden = !agentMenuOpen;
+      agentPickerButton.setAttribute("aria-expanded", String(agentMenuOpen));
+    }
+
+    function closeAgentMenu() {
+      agentMenuOpen = false;
+      agentMenu.hidden = true;
+      agentPickerButton.setAttribute("aria-expanded", "false");
+    }
+
+    async function selectAgent(agentId) {
+      const state = await request("/api/agent", {
+        method: "POST",
+        body: JSON.stringify({ agentId }),
+      });
+      closeAgentMenu();
+      renderSnapshot(state);
+      setStatus("", "Selected " + (state.selectedAgent?.displayName || state.selectedAgent?.serviceName || "agent") + ".");
+    }
+
+    function renderView() {
+      const connected = Boolean(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment);
+      const localBlocked = activeView === "chat" && latestState?.target !== "hosted" && !connected;
+      chatView.hidden = activeView !== "chat";
+      deployView.hidden = activeView !== "deploy";
+      teamsView.hidden = activeView !== "teams";
+      sendButton.hidden = activeView !== "chat";
+      sendButton.disabled = inFlight || localBlocked;
+      provisionButton.hidden = true;
+      deployButton.hidden = true;
+      teamsTestedButton.hidden = true;
+      promptInput.hidden = activeView !== "chat";
+      promptInput.disabled = localBlocked;
+      checkHealthButton.disabled = localBlocked;
+      clearButton.hidden = activeView === "teams";
+      clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
+    }
+
+    function renderDeploy(state) {
+      const hosted = state.hosted || {};
+      foundryTarget.textContent = hosted.projectEndpoint || "Not discovered";
+      hostedAgent.textContent = (hosted.agentName || state.selectedAgent?.displayName || "minimal-agent") + " · " + (state.selectedAgent?.rootLabel || "");
+      hostedVersion.textContent = hosted.version ? "Version " + hosted.version : "Not deployed";
+      const lines = state.deployment?.log || [];
+      deployLog.textContent = lines.length ? lines.join("") : [
+        "$ azd env get-values\\n",
+        "Discover the deployed Foundry agent version and protocol endpoints.\\n\\n",
+        "$ azd deploy " + (state.selectedAgent?.serviceName || "minimal-agent") + " --no-prompt\\n",
+        "Deploy changes to Foundry and register a new hosted version.\\n",
+      ].join("");
+      deployLog.scrollTop = deployLog.scrollHeight;
+    }
+
+    function renderTeams(state) {
+      const hosted = state.hosted || {};
+      teamsStatus.textContent = state.teams?.testedAt ? "Tested " + formatTime(state.teams.testedAt) : "Not tested";
+      teamsAgent.textContent = hosted.agentName || state.selectedAgent?.displayName || "Not resolved";
+      teamsVersion.textContent = hosted.version ? "Version " + hosted.version : "Not deployed";
     }
 
     function renderMessages(messages) {
@@ -720,9 +1788,10 @@ function renderHtml() {
         const body = waitingForFirstToken
           ? '<div class="first-token" aria-label="Waiting for response"><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
           : renderMarkdown(answer);
+        const target = turn.target === "hosted" ? "Foundry" : "Local";
         return '<article class="turn">' +
           '<section class="bubble user">' +
-          '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
+          '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
           '<div class="bubble-body">' + escapeHtml(turn.input) + '</div>' +
           '</section>' +
           '<section class="bubble agent">' +
@@ -737,6 +1806,13 @@ function renderHtml() {
 
     async function sendPrompt() {
       if (inFlight) return;
+      if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment) && latestState?.target !== "hosted") {
+        setStatus("fail", "Choose a Foundry project and model first.");
+        settingsOpen = true;
+        renderJourney(latestState || {});
+        foundryEndpointInput.focus();
+        return;
+      }
       const input = promptInput.value.trim();
       if (!input) return;
       const now = Date.now();
@@ -746,6 +1822,7 @@ function renderHtml() {
       sendButton.disabled = true;
       setStatus("", "Sending prompt...");
       try {
+        await saveEndpointFromInput();
         const response = await fetch("/api/responses/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -784,7 +1861,7 @@ function renderHtml() {
         setStatus("fail", error.message);
       } finally {
         inFlight = false;
-        sendButton.disabled = false;
+        renderView();
       }
     }
 
@@ -835,28 +1912,201 @@ function renderHtml() {
       renderSnapshot(await request("/api/state"));
     }
 
-    saveEndpoint.addEventListener("click", async () => {
+    async function saveEndpointFromInput() {
+      return request("/api/endpoint", {
+        method: "POST",
+        body: JSON.stringify({ endpoint: endpointInput.value, target: latestState?.target || "local" }),
+      });
+    }
+
+    async function connectFoundryFromInputs() {
+      connectFoundryButton.disabled = true;
+      primaryGuideAction.disabled = true;
+      setStatus("", "Using Foundry project...");
       try {
-        const state = await request("/api/endpoint", {
+        const state = await request("/api/foundry/connect", {
           method: "POST",
-          body: JSON.stringify({ endpoint: endpointInput.value }),
+          body: JSON.stringify({
+            projectEndpoint: foundryEndpointInput.value,
+            modelDeployment: modelDeploymentInput.value,
+          }),
         });
+        settingsOpen = false;
         renderSnapshot(state);
-        setStatus("", "Endpoint saved.");
+        setStatus("ok", "Foundry project ready.");
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        connectFoundryButton.disabled = false;
+        primaryGuideAction.disabled = false;
+      }
+    }
+
+    async function markTeamsTested() {
+      primaryGuideAction.disabled = true;
+      teamsTestedButton.disabled = true;
+      try {
+        const state = await request("/api/teams/tested", { method: "POST" });
+        renderSnapshot(state);
+        setStatus("ok", "Teams test marked complete.");
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        primaryGuideAction.disabled = false;
+        teamsTestedButton.disabled = false;
+      }
+    }
+
+    endpointInput.addEventListener("change", async () => {
+      try {
+        renderSnapshot(await saveEndpointFromInput());
       } catch (error) {
         setStatus("fail", error.message);
       }
     });
 
+    connectFoundryButton.addEventListener("click", async () => {
+      await connectFoundryFromInputs();
+    });
+
+    agentPickerButton.addEventListener("click", () => {
+      agentMenuOpen = !agentMenuOpen;
+      renderAgentPicker(latestState || {});
+    });
+
+    agentMenu.addEventListener("click", async (event) => {
+      const option = event.target.closest(".agent-option");
+      if (!option) return;
+      await selectAgent(option.dataset.agentId);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".agent-picker")) closeAgentMenu();
+    });
+
+    agentPickerButton.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeAgentMenu();
+    });
+
+    async function showLocal() {
+      activeView = "chat";
+      const state = await request("/api/target", {
+        method: "POST",
+        body: JSON.stringify({ target: "local" }),
+      });
+      renderSnapshot(state);
+      setStatus("", "Local target selected.");
+    }
+
+    async function showFoundryChat() {
+      setStatus("", "Discovering Foundry target...");
+      activeView = "chat";
+      settingsOpen = false;
+      const state = await request("/api/target", {
+        method: "POST",
+        body: JSON.stringify({ target: "hosted", refresh: true }),
+      });
+      renderSnapshot(state);
+      setStatus(state.hosted?.responsesEndpoint ? "ok" : "fail", state.hosted?.responsesEndpoint ? "Foundry target selected." : "Foundry endpoint not discovered.");
+    }
+
+    async function showDeploy() {
+      activeView = "deploy";
+      settingsOpen = false;
+      const state = await request("/api/hosted/refresh", { method: "POST" });
+      renderSnapshot(state);
+      setStatus("", "Foundry step.");
+    }
+
+    async function showFoundry() {
+      setStatus("", "Refreshing Foundry...");
+      settingsOpen = false;
+      const refreshed = await request("/api/hosted/refresh", { method: "POST" });
+      if (refreshed.hosted?.version || refreshed.hosted?.responsesEndpoint) {
+        activeView = "chat";
+        const state = await request("/api/target", {
+          method: "POST",
+          body: JSON.stringify({ target: "hosted" }),
+        });
+        renderSnapshot(state);
+        setStatus(state.hosted?.responsesEndpoint ? "ok" : "fail", state.hosted?.responsesEndpoint ? "Foundry target selected." : "Foundry endpoint not discovered.");
+        return;
+      }
+      activeView = "deploy";
+      renderSnapshot(refreshed);
+      setStatus("", "Foundry step.");
+    }
+
+    async function showTeams() {
+      activeView = "teams";
+      const state = await request("/api/hosted/refresh", { method: "POST" });
+      renderSnapshot(state);
+      setStatus("", "Teams step.");
+    }
+
+    localStep.addEventListener("click", () => {
+      void showLocal();
+    });
+
+    foundryStep.addEventListener("click", () => {
+      void showFoundry();
+    });
+
+    teamsStep.addEventListener("click", () => {
+      void showTeams();
+    });
+
+    advancedToggle.addEventListener("click", () => {
+      settingsOpen = !settingsOpen;
+      renderJourney(latestState || {});
+    });
+
+    primaryGuideAction.addEventListener("click", () => {
+      if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment)) {
+        if (settingsOpen && foundryEndpointInput.value.trim() && modelDeploymentInput.value.trim()) {
+          void connectFoundryFromInputs();
+        } else {
+          settingsOpen = true;
+          renderJourney(latestState || {});
+          (foundryEndpointInput.value.trim() ? modelDeploymentInput : foundryEndpointInput).focus();
+        }
+        return;
+      }
+      if (activeView === "deploy") {
+        if (latestState?.deployment?.needsProvision) {
+          void runProvision();
+        } else {
+          void runDeploy();
+        }
+      } else if (activeView === "teams") {
+        void markTeamsTested();
+      } else if (latestState?.target === "hosted") {
+        void showDeploy();
+      } else if (latestState?.lastHealth?.ok || latestState?.messages?.some((message) => message.target !== "hosted" && message.response?.ok)) {
+        promptInput.focus();
+      } else {
+        checkHealthButton.click();
+      }
+    });
+
+    testHostedAction.addEventListener("click", () => {
+      void showFoundryChat();
+    });
+
     checkHealthButton.addEventListener("click", async () => {
+      if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment) && latestState?.target !== "hosted") {
+        setStatus("fail", "Choose a Foundry project and model first.");
+        return;
+      }
       checkHealthButton.disabled = true;
       setStatus("", "Checking readiness...");
       try {
+        await saveEndpointFromInput();
         renderSnapshot(await request("/api/health", { method: "POST" }));
       } catch (error) {
         setStatus("fail", error.message);
       } finally {
-        checkHealthButton.disabled = false;
+        renderView();
       }
     });
 
@@ -873,8 +2123,75 @@ function renderHtml() {
     });
 
     clearButton.addEventListener("click", async () => {
-      renderSnapshot(await request("/api/clear", { method: "POST" }));
-      setStatus("", "Transcript cleared.");
+      renderSnapshot(await request(activeView === "deploy" ? "/api/deploy/clear" : "/api/clear", { method: "POST" }));
+      setStatus("", activeView === "deploy" ? "Deploy log cleared." : "Transcript cleared.");
+    });
+
+    async function streamCommand({ path, button, confirmText, runningText, successText, failureText }) {
+      if (!confirm(confirmText)) return;
+      button.disabled = true;
+      setStatus("", runningText);
+      try {
+        const response = await fetch(path, { method: "POST" });
+        if (!response.ok || !response.body) {
+          const payload = await response.json().catch(() => ({ error: failureText }));
+          throw new Error(payload.error || failureText);
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\\n\\n");
+          buffer = parts.pop() || "";
+          for (const part of parts) {
+            const dataLine = part.split("\\n").find((line) => line.startsWith("data: "));
+            if (!dataLine) continue;
+            renderSnapshot(JSON.parse(dataLine.slice(6)));
+          }
+        }
+        setStatus((latestState?.deployment?.exitCode ?? 1) === 0 ? "ok" : "fail", (latestState?.deployment?.exitCode ?? 1) === 0 ? successText : failureText);
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function runProvision() {
+      await streamCommand({
+        path: "/api/provision/stream",
+        button: provisionButton,
+        confirmText: "Prepare this repo for hosted deployment into the connected Foundry project?",
+        runningText: "Preparing deploy...",
+        successText: "Deploy prep complete.",
+        failureText: "Deploy prep failed.",
+      });
+    }
+
+    async function runDeploy() {
+      await streamCommand({
+        path: "/api/deploy/stream",
+        button: deployButton,
+        confirmText: "Deploy changes to Foundry and create a new hosted agent version?",
+        runningText: "Deploying to Foundry...",
+        successText: "Deploy complete.",
+        failureText: "Deploy failed.",
+      });
+    }
+
+    provisionButton.addEventListener("click", () => {
+      void runProvision();
+    });
+
+    deployButton.addEventListener("click", () => {
+      void runDeploy();
+    });
+
+    teamsTestedButton.addEventListener("click", async () => {
+      await markTeamsTested();
     });
 
     load().catch((error) => setStatus("fail", error.message));
@@ -900,12 +2217,53 @@ async function handleRequest(req, res, state) {
         }
         if (req.method === "POST" && url.pathname === "/api/endpoint") {
             const body = await readBody(req);
-            state.endpoint = normalizeEndpoint(body.endpoint);
+            if (body.target === "hosted" || state.target === "hosted") {
+                state.hosted.responsesEndpoint = String(body.endpoint || "").trim().replace(/\/+$/, "");
+                state.hostedByAgent[state.selectedAgentId] = state.hosted;
+                state.target = "hosted";
+            } else {
+                state.localEndpoints[state.selectedAgentId] = normalizeEndpoint(body.endpoint);
+                state.target = "local";
+            }
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/agent") {
+            const body = await readBody(req);
+            setSelectedAgent(state, body.agentId);
+            state.lastHealth = null;
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/foundry/connect") {
+            const body = await readBody(req);
+            await connectFoundry(state, {
+                projectEndpoint: body.projectEndpoint,
+                modelDeployment: body.modelDeployment,
+            });
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/target") {
+            const body = await readBody(req);
+            if (!["local", "hosted"].includes(body.target)) {
+                sendJson(res, 400, { error: "Target must be local or hosted." });
+                return;
+            }
+            state.target = body.target;
+            if (body.refresh && state.target === "hosted") {
+                await refreshHostedContext(state);
+            }
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/hosted/refresh") {
+            await refreshHostedContext(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/health") {
-            state.lastHealth = await checkReadiness(state.endpoint);
+            state.lastHealth = await checkReadiness(activeEndpoint(state));
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -919,8 +2277,9 @@ async function handleRequest(req, res, state) {
             const turn = {
                 input,
                 createdAt: new Date().toISOString(),
-                request: { endpoint: state.endpoint, path: "/responses", body: { input } },
-                response: await callAgent(state.endpoint, "/responses", { input }),
+                target: state.target,
+                request: { endpoint: activeEndpoint(state), path: "/responses", body: { input } },
+                response: await callAgent(activeEndpoint(state), "/responses", { input }),
             };
             state.messages.push(turn);
             sendJson(res, 200, stateSnapshot(state));
@@ -941,7 +2300,8 @@ async function handleRequest(req, res, state) {
             const turn = {
                 input,
                 createdAt: new Date().toISOString(),
-                request: { endpoint: state.endpoint, path: "/responses", body: { input, stream: true } },
+                target: state.target,
+                request: { endpoint: activeEndpoint(state), path: "/responses", body: { input, stream: true } },
                 response: {
                     ok: false,
                     status: "waiting",
@@ -957,7 +2317,7 @@ async function handleRequest(req, res, state) {
             };
             state.messages.push(turn);
             writeEvent(res, "snapshot", stateSnapshot(state));
-            const result = await callAgentStream(state.endpoint, { input }, (_delta, outputText, durationMs) => {
+            const result = await callAgentStream(activeEndpoint(state), { input }, (_delta, outputText, durationMs) => {
                 turn.response = {
                     ok: true,
                     status: "streaming",
@@ -982,6 +2342,34 @@ async function handleRequest(req, res, state) {
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
+        if (req.method === "POST" && url.pathname === "/api/deploy/clear") {
+            state.deployment.log.length = 0;
+            state.deployment.exitCode = null;
+            state.deployment.needsProvision = false;
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/teams/tested") {
+            state.teams.testedAt = new Date().toISOString();
+            state.teams.agentId = state.hosted.agentId || null;
+            state.teams.version = state.hosted.version || null;
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/provision/stream") {
+            await streamAzdLifecycle(res, state, {
+                commandName: "provision",
+                args: ["provision", "--no-prompt"],
+            });
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/deploy/stream") {
+            await streamAzdLifecycle(res, state, {
+                commandName: "deploy",
+                args: ["deploy", selectedAgent(state).serviceName, "--no-prompt"],
+            });
+            return;
+        }
         sendJson(res, 404, { error: "Not found." });
     } catch (error) {
         sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -989,11 +2377,38 @@ async function handleRequest(req, res, state) {
 }
 
 async function startServer(ctx) {
+    const agents = await discoverAgents();
+    const selectedAgentId = ctx.input?.agentId && agents.some((agent) => agent.id === ctx.input.agentId)
+        ? ctx.input.agentId
+        : agents[0].id;
+    const selected = agents.find((agent) => agent.id === selectedAgentId) || agents[0];
+    const hosted = emptyHostedContext(selected);
     const state = {
-        endpoint: normalizeEndpoint(ctx.input?.endpoint),
+        target: "local",
+        agents,
+        selectedAgentId,
+        localEndpoints: { [selectedAgentId]: normalizeEndpoint(ctx.input?.endpoint) },
+        hostedByAgent: { [selectedAgentId]: hosted },
+        hosted,
+        foundryConnection: emptyFoundryConnection(),
+        deployment: {
+            running: false,
+            exitCode: null,
+            startedAt: null,
+            completedAt: null,
+            command: null,
+            needsProvision: false,
+            log: [],
+        },
+        teams: {
+            testedAt: null,
+            agentId: null,
+            version: null,
+        },
         messages: [],
         lastHealth: null,
     };
+    await hydrateFoundryConnectionFromAzd(state);
     const server = createServer((req, res) => {
         void handleRequest(req, res, state);
     });
@@ -1012,6 +2427,10 @@ await joinSession({
             inputSchema: {
                 type: "object",
                 properties: {
+                    agentId: {
+                        type: "string",
+                        description: "Optional discovered agent id to select when the canvas opens.",
+                    },
                     endpoint: {
                         type: "string",
                         description: "Base URL of the agent, for example http://127.0.0.1:8088.",
@@ -1031,7 +2450,11 @@ await joinSession({
                     },
                     handler: async (ctx) => {
                         const state = instanceState(ctx);
-                        state.endpoint = normalizeEndpoint(ctx.input?.endpoint);
+                        if (state.target === "hosted") {
+                            state.hosted.responsesEndpoint = String(ctx.input?.endpoint || "").trim().replace(/\/+$/, "");
+                        } else {
+                            state.localEndpoints[state.selectedAgentId] = normalizeEndpoint(ctx.input?.endpoint);
+                        }
                         return stateSnapshot(state);
                     },
                 },
@@ -1040,7 +2463,7 @@ await joinSession({
                     description: "Call GET /readiness on the configured agent endpoint.",
                     handler: async (ctx) => {
                         const state = instanceState(ctx);
-                        state.lastHealth = await checkReadiness(state.endpoint);
+                        state.lastHealth = await checkReadiness(activeEndpoint(state));
                         return state.lastHealth;
                     },
                 },
@@ -1062,8 +2485,9 @@ await joinSession({
                         const turn = {
                             input,
                             createdAt: new Date().toISOString(),
-                            request: { endpoint: state.endpoint, path: "/responses", body: { input } },
-                            response: await callAgent(state.endpoint, "/responses", { input }),
+                            target: state.target,
+                            request: { endpoint: activeEndpoint(state), path: "/responses", body: { input } },
+                            response: await callAgent(activeEndpoint(state), "/responses", { input }),
                         };
                         state.messages.push(turn);
                         return turn;
@@ -1085,11 +2509,11 @@ await joinSession({
                     entry = await startServer(ctx);
                     servers.set(ctx.instanceId, entry);
                 } else if (ctx.input?.endpoint) {
-                    entry.state.endpoint = normalizeEndpoint(ctx.input.endpoint);
+                    entry.state.localEndpoints[entry.state.selectedAgentId] = normalizeEndpoint(ctx.input.endpoint);
                 }
                 return {
                     title: "Agent Playground",
-                    status: entry.state.endpoint,
+                    status: activeEndpoint(entry.state),
                     url: entry.url,
                 };
             },
