@@ -9,9 +9,53 @@ they evolve independently.
 
 ```
 spec/
-├─ protocols/     # the wire contracts each SDK speaks
+├─ main.tsp       # aggregate TypeSpec generation root
+├─ protocols/     # protocol contracts each SDK speaks
+├─ optimizing/    # optimizer configuration contracts and seams
 └─ conformance/   # language-neutral fixtures / golden cases the SDKs test against
 ```
+
+## TypeSpec and Typra
+
+Typra is configured from this folder. Install/update the local generator
+dependencies once, then regenerate the committed output:
+
+```powershell
+Set-Location spec
+npm install
+npm run generate
+```
+
+`main.tsp` is only the aggregate generation root. Contract ownership is split
+into capability namespaces that mirror the Python package map:
+
+| TypeSpec namespace | Source file | Python reference package |
+| --- | --- | --- |
+| `Castia.Spec.Protocols` | `protocols/activity.tsp` | `castia.protocols`, `castia.messaging` |
+| `Castia.Spec.Optimizing` | `optimizing/config.tsp` | `castia.optimizing` |
+
+Typra currently emits Rust models and compile-only interface scaffolds into the
+Rust SDK package under `../packages/rust/src/model/`, with generated tests under
+`../packages/rust/tests/generated/`. The Rust package also includes parity tests
+that prove the generated Activity wire model can reproduce the current Python
+Activity alias and helper semantics. Run:
+
+```powershell
+Set-Location packages\rust
+cargo test
+cargo test --features serde
+```
+
+`@sample` and `@vector` are useful for examples and callable seam checks, but
+they do not replace `conformance/`. Keep stateful behavioral contracts there:
+optimizer precedence, lifecycle hashing, immutable writes, deployment locking,
+fail-closed acceptance, cancellation, and other rules that need multi-step
+fixtures or nontrivial oracles.
+
+The optimizer config source is modeled as a string for now. Typra's Rust target
+currently emits mismatched enum variant names/tests for snake_case string-union
+wire values such as `inline_config`; the portable source-precedence behavior is
+still pinned by `conformance/optimization/candidate_precedence.json`.
 
 ## Protocols
 
@@ -50,11 +94,11 @@ The Python [package map](../packages/python/README.md#package-organization)
 locates each capability. A future SDK should preserve those responsibilities
 while using its own language's module conventions.
 
-Typra is not configured in this repository yet. When generation is added,
-schema inputs belong in the shared spec. Each SDK should keep generated types
-separate from handwritten behavior and host adapters, with a reproducible
-generation check. Avoid putting Python decorators, SDK clients, credentials,
-or callbacks into a portable data contract.
+TypeSpec schema inputs belong in the shared spec. Generated runtime output
+belongs with the SDK package that builds it. Each SDK keeps generated types
+separate from handwritten behavior and host adapters, with reproducible
+generation checks. Avoid putting Python decorators, SDK clients, credentials, or
+callbacks into a portable data contract.
 
 Parity needs two checks. Generated models must preserve the same data, and the
 real implementations must produce the same behavior for shared fixtures.

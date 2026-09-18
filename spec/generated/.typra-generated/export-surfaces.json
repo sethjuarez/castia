@@ -1,0 +1,219 @@
+{
+  "emitter": "typra-emitter",
+  "version": 1,
+  "toolchain": {
+    "packages": [
+      {
+        "name": "@typespec/compiler",
+        "version": "1.16.0",
+        "supportedRange": ">=1.10.0 <2.0.0",
+        "supported": true
+      },
+      {
+        "name": "@typespec/json-schema",
+        "version": "1.16.0",
+        "supportedRange": ">=1.10.0 <2.0.0",
+        "supported": true
+      },
+      {
+        "name": "@typra/emitter",
+        "version": "2.1.8",
+        "supportedRange": "2.1.8",
+        "supported": true
+      }
+    ]
+  },
+  "root": {
+    "object": "Castia.Spec.CastiaContracts",
+    "namespace": "Castia.Spec",
+    "alias": "Spec"
+  },
+  "targets": [
+    {
+      "target": "rust",
+      "outputRoot": "../packages/rust/src/model",
+      "rootExports": [
+        "Activity",
+        "ActivityRuntime",
+        "AgentConfigResolution",
+        "AgentConfigResolver",
+        "CastiaContracts",
+        "ChannelAccount",
+        "ConversationAccount",
+        "Mention"
+      ],
+      "exports": [
+        {
+          "name": "Activity",
+          "kind": "value",
+          "group": "",
+          "source": "activity",
+          "protocol": false
+        },
+        {
+          "name": "ActivityRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "activity_runtime",
+          "protocol": true
+        },
+        {
+          "name": "AgentConfigResolution",
+          "kind": "value",
+          "group": "",
+          "source": "agent_config_resolution",
+          "protocol": false
+        },
+        {
+          "name": "AgentConfigResolver",
+          "kind": "type",
+          "group": "",
+          "source": "agent_config_resolver",
+          "protocol": true
+        },
+        {
+          "name": "CastiaContracts",
+          "kind": "value",
+          "group": "",
+          "source": "castia_contracts",
+          "protocol": false
+        },
+        {
+          "name": "ChannelAccount",
+          "kind": "value",
+          "group": "",
+          "source": "channel_account",
+          "protocol": false
+        },
+        {
+          "name": "ConversationAccount",
+          "kind": "value",
+          "group": "",
+          "source": "conversation_account",
+          "protocol": false
+        },
+        {
+          "name": "Mention",
+          "kind": "value",
+          "group": "",
+          "source": "mention",
+          "protocol": false
+        }
+      ],
+      "groups": [],
+      "protocols": [
+        {
+          "name": "ActivityRuntime",
+          "group": "",
+          "symbol": "ActivityRuntime",
+          "source": "activity_runtime",
+          "methods": [
+            {
+              "name": "agenticInstanceId",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "agenticTenantId",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "agenticUser",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "channel",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "isAgenticRequest",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "mentions",
+              "returns": "Mention[]",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "AgentConfigResolver",
+          "group": "",
+          "symbol": "AgentConfigResolver",
+          "source": "agent_config_resolver",
+          "methods": [
+            {
+              "name": "resolve",
+              "returns": "AgentConfigResolution",
+              "params": {
+                "configDir": "string?"
+              },
+              "optional": false,
+              "sync": false,
+              "runtimeCancellable": true,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        }
+      ],
+      "modules": [
+        "activity",
+        "activity_runtime",
+        "agent_config_resolution",
+        "agent_config_resolver",
+        "castia_contracts",
+        "channel_account",
+        "context",
+        "conversation_account",
+        "mention"
+      ]
+    }
+  ]
+}

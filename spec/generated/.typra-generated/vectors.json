@@ -1,0 +1,480 @@
+{
+  "emitter": "typra-emitter",
+  "version": 1,
+  "vectors": [
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticInstanceId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-instance-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance",
+              "agenticAppId": "app-1"
+            }
+          }
+        },
+        "expected": "app-1",
+        "operation": "agenticInstanceId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticInstanceId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "non-agentic-instance-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "bot",
+              "agenticAppId": "app-1"
+            }
+          }
+        },
+        "expected": null,
+        "operation": "agenticInstanceId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticTenantId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-tenant-falls-back-to-conversation",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance"
+            },
+            "conversation": {
+              "tenantId": "tenant-conversation"
+            }
+          }
+        },
+        "expected": "tenant-conversation",
+        "operation": "agenticTenantId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticTenantId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-tenant-prefers-recipient",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance",
+              "tenantId": "tenant-recipient"
+            },
+            "conversation": {
+              "tenantId": "tenant-conversation"
+            }
+          }
+        },
+        "expected": "tenant-recipient",
+        "operation": "agenticTenantId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticTenantId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-tenant-skips-empty-conversation",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance"
+            },
+            "conversation": {
+              "tenantId": ""
+            }
+          }
+        },
+        "expected": null,
+        "operation": "agenticTenantId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticTenantId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-tenant-skips-empty-recipient",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance",
+              "tenantId": ""
+            },
+            "conversation": {
+              "tenantId": "tenant-conversation"
+            }
+          }
+        },
+        "expected": "tenant-conversation",
+        "operation": "agenticTenantId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticUser",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-user-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticUser",
+              "agenticUserId": "agent-user-1"
+            }
+          }
+        },
+        "expected": "agent-user-1",
+        "operation": "agenticUser"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticUser",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "non-agentic-user-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "bot",
+              "agenticUserId": "agent-user-1"
+            }
+          }
+        },
+        "expected": null,
+        "operation": "agenticUser"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "channel",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "channel-empty-after-trim",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "channelId": "  "
+          }
+        },
+        "expected": null,
+        "operation": "channel"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "channel",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "channel-with-suffix",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "channelId": "msteams:tenant"
+          }
+        },
+        "expected": "msteams",
+        "operation": "channel"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "channel",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "channel-without-suffix",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "channelId": "msteams"
+          }
+        },
+        "expected": "msteams",
+        "operation": "channel"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "isAgenticRequest",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "agentic-recipient-role",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance"
+            }
+          }
+        },
+        "expected": true,
+        "operation": "isAgenticRequest"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "isAgenticRequest",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "agentic-user-recipient-role",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticUser"
+            }
+          }
+        },
+        "expected": true,
+        "operation": "isAgenticRequest"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "isAgenticRequest",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "bot-recipient-role",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "bot"
+            }
+          }
+        },
+        "expected": false,
+        "operation": "isAgenticRequest"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "isAgenticRequest",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "missing-recipient-role",
+        "stage": "callable",
+        "input": {
+          "activity": {}
+        },
+        "expected": false,
+        "operation": "isAgenticRequest"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "mentions",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "Mention[]",
+      "sync": true,
+      "vector": {
+        "name": "mention-absent-entities",
+        "stage": "callable",
+        "input": {
+          "activity": {}
+        },
+        "expected": [],
+        "operation": "mentions"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "mentions",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "Mention[]",
+      "sync": true,
+      "vector": {
+        "name": "mention-entities-only",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "entities": [
+              {
+                "type": "Mention",
+                "text": "<at>Castia</at>",
+                "mentioned": {
+                  "id": "bot-1"
+                }
+              },
+              {
+                "type": "clientInfo"
+              }
+            ]
+          }
+        },
+        "expected": [
+          {
+            "type": "Mention",
+            "text": "<at>Castia</at>",
+            "mentioned": {
+              "id": "bot-1"
+            }
+          }
+        ],
+        "operation": "mentions"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "mentions",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "Mention[]",
+      "sync": true,
+      "vector": {
+        "name": "mention-lowercase-entity",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "entities": [
+              {
+                "type": "mention",
+                "text": "<at>Castia</at>",
+                "mentioned": {
+                  "id": "bot-1"
+                }
+              }
+            ]
+          }
+        },
+        "expected": [
+          {
+            "type": "mention",
+            "text": "<at>Castia</at>",
+            "mentioned": {
+              "id": "bot-1"
+            }
+          }
+        ],
+        "operation": "mentions"
+      }
+    }
+  ],
+  "serializedTypes": [
+    "Activity",
+    "AgentConfigResolution",
+    "CastiaContracts",
+    "ChannelAccount",
+    "ConversationAccount"
+  ]
+}

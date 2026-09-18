@@ -25,6 +25,7 @@ env/
 .ruff_cache/
 .mypy_cache/
 .pytype/
+target/
 
 # Local lifecycle evidence can contain private execution data
 .castia/

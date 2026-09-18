@@ -1,0 +1,24 @@
+{
+  "emitter": "typra-emitter",
+  "version": 1,
+  "protectedPaths": [],
+  "hydrationZones": [],
+  "seams": [
+    {
+      "contract": "ActivityRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ActivityRuntime",
+      "generatedSource": "activity_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "AgentConfigResolver",
+      "target": "rust",
+      "group": "",
+      "symbol": "AgentConfigResolver",
+      "generatedSource": "agent_config_resolver",
+      "seamKind": "protocol-adapter"
+    }
+  ]
+}

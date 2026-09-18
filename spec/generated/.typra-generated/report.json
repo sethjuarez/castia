@@ -1,0 +1,217 @@
+{
+  "emitter": "typra-emitter",
+  "version": 1,
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "summary": {
+    "emittedFiles": 26,
+    "skippedFiles": 0,
+    "staleMarkerOwnedRemovals": 0,
+    "preservedUnmarkedSkippedFiles": 0,
+    "preservedEditableSeamFiles": 0,
+    "warnings": 0,
+    "protectedPathTouches": 0,
+    "hygiene": "clean"
+  },
+  "generation": {
+    "deterministicOutput": true,
+    "rootObject": "Castia.Spec.CastiaContracts",
+    "rootNamespace": "Castia.Spec",
+    "emitTargets": [
+      {
+        "type": "Rust",
+        "outputDir": "../packages/rust/src/model",
+        "testDir": "../packages/rust/tests/generated",
+        "enumParsing": "case-insensitive",
+        "protocolScaffolds": "compile-only",
+        "nativeSerialization": "serde"
+      }
+    ],
+    "protectedPaths": [],
+    "hydrationZones": []
+  },
+  "emittedFiles": [
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/activity_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/agent_config_resolver.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/castia_contracts.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/context.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/mod.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/optimizing/agent_config_resolution.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/optimizing/mod.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/protocols/activity.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/protocols/channel_account.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/protocols/conversation_account.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/protocols/mention.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/protocols/mod.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/vector_conformance.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/castia_contracts_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/main.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/optimizing/agent_config_resolution_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/optimizing/mod.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/protocol_scaffolds_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/protocols/activity_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/protocols/channel_account_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/protocols/conversation_account_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/protocols/mention_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/protocols/mod.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/vector_conformance_test.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/tests/generated",
+      "path": "../packages/rust/tests/generated/vector_runner/mod.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "generated/json-ast",
+      "path": "generated/json-ast/model.json",
+      "marker": false
+    }
+  ],
+  "skippedFiles": [],
+  "staleMarkerOwnedRemovals": [],
+  "preservedUnmarkedSkippedFiles": [],
+  "preservedEditableSeamFiles": [],
+  "warnings": [],
+  "hygiene": {
+    "lineEndings": "lf",
+    "finalNewline": true,
+    "trailingWhitespace": "trimmed",
+    "emptyArtifacts": "skipped-unless-allowed",
+    "marker": "typra-emitter"
+  },
+  "protectedPathTouches": {
+    "status": "requires-verifier-baseline",
+    "configuredPatterns": [],
+    "matchedFiles": [],
+    "guidance": "No emitted files matched configured protected paths in this generation."
+  },
+  "formatter": {
+    "status": "not-recorded",
+    "note": "Target formatters run in language drivers; per-file formatter status is not recorded in generated metadata yet."
+  },
+  "cleanup": {
+    "status": "safe-noop",
+    "suggestions": []
+  },
+  "driftGuidance": {
+    "updateBaselineWhen": "Generated runtime output and metadata drift are expected and reviewed.",
+    "fixGenerationWhen": "Verifier reports blocking failures, protected-path touches are unexpected, or preserved unmarked skipped files should remain hand-authored.",
+    "metadataToCompare": [
+      ".typra-generated/manifest.json",
+      ".typra-generated/export-surfaces.json",
+      ".typra-generated/hydration-seams.json",
+      ".typra-generated/vectors.json",
+      ".typra-generated/report.json",
+      "json-ast/model.json"
+    ],
+    "optionDriftSignals": [
+      "root-object",
+      "root-namespace",
+      "root-alias",
+      "emit-targets",
+      "protected-paths",
+      "hydration-zones",
+      "deterministic-output",
+      "native-serialization"
+    ],
+    "versionDriftSignals": [
+      "@typra/emitter",
+      "@typespec/compiler",
+      "@typespec/json-schema"
+    ]
+  }
+}
