@@ -195,6 +195,11 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/runtime_router_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/tool_catalog_runtime.rs",
       "marker": true
     },

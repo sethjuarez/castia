@@ -2363,3 +2363,136 @@ true
         assert_eq!(actual_value, expected, "teams-group misrouted");
     }
 }
+
+/// Typed @vector conformance for RuntimeRouterRuntime. Pass your real `impl RuntimeRouterRuntime`; the
+/// `S: RuntimeRouterRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_runtime_router_runtime_conformance(&RuntimeRouterRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_runtime_router_runtime_conformance<S: crate::model::RuntimeRouterRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: registered-protocols-activity-first-wire-order
+    {
+        let activity_route_count: i32 = serde_json::from_str(
+            r####"
+1
+"####,
+        )
+        .expect("activityRouteCount parses");
+        let invoke_names: Vec<String> = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("invokeNames parses");
+        let wire_protocols: Vec<String> = serde_json::from_str(
+            r####"
+[
+  "chat",
+  "responses"
+]
+"####,
+        )
+        .expect("wireProtocols parses");
+        let actual =
+            seam.registered_protocols(&activity_route_count, &invoke_names, &wire_protocols);
+        let actual_value = serde_json::to_value(actual)
+            .expect("registered-protocols-activity-first-wire-order: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "activity",
+  "responses",
+  "chat"
+]
+"####,
+        )
+        .expect("registered-protocols-activity-first-wire-order: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "registered-protocols-activity-first-wire-order misrouted"
+        );
+    }
+    // vector: registered-protocols-invoke-only-is-activity
+    {
+        let activity_route_count: i32 = serde_json::from_str(
+            r####"
+0
+"####,
+        )
+        .expect("activityRouteCount parses");
+        let invoke_names: Vec<String> = serde_json::from_str(
+            r####"
+[
+  "message/submitAction"
+]
+"####,
+        )
+        .expect("invokeNames parses");
+        let wire_protocols: Vec<String> = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("wireProtocols parses");
+        let actual =
+            seam.registered_protocols(&activity_route_count, &invoke_names, &wire_protocols);
+        let actual_value = serde_json::to_value(actual)
+            .expect("registered-protocols-invoke-only-is-activity: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "activity"
+]
+"####,
+        )
+        .expect("registered-protocols-invoke-only-is-activity: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "registered-protocols-invoke-only-is-activity misrouted"
+        );
+    }
+    // vector: registered-protocols-no-chat-publishable-assumption
+    {
+        let activity_route_count: i32 = serde_json::from_str(
+            r####"
+0
+"####,
+        )
+        .expect("activityRouteCount parses");
+        let invoke_names: Vec<String> = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("invokeNames parses");
+        let wire_protocols: Vec<String> = serde_json::from_str(
+            r####"
+[
+  "chat",
+  "invocations",
+  "responses_stream",
+  "responses"
+]
+"####,
+        )
+        .expect("wireProtocols parses");
+        let actual =
+            seam.registered_protocols(&activity_route_count, &invoke_names, &wire_protocols);
+        let actual_value = serde_json::to_value(actual)
+            .expect("registered-protocols-no-chat-publishable-assumption: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "responses",
+  "invocations",
+  "chat"
+]
+"####,
+        )
+        .expect("registered-protocols-no-chat-publishable-assumption: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "registered-protocols-no-chat-publishable-assumption misrouted"
+        );
+    }
+}

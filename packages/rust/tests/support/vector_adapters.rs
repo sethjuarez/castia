@@ -25,7 +25,8 @@ use castia::model::{
     InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
     LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
     ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
-    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, RuntimeRouterRuntime, SaveContext,
+    ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -34,6 +35,10 @@ use castia::observe::{
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
+};
+use castia::runtime::{
+    include_plan as build_include_plan,
+    responses_only_projection as build_responses_only_projection, CastiaRuntimeRouterRuntime,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -369,6 +374,18 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleOperationsRuntime.diffCandidates",
             sync(lifecycle_diff_candidates),
+        ),
+        (
+            "RuntimeRouterRuntime.registeredProtocols",
+            sync(runtime_registered_protocols),
+        ),
+        (
+            "RuntimeRouterRuntime.includePlan",
+            sync(runtime_include_plan),
+        ),
+        (
+            "RuntimeRouterRuntime.responsesOnlyProjection",
+            sync(runtime_responses_only_projection),
         ),
         (
             "ModelRuntime.instructionsParam",
@@ -1096,6 +1113,39 @@ fn lifecycle_diff_candidates(input: &Value, _: &Context) -> Result<Value, Vector
     let baseline = lifecycle_record_to_snake(input.get("baseline").unwrap_or(&Value::Null));
     let candidate = lifecycle_record_to_snake(input.get("candidate").unwrap_or(&Value::Null));
     diff_candidates(&baseline, &candidate).map_err(vector_error)
+}
+
+fn runtime_registered_protocols(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaRuntimeRouterRuntime.registered_protocols(
+        &(input
+            .get("activityRouteCount")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &string_array_input(input, "invokeNames")?,
+        &string_array_input(input, "wireProtocols")?,
+    )))
+}
+
+fn runtime_include_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_include_plan(
+        &string_array_input(input, "existingWire")?,
+        &string_array_input(input, "incomingWire")?,
+        &string_array_input(input, "existingInvokes")?,
+        &string_array_input(input, "incomingInvokes")?,
+    )
+    .map_err(vector_error)
+}
+
+fn runtime_responses_only_projection(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_responses_only_projection(
+        &string_input(input, "name")?,
+        input
+            .get("hasResponses")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        &string_array_input(input, "toolNames")?,
+    )
+    .map_err(vector_error)
 }
 
 async fn lifecycle_evaluate_outcomes(input: Value, _: Context) -> Result<Value, VectorError> {

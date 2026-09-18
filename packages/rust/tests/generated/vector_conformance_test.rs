@@ -3374,7 +3374,142 @@ async fn test_vector_258_routingruntime_teamstaggedchannelmessage_teams_channel_
 }
 
 #[tokio::test]
-async fn test_vector_259_toolcatalogruntime_activitytoolnames_activity_tool_names() {
+async fn test_vector_259_runtimerouterruntime_includeplan_include_plan_merges_non_conflicting_routers(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"include-plan-merges-non-conflicting-routers\",\"stage\":\"callable\",\"input\":{\"existingWire\":[\"responses\"],\"incomingWire\":[\"chat\"],\"existingInvokes\":[\"a\"],\"incomingInvokes\":[\"b\"]},\"expected\":{\"ok\":true,\"wire\":[\"responses\",\"chat\"],\"invokes\":[\"a\",\"b\"]},\"operation\":\"includePlan\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "includePlan",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_260_runtimerouterruntime_includeplan_include_plan_rejects_duplicate_invoke_name(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"include-plan-rejects-duplicate-invoke-name\",\"stage\":\"callable\",\"input\":{\"existingWire\":[],\"incomingWire\":[],\"existingInvokes\":[\"message/submitAction\"],\"incomingInvokes\":[\"message/submitAction\"]},\"expectedError\":{\"message\":\"invoke 'message/submitAction' already has a handler ('existing'); an invoke name is answered by exactly one handler, but 'incoming' also registered @app.invoke('message/submitAction'). Keep a single handler per invoke name.\"},\"operation\":\"includePlan\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "includePlan",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_261_runtimerouterruntime_includeplan_include_plan_rejects_duplicate_wire_protocol(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"include-plan-rejects-duplicate-wire-protocol\",\"stage\":\"callable\",\"input\":{\"existingWire\":[\"responses\"],\"incomingWire\":[\"responses\"],\"existingInvokes\":[],\"incomingInvokes\":[]},\"expectedError\":{\"message\":\"protocol 'responses' already has a handler ('existing'); a wire protocol answers every caller, so it takes exactly one handler, but 'incoming' also registered @app.responses(). Keep a single handler per wire protocol.\"},\"operation\":\"includePlan\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "includePlan",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_262_runtimerouterruntime_registeredprotocols_registered_protocols_activity_first_wire_order(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"registered-protocols-activity-first-wire-order\",\"stage\":\"callable\",\"input\":{\"activityRouteCount\":1,\"invokeNames\":[],\"wireProtocols\":[\"chat\",\"responses\"]},\"expected\":[\"activity\",\"responses\",\"chat\"],\"operation\":\"registeredProtocols\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "registeredProtocols",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_263_runtimerouterruntime_registeredprotocols_registered_protocols_invoke_only_is_activity(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"registered-protocols-invoke-only-is-activity\",\"stage\":\"callable\",\"input\":{\"activityRouteCount\":0,\"invokeNames\":[\"message/submitAction\"],\"wireProtocols\":[]},\"expected\":[\"activity\"],\"operation\":\"registeredProtocols\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "registeredProtocols",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_264_runtimerouterruntime_registeredprotocols_registered_protocols_no_chat_publishable_assumption(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"registered-protocols-no-chat-publishable-assumption\",\"stage\":\"callable\",\"input\":{\"activityRouteCount\":0,\"invokeNames\":[],\"wireProtocols\":[\"chat\",\"invocations\",\"responses_stream\",\"responses\"]},\"expected\":[\"responses\",\"invocations\",\"chat\"],\"operation\":\"registeredProtocols\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "registeredProtocols",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_265_runtimerouterruntime_responsesonlyprojection_responses_only_default_name()
+{
+    let vector: Value = serde_json::from_str("{\"name\":\"responses-only-default-name\",\"stage\":\"callable\",\"input\":{\"name\":\"hal\",\"hasResponses\":true,\"toolNames\":[\"a\",\"a\",\"b\"]},\"expected\":{\"name\":\"hal-optimize\",\"protocols\":[\"responses\"],\"tools\":[\"a\",\"b\"]},\"operation\":\"responsesOnlyProjection\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "responsesOnlyProjection",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_266_runtimerouterruntime_responsesonlyprojection_responses_only_requires_responses(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"responses-only-requires-responses\",\"stage\":\"callable\",\"input\":{\"name\":\"hal\",\"hasResponses\":false,\"toolNames\":[]},\"expectedError\":{\"message\":\"responses_only() needs an @responses handler to project; this agent registered none. Add @app.responses() (or include a router that does) before projecting.\"},\"operation\":\"responsesOnlyProjection\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "responsesOnlyProjection",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_267_runtimerouterruntime_responsesonlyprojection_responses_only_unnamed_agent_stays_unnamed(
+) {
+    let vector: Value = serde_json::from_str("{\"name\":\"responses-only-unnamed-agent-stays-unnamed\",\"stage\":\"callable\",\"input\":{\"name\":\"\",\"hasResponses\":true,\"toolNames\":[]},\"expected\":{\"name\":null,\"protocols\":[\"responses\"],\"tools\":[]},\"operation\":\"responsesOnlyProjection\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector(
+        "RuntimeRouterRuntime",
+        "responsesOnlyProjection",
+        vector,
+        true,
+        vc_seam(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_vector_268_toolcatalogruntime_activitytoolnames_activity_tool_names() {
     let vector: Value = serde_json::from_str("{\"name\":\"activity-tool-names\",\"stage\":\"callable\",\"input\":{},\"expected\":[\"react_to_message\",\"cite_source\"],\"operation\":\"activityToolNames\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector(
@@ -3388,7 +3523,7 @@ async fn test_vector_259_toolcatalogruntime_activitytoolnames_activity_tool_name
 }
 
 #[tokio::test]
-async fn test_vector_260_toolcatalogruntime_agenttoolnames_agent_tool_names() {
+async fn test_vector_269_toolcatalogruntime_agenttoolnames_agent_tool_names() {
     let vector: Value = serde_json::from_str("{\"name\":\"agent-tool-names\",\"stage\":\"callable\",\"input\":{},\"expected\":[\"react_to_message\",\"cite_source\",\"send_email\",\"reply_email\",\"create_document\",\"read_inbox\"],\"operation\":\"agentToolNames\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector(
@@ -3402,7 +3537,7 @@ async fn test_vector_260_toolcatalogruntime_agenttoolnames_agent_tool_names() {
 }
 
 #[tokio::test]
-async fn test_vector_261_toolcatalogruntime_graphtoolnames_graph_tool_names() {
+async fn test_vector_270_toolcatalogruntime_graphtoolnames_graph_tool_names() {
     let vector: Value = serde_json::from_str("{\"name\":\"graph-tool-names\",\"stage\":\"callable\",\"input\":{},\"expected\":[\"send_email\",\"reply_email\",\"create_document\",\"read_inbox\"],\"operation\":\"graphToolNames\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector(
@@ -3416,7 +3551,7 @@ async fn test_vector_261_toolcatalogruntime_graphtoolnames_graph_tool_names() {
 }
 
 #[tokio::test]
-async fn test_vector_262_toolcatalogruntime_toolspec_tool_spec_omits_scopes() {
+async fn test_vector_271_toolcatalogruntime_toolspec_tool_spec_omits_scopes() {
     let vector: Value = serde_json::from_str("{\"name\":\"tool-spec-omits-scopes\",\"stage\":\"callable\",\"input\":{\"tool\":{\"name\":\"send_email\",\"description\":\"Send.\",\"parameters\":{\"type\":\"object\"},\"scopes\":[\"Mail.Send\"]}},\"expected\":{\"type\":\"function\",\"name\":\"send_email\",\"description\":\"Send.\",\"parameters\":{\"type\":\"object\"}},\"operation\":\"toolSpec\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ToolCatalogRuntime", "toolSpec", vector, true, vc_seam()).await;

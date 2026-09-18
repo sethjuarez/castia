@@ -67,6 +67,7 @@
         "ObserveTracingRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
+        "RuntimeRouterRuntime",
         "ToolCatalogRuntime"
       ],
       "exports": [
@@ -306,6 +307,13 @@
           "kind": "type",
           "group": "",
           "source": "routing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeRouterRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_router_runtime",
           "protocol": true
         },
         {
@@ -1870,6 +1878,57 @@
           ]
         },
         {
+          "name": "RuntimeRouterRuntime",
+          "group": "",
+          "symbol": "RuntimeRouterRuntime",
+          "source": "runtime_router_runtime",
+          "methods": [
+            {
+              "name": "includePlan",
+              "returns": "unknown",
+              "params": {
+                "existingInvokes": "string[]",
+                "existingWire": "string[]",
+                "incomingInvokes": "string[]",
+                "incomingWire": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "registeredProtocols",
+              "returns": "string[]",
+              "params": {
+                "activityRouteCount": "int32",
+                "invokeNames": "string[]",
+                "wireProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "responsesOnlyProjection",
+              "returns": "unknown",
+              "params": {
+                "hasResponses": "boolean",
+                "name": "string",
+                "toolNames": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ToolCatalogRuntime",
           "group": "",
           "symbol": "ToolCatalogRuntime",
@@ -1956,6 +2015,7 @@
         "observe_tracing_runtime",
         "responses_runtime",
         "routing_runtime",
+        "runtime_router_runtime",
         "tool_catalog_runtime"
       ]
     }

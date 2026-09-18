@@ -818,6 +818,42 @@ fn routing_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RoutingRuntime> = Box::new(CompileOnlyRoutingRuntime);
 }
 
+struct CompileOnlyRuntimeRouterRuntime;
+
+#[async_trait::async_trait]
+impl RuntimeRouterRuntime for CompileOnlyRuntimeRouterRuntime {
+    fn include_plan(
+        &self,
+        existing_wire: &Vec<String>,
+        incoming_wire: &Vec<String>,
+        existing_invokes: &Vec<String>,
+        incoming_invokes: &Vec<String>,
+    ) -> serde_json::Value {
+        panic!("RuntimeRouterRuntime.includePlan is a compile-only protocol scaffold.")
+    }
+    fn registered_protocols(
+        &self,
+        activity_route_count: &i32,
+        invoke_names: &Vec<String>,
+        wire_protocols: &Vec<String>,
+    ) -> Vec<String> {
+        panic!("RuntimeRouterRuntime.registeredProtocols is a compile-only protocol scaffold.")
+    }
+    fn responses_only_projection(
+        &self,
+        name: &String,
+        has_responses: &bool,
+        tool_names: &Vec<String>,
+    ) -> serde_json::Value {
+        panic!("RuntimeRouterRuntime.responsesOnlyProjection is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn runtime_router_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn RuntimeRouterRuntime> = Box::new(CompileOnlyRuntimeRouterRuntime);
+}
+
 struct CompileOnlyToolCatalogRuntime;
 
 #[async_trait::async_trait]

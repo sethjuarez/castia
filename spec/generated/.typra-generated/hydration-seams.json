@@ -229,6 +229,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "RuntimeRouterRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeRouterRuntime",
+      "generatedSource": "runtime_router_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ToolCatalogRuntime",
       "target": "rust",
       "group": "",
