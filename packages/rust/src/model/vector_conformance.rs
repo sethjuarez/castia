@@ -2364,6 +2364,224 @@ true
     }
 }
 
+/// Typed @vector conformance for RuntimeDispatchRuntime. Pass your real `impl RuntimeDispatchRuntime`; the
+/// `S: RuntimeDispatchRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_runtime_dispatch_runtime_conformance(&RuntimeDispatchRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_runtime_dispatch_runtime_conformance<
+    S: crate::model::RuntimeDispatchRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: activity-result-empty-or-non-string-is-none
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.activity_result_text(&result);
+        let actual_value = serde_json::to_value(actual)
+            .expect("activity-result-empty-or-non-string-is-none: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+null
+"####,
+        )
+        .expect("activity-result-empty-or-non-string-is-none: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "activity-result-empty-or-non-string-is-none misrouted"
+        );
+    }
+    // vector: activity-result-non-string-is-none
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+42
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.activity_result_text(&result);
+        let actual_value =
+            serde_json::to_value(actual).expect("activity-result-non-string-is-none: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+null
+"####,
+        )
+        .expect("activity-result-non-string-is-none: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "activity-result-non-string-is-none misrouted"
+        );
+    }
+    // vector: activity-result-nonempty-string
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+"ok"
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.activity_result_text(&result);
+        let actual_value =
+            serde_json::to_value(actual).expect("activity-result-nonempty-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"ok"
+"####,
+        )
+        .expect("activity-result-nonempty-string: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "activity-result-nonempty-string misrouted"
+        );
+    }
+    // vector: stream-chunks-empty-string-is-empty
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.stream_chunks(&result);
+        let actual_value =
+            serde_json::to_value(actual).expect("stream-chunks-empty-string-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("stream-chunks-empty-string-is-empty: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "stream-chunks-empty-string-is-empty misrouted"
+        );
+    }
+    // vector: stream-chunks-filter-empty-and-non-string
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  "a",
+  "",
+  1,
+  "b"
+]
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.stream_chunks(&result);
+        let actual_value = serde_json::to_value(actual)
+            .expect("stream-chunks-filter-empty-and-non-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "a",
+  "b"
+]
+"####,
+        )
+        .expect("stream-chunks-filter-empty-and-non-string: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "stream-chunks-filter-empty-and-non-string misrouted"
+        );
+    }
+    // vector: stream-chunks-non-stream-result-is-empty
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+42
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.stream_chunks(&result);
+        let actual_value = serde_json::to_value(actual)
+            .expect("stream-chunks-non-stream-result-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("stream-chunks-non-stream-result-is-empty: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "stream-chunks-non-stream-result-is-empty misrouted"
+        );
+    }
+    // vector: stream-chunks-single-string
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+"done"
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.stream_chunks(&result);
+        let actual_value =
+            serde_json::to_value(actual).expect("stream-chunks-single-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "done"
+]
+"####,
+        )
+        .expect("stream-chunks-single-string: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "stream-chunks-single-string misrouted"
+        );
+    }
+    // vector: wire-return-body-string-or-empty
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+42
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.return_body(&result);
+        let actual_value =
+            serde_json::to_value(actual).expect("wire-return-body-string-or-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("wire-return-body-string-or-empty: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "wire-return-body-string-or-empty misrouted"
+        );
+    }
+    // vector: wire-return-body-string-passthrough
+    {
+        let result: serde_json::Value = serde_json::from_str(
+            r####"
+"body"
+"####,
+        )
+        .expect("result parses");
+        let actual = seam.return_body(&result);
+        let actual_value =
+            serde_json::to_value(actual).expect("wire-return-body-string-passthrough: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"body"
+"####,
+        )
+        .expect("wire-return-body-string-passthrough: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "wire-return-body-string-passthrough misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for RuntimeRouterRuntime. Pass your real `impl RuntimeRouterRuntime`; the
 /// `S: RuntimeRouterRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_runtime_router_runtime_conformance(&RuntimeRouterRuntimeImpl).await;` (or without `.await` when sync).

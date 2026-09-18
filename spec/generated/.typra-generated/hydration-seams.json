@@ -229,6 +229,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "RuntimeDispatchRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeDispatchRuntime",
+      "generatedSource": "runtime_dispatch_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "RuntimeRouterRuntime",
       "target": "rust",
       "group": "",

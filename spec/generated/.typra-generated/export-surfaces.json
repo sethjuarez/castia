@@ -67,6 +67,7 @@
         "ObserveTracingRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
+        "RuntimeDispatchRuntime",
         "RuntimeRouterRuntime",
         "ToolCatalogRuntime"
       ],
@@ -307,6 +308,13 @@
           "kind": "type",
           "group": "",
           "source": "routing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeDispatchRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_dispatch_runtime",
           "protocol": true
         },
         {
@@ -1878,6 +1886,103 @@
           ]
         },
         {
+          "name": "RuntimeDispatchRuntime",
+          "group": "",
+          "symbol": "RuntimeDispatchRuntime",
+          "source": "runtime_dispatch_runtime",
+          "methods": [
+            {
+              "name": "activityDispatchPlan",
+              "returns": "unknown",
+              "params": {
+                "parameters": "unknown",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "activityResultText",
+              "returns": "string?",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "invokeDispatchPlan",
+              "returns": "unknown",
+              "params": {
+                "parameters": "unknown",
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "invokeResultBody",
+              "returns": "unknown",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "returnBody",
+              "returns": "string",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "streamChunks",
+              "returns": "string[]",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "wireDispatchPlan",
+              "returns": "unknown",
+              "params": {
+                "handlerName": "string",
+                "parameters": "unknown",
+                "streaming": "boolean",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "RuntimeRouterRuntime",
           "group": "",
           "symbol": "RuntimeRouterRuntime",
@@ -2015,6 +2120,7 @@
         "observe_tracing_runtime",
         "responses_runtime",
         "routing_runtime",
+        "runtime_dispatch_runtime",
         "runtime_router_runtime",
         "tool_catalog_runtime"
       ]

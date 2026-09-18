@@ -25,8 +25,8 @@ use castia::model::{
     InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
     LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
     ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
-    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, RuntimeRouterRuntime, SaveContext,
-    ToolCatalogRuntime,
+    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, RuntimeDispatchRuntime,
+    RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -38,7 +38,9 @@ use castia::protocols::{
 };
 use castia::runtime::{
     include_plan as build_include_plan,
-    responses_only_projection as build_responses_only_projection, CastiaRuntimeRouterRuntime,
+    responses_only_projection as build_responses_only_projection,
+    wire_dispatch_plan as build_wire_dispatch_plan, CastiaRuntimeDispatchRuntime,
+    CastiaRuntimeRouterRuntime,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -386,6 +388,34 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "RuntimeRouterRuntime.responsesOnlyProjection",
             sync(runtime_responses_only_projection),
+        ),
+        (
+            "RuntimeDispatchRuntime.activityDispatchPlan",
+            sync(runtime_activity_dispatch_plan),
+        ),
+        (
+            "RuntimeDispatchRuntime.invokeDispatchPlan",
+            sync(runtime_invoke_dispatch_plan),
+        ),
+        (
+            "RuntimeDispatchRuntime.wireDispatchPlan",
+            sync(runtime_wire_dispatch_plan),
+        ),
+        (
+            "RuntimeDispatchRuntime.activityResultText",
+            sync(runtime_activity_result_text),
+        ),
+        (
+            "RuntimeDispatchRuntime.invokeResultBody",
+            sync(runtime_invoke_result_body),
+        ),
+        (
+            "RuntimeDispatchRuntime.returnBody",
+            sync(runtime_return_body),
+        ),
+        (
+            "RuntimeDispatchRuntime.streamChunks",
+            sync(runtime_stream_chunks),
         ),
         (
             "ModelRuntime.instructionsParam",
@@ -1146,6 +1176,59 @@ fn runtime_responses_only_projection(input: &Value, _: &Context) -> Result<Value
         &string_array_input(input, "toolNames")?,
     )
     .map_err(vector_error)
+}
+
+fn runtime_activity_dispatch_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeDispatchRuntime.activity_dispatch_plan(
+        input.get("parameters").unwrap_or(&Value::Null),
+        &string_input(input, "text")?,
+    ))
+}
+
+fn runtime_invoke_dispatch_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeDispatchRuntime.invoke_dispatch_plan(
+        input.get("parameters").unwrap_or(&Value::Null),
+        input.get("value").unwrap_or(&Value::Null),
+    ))
+}
+
+fn runtime_wire_dispatch_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_wire_dispatch_plan(
+        &string_input(input, "handlerName")?,
+        input.get("parameters").unwrap_or(&Value::Null),
+        &string_input(input, "text")?,
+        input
+            .get("streaming")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    )
+    .map_err(vector_error)
+}
+
+fn runtime_activity_result_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeDispatchRuntime
+        .activity_result_text(input.get("result").unwrap_or(&Value::Null))
+        .map(Value::String)
+        .unwrap_or(Value::Null))
+}
+
+fn runtime_invoke_result_body(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(
+        CastiaRuntimeDispatchRuntime
+            .invoke_result_body(input.get("result").unwrap_or(&Value::Null)),
+    )
+}
+
+fn runtime_return_body(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(
+        CastiaRuntimeDispatchRuntime.return_body(input.get("result").unwrap_or(&Value::Null)),
+    ))
+}
+
+fn runtime_stream_chunks(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaRuntimeDispatchRuntime.stream_chunks(
+        input.get("result").unwrap_or(&Value::Null)
+    )))
 }
 
 async fn lifecycle_evaluate_outcomes(input: Value, _: Context) -> Result<Value, VectorError> {

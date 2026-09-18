@@ -28,6 +28,7 @@ import "./observe/suite.tsp";
 import "./observe/telemetry.tsp";
 import "./observe/tracing.tsp";
 import "./observe/live.tsp";
+import "./runtime/dispatch.tsp";
 import "./runtime/router.tsp";
 
 namespace Castia.Spec;

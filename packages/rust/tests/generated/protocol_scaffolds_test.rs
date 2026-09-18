@@ -818,6 +818,52 @@ fn routing_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RoutingRuntime> = Box::new(CompileOnlyRoutingRuntime);
 }
 
+struct CompileOnlyRuntimeDispatchRuntime;
+
+#[async_trait::async_trait]
+impl RuntimeDispatchRuntime for CompileOnlyRuntimeDispatchRuntime {
+    fn activity_dispatch_plan(
+        &self,
+        parameters: &serde_json::Value,
+        text: &String,
+    ) -> serde_json::Value {
+        panic!("RuntimeDispatchRuntime.activityDispatchPlan is a compile-only protocol scaffold.")
+    }
+    fn activity_result_text(&self, result: &serde_json::Value) -> Option<String> {
+        panic!("RuntimeDispatchRuntime.activityResultText is a compile-only protocol scaffold.")
+    }
+    fn invoke_dispatch_plan(
+        &self,
+        parameters: &serde_json::Value,
+        value: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("RuntimeDispatchRuntime.invokeDispatchPlan is a compile-only protocol scaffold.")
+    }
+    fn invoke_result_body(&self, result: &serde_json::Value) -> serde_json::Value {
+        panic!("RuntimeDispatchRuntime.invokeResultBody is a compile-only protocol scaffold.")
+    }
+    fn return_body(&self, result: &serde_json::Value) -> String {
+        panic!("RuntimeDispatchRuntime.returnBody is a compile-only protocol scaffold.")
+    }
+    fn stream_chunks(&self, result: &serde_json::Value) -> Vec<String> {
+        panic!("RuntimeDispatchRuntime.streamChunks is a compile-only protocol scaffold.")
+    }
+    fn wire_dispatch_plan(
+        &self,
+        handler_name: &String,
+        parameters: &serde_json::Value,
+        text: &String,
+        streaming: &bool,
+    ) -> serde_json::Value {
+        panic!("RuntimeDispatchRuntime.wireDispatchPlan is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn runtime_dispatch_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn RuntimeDispatchRuntime> = Box::new(CompileOnlyRuntimeDispatchRuntime);
+}
+
 struct CompileOnlyRuntimeRouterRuntime;
 
 #[async_trait::async_trait]
