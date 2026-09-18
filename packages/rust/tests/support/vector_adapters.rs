@@ -92,6 +92,10 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             sync_with_normalize(agent_config_resolve, normalize_agent_config_source),
         ),
         (
+            "BuildScaffoldRuntime.scaffoldFiles",
+            sync_with_normalize(build_scaffold_files, build_scaffold_to_camel),
+        ),
+        (
             "CardsRuntime.actionChips",
             sync_with_normalize(cards_action_chips, normalize_special_json_keys),
         ),
@@ -1239,6 +1243,20 @@ fn agent_config_resolve(input: &Value, ctx: &Context) -> Result<Value, VectorErr
     result
 }
 
+fn build_scaffold_files(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    castia::building::scaffold_files(
+        input
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+    .map_err(vector_error)
+}
+
 fn responses_input_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(serde_json::json!(
         CastiaResponsesRuntime.input_text(input.get("value").unwrap_or(&Value::Null))
@@ -1309,6 +1327,59 @@ fn normalize_agent_config_source(value: &Value, _: &Context) -> Value {
 
 fn normalize_special_json_keys(value: &Value, _: &Context) -> Value {
     strip_special_json_keys(value)
+}
+
+fn build_scaffold_to_camel(value: &Value, _: &Context) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match key.as_str() {
+                        "app_target" => "appTarget",
+                        "file_count" => "fileCount",
+                        "content_digest" => "contentDigest",
+                        _ => key,
+                    };
+                    (
+                        translated.to_string(),
+                        build_scaffold_to_camel(
+                            value,
+                            &Context {
+                                contract: String::new(),
+                                operation: String::new(),
+                                vector: Value::Null,
+                                provider: None,
+                                target_api: None,
+                                doubles: Value::Null,
+                                base_dir: String::new(),
+                            },
+                        ),
+                    )
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|value| {
+                    build_scaffold_to_camel(
+                        value,
+                        &Context {
+                            contract: String::new(),
+                            operation: String::new(),
+                            vector: Value::Null,
+                            provider: None,
+                            target_api: None,
+                            doubles: Value::Null,
+                            base_dir: String::new(),
+                        },
+                    )
+                })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 fn lifecycle_record_to_camel(value: &Value, _: &Context) -> Value {

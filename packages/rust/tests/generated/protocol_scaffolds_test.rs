@@ -53,6 +53,20 @@ fn agent_config_resolver_compile_only_conformance() {
     let _scaffold: Box<dyn AgentConfigResolver> = Box::new(CompileOnlyAgentConfigResolver);
 }
 
+struct CompileOnlyBuildScaffoldRuntime;
+
+#[async_trait::async_trait]
+impl BuildScaffoldRuntime for CompileOnlyBuildScaffoldRuntime {
+    fn scaffold_files(&self, name: &String, model: &String) -> serde_json::Value {
+        panic!("BuildScaffoldRuntime.scaffoldFiles is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn build_scaffold_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn BuildScaffoldRuntime> = Box::new(CompileOnlyBuildScaffoldRuntime);
+}
+
 struct CompileOnlyCardsRuntime;
 
 #[async_trait::async_trait]

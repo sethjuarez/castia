@@ -21,6 +21,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "BuildScaffoldRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "BuildScaffoldRuntime",
+      "generatedSource": "build_scaffold_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "CardsRuntime",
       "target": "rust",
       "group": "",

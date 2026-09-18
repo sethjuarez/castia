@@ -37,6 +37,7 @@
         "ActivityRuntime",
         "AgentConfigResolution",
         "AgentConfigResolver",
+        "BuildScaffoldRuntime",
         "CardsRuntime",
         "CastiaContracts",
         "ChannelAccount",
@@ -89,6 +90,13 @@
           "kind": "type",
           "group": "",
           "source": "agent_config_resolver",
+          "protocol": true
+        },
+        {
+          "name": "BuildScaffoldRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "build_scaffold_runtime",
           "protocol": true
         },
         {
@@ -357,6 +365,27 @@
               "optional": false,
               "sync": false,
               "runtimeCancellable": true,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "BuildScaffoldRuntime",
+          "group": "",
+          "symbol": "BuildScaffoldRuntime",
+          "source": "build_scaffold_runtime",
+          "methods": [
+            {
+              "name": "scaffoldFiles",
+              "returns": "unknown",
+              "params": {
+                "model": "string",
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
               "atomic": false,
               "nonFatal": false
             }
@@ -1419,6 +1448,7 @@
         "activity_runtime",
         "agent_config_resolution",
         "agent_config_resolver",
+        "build_scaffold_runtime",
         "cards_runtime",
         "castia_contracts",
         "channel_account",
