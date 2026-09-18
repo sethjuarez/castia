@@ -5599,6 +5599,71 @@
       }
     },
     {
+      "contract": "HostingAuthRuntime",
+      "namespace": "Castia.Spec.Hosting",
+      "group": "",
+      "operation": "localRun",
+      "params": {
+        "env": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "agent-digital-worker-is-local",
+        "stage": "callable",
+        "input": {
+          "env": {
+            "AGENT_DIGITAL_WORKER": "1",
+            "FOUNDRY_AGENT_TENANT_ID": "tenant"
+          }
+        },
+        "expected": true,
+        "operation": "localRun"
+      }
+    },
+    {
+      "contract": "HostingAuthRuntime",
+      "namespace": "Castia.Spec.Hosting",
+      "group": "",
+      "operation": "localRun",
+      "params": {
+        "env": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "hosted-tenant-without-local-flag-is-hosted",
+        "stage": "callable",
+        "input": {
+          "env": {
+            "FOUNDRY_AGENT_TENANT_ID": "tenant"
+          }
+        },
+        "expected": false,
+        "operation": "localRun"
+      }
+    },
+    {
+      "contract": "HostingAuthRuntime",
+      "namespace": "Castia.Spec.Hosting",
+      "group": "",
+      "operation": "localRun",
+      "params": {
+        "env": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "missing-hosted-tenant-is-local",
+        "stage": "callable",
+        "input": {
+          "env": {}
+        },
+        "expected": true,
+        "operation": "localRun"
+      }
+    },
+    {
       "contract": "HostingCredentialsRuntime",
       "namespace": "Castia.Spec.Hosting",
       "group": "",

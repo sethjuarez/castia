@@ -58,6 +58,9 @@ pub use finetuning_jobs_runtime::*;
 pub mod finetuning_training_runtime;
 pub use finetuning_training_runtime::*;
 
+pub mod hosting_auth_runtime;
+pub use hosting_auth_runtime::*;
+
 pub mod hosting_credentials_runtime;
 pub use hosting_credentials_runtime::*;
 

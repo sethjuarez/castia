@@ -1588,6 +1588,85 @@ pub fn run_finetuning_training_runtime_conformance<
     }
 }
 
+/// Typed @vector conformance for HostingAuthRuntime. Pass your real `impl HostingAuthRuntime`; the
+/// `S: HostingAuthRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_hosting_auth_runtime_conformance(&HostingAuthRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_hosting_auth_runtime_conformance<S: crate::model::HostingAuthRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: agent-digital-worker-is-local
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "AGENT_DIGITAL_WORKER": "1",
+  "FOUNDRY_AGENT_TENANT_ID": "tenant"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.local_run(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("agent-digital-worker-is-local: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("agent-digital-worker-is-local: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "agent-digital-worker-is-local misrouted"
+        );
+    }
+    // vector: hosted-tenant-without-local-flag-is-hosted
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "FOUNDRY_AGENT_TENANT_ID": "tenant"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.local_run(&env);
+        let actual_value = serde_json::to_value(actual)
+            .expect("hosted-tenant-without-local-flag-is-hosted: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("hosted-tenant-without-local-flag-is-hosted: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "hosted-tenant-without-local-flag-is-hosted misrouted"
+        );
+    }
+    // vector: missing-hosted-tenant-is-local
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.local_run(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("missing-hosted-tenant-is-local: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("missing-hosted-tenant-is-local: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "missing-hosted-tenant-is-local misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for HostingCredentialsRuntime. Pass your real `impl HostingCredentialsRuntime`; the
 /// `S: HostingCredentialsRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_hosting_credentials_runtime_conformance(&HostingCredentialsRuntimeImpl).await;` (or without `.await` when sync).

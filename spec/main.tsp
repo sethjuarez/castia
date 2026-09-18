@@ -15,6 +15,7 @@ import "./messaging/streaming.tsp";
 import "./inference/model.tsp";
 import "./inference/tools.tsp";
 import "./hosting/credentials.tsp";
+import "./hosting/auth.tsp";
 import "./hosting/server.tsp";
 import "./integrations/graph.tsp";
 import "./integrations/toolbox.tsp";

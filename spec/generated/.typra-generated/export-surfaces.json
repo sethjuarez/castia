@@ -52,6 +52,7 @@
         "EvaluationSuiteRuntime",
         "FinetuningJobsRuntime",
         "FinetuningTrainingRuntime",
+        "HostingAuthRuntime",
         "HostingCredentialsRuntime",
         "HostingServerRuntime",
         "IdentityRuntime",
@@ -213,6 +214,13 @@
           "kind": "type",
           "group": "",
           "source": "finetuning_training_runtime",
+          "protocol": true
+        },
+        {
+          "name": "HostingAuthRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "hosting_auth_runtime",
           "protocol": true
         },
         {
@@ -1476,6 +1484,26 @@
               "returns": "string[]",
               "params": {
                 "row": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "HostingAuthRuntime",
+          "group": "",
+          "symbol": "HostingAuthRuntime",
+          "source": "hosting_auth_runtime",
+          "methods": [
+            {
+              "name": "localRun",
+              "returns": "boolean",
+              "params": {
+                "env": "unknown"
               },
               "optional": false,
               "sync": true,
@@ -3175,6 +3203,7 @@
         "evaluation_suite_runtime",
         "finetuning_jobs_runtime",
         "finetuning_training_runtime",
+        "hosting_auth_runtime",
         "hosting_credentials_runtime",
         "hosting_server_runtime",
         "identity_runtime",

@@ -546,6 +546,20 @@ fn finetuning_training_runtime_compile_only_conformance() {
         Box::new(CompileOnlyFinetuningTrainingRuntime);
 }
 
+struct CompileOnlyHostingAuthRuntime;
+
+#[async_trait::async_trait]
+impl HostingAuthRuntime for CompileOnlyHostingAuthRuntime {
+    fn local_run(&self, env: &serde_json::Value) -> bool {
+        panic!("HostingAuthRuntime.localRun is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn hosting_auth_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn HostingAuthRuntime> = Box::new(CompileOnlyHostingAuthRuntime);
+}
+
 struct CompileOnlyHostingCredentialsRuntime;
 
 #[async_trait::async_trait]

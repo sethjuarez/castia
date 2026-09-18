@@ -28,7 +28,7 @@ use castia::hosting::{
     readiness_body as build_readiness_body, sse_event as build_sse_event,
     token_response_access_token as build_token_response_access_token,
     user_fic_token_request as build_user_fic_token_request, wire_endpoints as build_wire_endpoints,
-    CastiaHostingCredentialsRuntime, CastiaHostingServerRuntime,
+    CastiaHostingAuthRuntime, CastiaHostingCredentialsRuntime, CastiaHostingServerRuntime,
 };
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::integrations::{
@@ -49,14 +49,14 @@ use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, ConnectorRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime,
     EntitiesRuntime, EvaluationSuiteRuntime, FinetuningJobsRuntime, FinetuningTrainingRuntime,
-    HostingCredentialsRuntime, HostingServerRuntime, IdentityRuntime, IntegrationsGraphRuntime,
-    IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
-    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
-    ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ObserveTelemetryRuntime, ObserveTracingRuntime, OptimizerJobsRuntime, ResponsesRuntime,
-    RoutingRuntime, RuntimeApplicationRuntime, RuntimeContextRuntime, RuntimeDependenciesRuntime,
-    RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, StreamingRuntime,
-    ToolCatalogRuntime,
+    HostingAuthRuntime, HostingCredentialsRuntime, HostingServerRuntime, IdentityRuntime,
+    IntegrationsGraphRuntime, IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime,
+    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
+    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, OptimizerJobsRuntime,
+    ResponsesRuntime, RoutingRuntime, RuntimeApplicationRuntime, RuntimeContextRuntime,
+    RuntimeDependenciesRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext,
+    StreamingRuntime, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -468,6 +468,7 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             "HostingCredentialsRuntime.tokenResponseAccessToken",
             sync(hosting_token_response_access_token),
         ),
+        ("HostingAuthRuntime.localRun", sync(hosting_local_run)),
         (
             "HostingServerRuntime.readinessBody",
             sync(hosting_server_readiness_body),
@@ -1390,6 +1391,12 @@ fn hosting_bearer(input: &Value, _: &Context) -> Result<Value, VectorError> {
 fn hosting_is_local_run(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(Value::Bool(
         CastiaHostingCredentialsRuntime.is_local_run(input.get("env").unwrap_or(&Value::Null)),
+    ))
+}
+
+fn hosting_local_run(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::Bool(
+        CastiaHostingAuthRuntime.local_run(input.get("env").unwrap_or(&Value::Null)),
     ))
 }
 
