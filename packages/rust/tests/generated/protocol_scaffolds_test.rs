@@ -322,6 +322,85 @@ fn evaluation_suite_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn EvaluationSuiteRuntime> = Box::new(CompileOnlyEvaluationSuiteRuntime);
 }
 
+struct CompileOnlyFinetuningTrainingRuntime;
+
+#[async_trait::async_trait]
+impl FinetuningTrainingRuntime for CompileOnlyFinetuningTrainingRuntime {
+    fn build_dpo_method(&self, hyperparameters: &serde_json::Value) -> serde_json::Value {
+        panic!("FinetuningTrainingRuntime.buildDpoMethod is a compile-only protocol scaffold.")
+    }
+    fn build_rft_job(
+        &self,
+        model: &String,
+        training_file: &String,
+        validation_file: &String,
+        grader: &serde_json::Value,
+        hyperparameters: &serde_json::Value,
+        response_format: &serde_json::Value,
+        suffix: &Option<String>,
+        seed: &Option<i32>,
+    ) -> serde_json::Value {
+        panic!("FinetuningTrainingRuntime.buildRftJob is a compile-only protocol scaffold.")
+    }
+    fn build_rft_method(
+        &self,
+        grader: &serde_json::Value,
+        hyperparameters: &serde_json::Value,
+        response_format: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("FinetuningTrainingRuntime.buildRftMethod is a compile-only protocol scaffold.")
+    }
+    fn build_sft_job(
+        &self,
+        model: &String,
+        training_file: &String,
+        validation_file: &Option<String>,
+        hyperparameters: &serde_json::Value,
+        suffix: &Option<String>,
+        seed: &Option<i32>,
+    ) -> serde_json::Value {
+        panic!("FinetuningTrainingRuntime.buildSftJob is a compile-only protocol scaffold.")
+    }
+    fn build_sft_method(&self, hyperparameters: &serde_json::Value) -> serde_json::Value {
+        panic!("FinetuningTrainingRuntime.buildSftMethod is a compile-only protocol scaffold.")
+    }
+    fn string_check_grader(
+        &self,
+        name: &String,
+        input: &String,
+        reference: &String,
+        operation: &String,
+    ) -> serde_json::Value {
+        panic!("FinetuningTrainingRuntime.stringCheckGrader is a compile-only protocol scaffold.")
+    }
+    fn validate_dpo_example(&self, row: &serde_json::Value) -> Vec<String> {
+        panic!("FinetuningTrainingRuntime.validateDpoExample is a compile-only protocol scaffold.")
+    }
+    fn validate_grader(&self, grader: &serde_json::Value) -> Vec<String> {
+        panic!("FinetuningTrainingRuntime.validateGrader is a compile-only protocol scaffold.")
+    }
+    fn validate_rft_dataset(
+        &self,
+        rows: &serde_json::Value,
+        grader: &serde_json::Value,
+        split: &String,
+    ) -> Vec<String> {
+        panic!("FinetuningTrainingRuntime.validateRftDataset is a compile-only protocol scaffold.")
+    }
+    fn validate_rft_example(&self, row: &serde_json::Value) -> Vec<String> {
+        panic!("FinetuningTrainingRuntime.validateRftExample is a compile-only protocol scaffold.")
+    }
+    fn validate_sft_example(&self, row: &serde_json::Value) -> Vec<String> {
+        panic!("FinetuningTrainingRuntime.validateSftExample is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn finetuning_training_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn FinetuningTrainingRuntime> =
+        Box::new(CompileOnlyFinetuningTrainingRuntime);
+}
+
 struct CompileOnlyHostingCredentialsRuntime;
 
 #[async_trait::async_trait]

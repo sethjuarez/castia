@@ -3,6 +3,16 @@ use castia::delivery::{
     plan_manifest as build_manifest_plan, CastiaDeliveryAzdRuntime, CastiaDeliveryManifestRuntime,
 };
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
+use castia::finetuning::{
+    build_dpo_method as build_finetune_dpo_method, build_rft_job as build_finetune_rft_job,
+    build_rft_method as build_finetune_rft_method, build_sft_job as build_finetune_sft_job,
+    build_sft_method as build_finetune_sft_method,
+    string_check_grader as build_finetune_string_check_grader,
+    validate_dpo_example as build_validate_dpo_example, validate_grader as build_validate_grader,
+    validate_rft_dataset as build_validate_rft_dataset,
+    validate_rft_example as build_validate_rft_example,
+    validate_sft_example as build_validate_sft_example, CastiaFinetuningTrainingRuntime,
+};
 use castia::hosting::{
     token_response_access_token as build_token_response_access_token,
     user_fic_token_request as build_user_fic_token_request, CastiaHostingCredentialsRuntime,
@@ -25,12 +35,12 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, HostingCredentialsRuntime, IdentityRuntime, IntegrationsGraphRuntime,
-    IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
-    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
-    ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime,
-    RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
+    EvaluationSuiteRuntime, FinetuningTrainingRuntime, HostingCredentialsRuntime, IdentityRuntime,
+    IntegrationsGraphRuntime, IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime,
+    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
+    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
+    RoutingRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -241,6 +251,50 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "EvaluationSuiteRuntime.validateSuite",
             sync(evaluation_validate_suite),
+        ),
+        (
+            "FinetuningTrainingRuntime.buildDpoMethod",
+            sync(finetune_build_dpo_method),
+        ),
+        (
+            "FinetuningTrainingRuntime.buildRftJob",
+            sync(finetune_build_rft_job),
+        ),
+        (
+            "FinetuningTrainingRuntime.buildRftMethod",
+            sync(finetune_build_rft_method),
+        ),
+        (
+            "FinetuningTrainingRuntime.buildSftJob",
+            sync(finetune_build_sft_job),
+        ),
+        (
+            "FinetuningTrainingRuntime.buildSftMethod",
+            sync(finetune_build_sft_method),
+        ),
+        (
+            "FinetuningTrainingRuntime.stringCheckGrader",
+            sync(finetune_string_check_grader),
+        ),
+        (
+            "FinetuningTrainingRuntime.validateDpoExample",
+            sync(finetune_validate_dpo_example),
+        ),
+        (
+            "FinetuningTrainingRuntime.validateGrader",
+            sync(finetune_validate_grader),
+        ),
+        (
+            "FinetuningTrainingRuntime.validateRftDataset",
+            sync(finetune_validate_rft_dataset),
+        ),
+        (
+            "FinetuningTrainingRuntime.validateRftExample",
+            sync(finetune_validate_rft_example),
+        ),
+        (
+            "FinetuningTrainingRuntime.validateSftExample",
+            sync(finetune_validate_sft_example),
         ),
         ("HostingCredentialsRuntime.bearer", sync(hosting_bearer)),
         (
@@ -833,6 +887,135 @@ fn evaluation_validate_suite(input: &Value, ctx: &Context) -> Result<Value, Vect
     })();
     let _ = fs::remove_dir_all(temp);
     result
+}
+
+fn finetune_build_dpo_method(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_finetune_dpo_method(input.get("hyperparameters"))
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_build_rft_job(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let model = input
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let training_file = input
+        .get("trainingFile")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let validation_file = input
+        .get("validationFile")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let grader = input.get("grader").unwrap_or(&Value::Null);
+    let suffix = input.get("suffix").and_then(Value::as_str);
+    let seed = input.get("seed").and_then(Value::as_i64);
+    let response_format = input.get("responseFormat").filter(|value| !value.is_null());
+    build_finetune_rft_job(
+        model,
+        training_file,
+        validation_file,
+        grader,
+        input.get("hyperparameters"),
+        response_format,
+        suffix,
+        seed,
+    )
+    .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_build_rft_method(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let grader = input.get("grader").unwrap_or(&Value::Null);
+    let response_format = input.get("responseFormat").filter(|value| !value.is_null());
+    build_finetune_rft_method(grader, input.get("hyperparameters"), response_format)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_build_sft_job(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let model = input
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let training_file = input
+        .get("trainingFile")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let validation_file = input.get("validationFile").and_then(Value::as_str);
+    let suffix = input.get("suffix").and_then(Value::as_str);
+    let seed = input.get("seed").and_then(Value::as_i64);
+    build_finetune_sft_job(
+        model,
+        training_file,
+        validation_file,
+        input.get("hyperparameters"),
+        suffix,
+        seed,
+    )
+    .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_build_sft_method(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_finetune_sft_method(input.get("hyperparameters"))
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_string_check_grader(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let grader_input = input
+        .get("input")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let reference = input
+        .get("reference")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let operation = input
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("eq");
+    build_finetune_string_check_grader(name, grader_input, reference, operation)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_validate_dpo_example(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_validate_dpo_example(
+        input.get("row").unwrap_or(&Value::Null)
+    )))
+}
+
+fn finetune_validate_grader(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_validate_grader(
+        input.get("grader").unwrap_or(&Value::Null)
+    )))
+}
+
+fn finetune_validate_rft_dataset(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let rows = input
+        .get("rows")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let grader = input.get("grader");
+    let split = input
+        .get("split")
+        .and_then(Value::as_str)
+        .unwrap_or("dataset");
+    Ok(json!(build_validate_rft_dataset(rows, grader, split)))
+}
+
+fn finetune_validate_rft_example(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_validate_rft_example(
+        input.get("row").unwrap_or(&Value::Null)
+    )))
+}
+
+fn finetune_validate_sft_example(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_validate_sft_example(
+        input.get("row").unwrap_or(&Value::Null)
+    )))
 }
 
 fn hosting_bearer(input: &Value, _: &Context) -> Result<Value, VectorError> {

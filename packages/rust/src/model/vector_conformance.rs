@@ -834,6 +834,474 @@ pub fn run_delivery_manifest_runtime_conformance<
     }
 }
 
+/// Typed @vector conformance for FinetuningTrainingRuntime. Pass your real `impl FinetuningTrainingRuntime`; the
+/// `S: FinetuningTrainingRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_finetuning_training_runtime_conformance(&FinetuningTrainingRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_finetuning_training_runtime_conformance<
+    S: crate::model::FinetuningTrainingRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: dpo-rejects-user-preferred-output
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "input": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain gravity."
+      }
+    ]
+  },
+  "preferred_output": [
+    {
+      "role": "user",
+      "content": "Nope"
+    }
+  ],
+  "non_preferred_output": [
+    {
+      "role": "assistant",
+      "content": "Stuff falls."
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_dpo_example(&row);
+        let actual_value =
+            serde_json::to_value(actual).expect("dpo-rejects-user-preferred-output: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "preferred_output: message #1 role must be 'assistant' or 'tool', got 'user'",
+  "preferred_output: must include at least one assistant message"
+]
+"####,
+        )
+        .expect("dpo-rejects-user-preferred-output: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "dpo-rejects-user-preferred-output misrouted"
+        );
+    }
+    // vector: dpo-validates-preference-pair
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "input": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Be precise."
+      },
+      {
+        "role": "user",
+        "content": "Explain gravity."
+      }
+    ]
+  },
+  "preferred_output": [
+    {
+      "role": "assistant",
+      "content": "Gravity attracts objects with mass."
+    }
+  ],
+  "non_preferred_output": [
+    {
+      "role": "assistant",
+      "content": "Stuff falls."
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_dpo_example(&row);
+        let actual_value =
+            serde_json::to_value(actual).expect("dpo-validates-preference-pair: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("dpo-validates-preference-pair: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "dpo-validates-preference-pair misrouted"
+        );
+    }
+    // vector: rft-dataset-cross-checks-grader-item-fields
+    {
+        let rows: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve it."
+      }
+    ],
+    "answer": "42"
+  },
+  {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve it."
+      }
+    ]
+  }
+]
+"####,
+        )
+        .expect("rows parses");
+        let grader: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "type": "string_check",
+  "name": "acc",
+  "input": "{{ sample.output_text }}",
+  "reference": "{{ item.answer }}",
+  "operation": "eq"
+}
+"####,
+        )
+        .expect("grader parses");
+        let split: String = serde_json::from_str(
+            r####"
+"training"
+"####,
+        )
+        .expect("split parses");
+        let actual = seam.validate_rft_dataset(&rows, &grader, &split);
+        let actual_value = serde_json::to_value(actual)
+            .expect("rft-dataset-cross-checks-grader-item-fields: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "training[1]: grader references item fields not on the row: answer"
+]
+"####,
+        )
+        .expect("rft-dataset-cross-checks-grader-item-fields: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "rft-dataset-cross-checks-grader-item-fields misrouted"
+        );
+    }
+    // vector: rft-example-non-object-last-message-does-not-add-final-role-problem
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "messages": [
+    "oops"
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_rft_example(&row);
+        let actual_value = serde_json::to_value(actual).expect(
+            "rft-example-non-object-last-message-does-not-add-final-role-problem: serialize",
+        );
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "message #1 is not a role-bearing object"
+]
+"####,
+        )
+        .expect(
+            "rft-example-non-object-last-message-does-not-add-final-role-problem: expected parses",
+        );
+        assert_eq!(
+            actual_value, expected,
+            "rft-example-non-object-last-message-does-not-add-final-role-problem misrouted"
+        );
+    }
+    // vector: rft-example-numeric-role-is-invalid-not-missing
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "messages": [
+    {
+      "role": 5,
+      "content": "bad"
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_rft_example(&row);
+        let actual_value = serde_json::to_value(actual)
+            .expect("rft-example-numeric-role-is-invalid-not-missing: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "message #1 has invalid role 5",
+  "final message role must be 'user', got 5 (RFT generates the model's turn from the trailing user prompt)"
+]
+"####,
+        )
+        .expect("rft-example-numeric-role-is-invalid-not-missing: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "rft-example-numeric-role-is-invalid-not-missing misrouted"
+        );
+    }
+    // vector: rft-example-requires-final-user
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "be helpful"
+    },
+    {
+      "role": "assistant",
+      "content": "the prompt"
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_rft_example(&row);
+        let actual_value =
+            serde_json::to_value(actual).expect("rft-example-requires-final-user: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "final message role must be 'user', got 'assistant' (RFT generates the model's turn from the trailing user prompt)"
+]
+"####,
+        )
+        .expect("rft-example-requires-final-user: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "rft-example-requires-final-user misrouted"
+        );
+    }
+    // vector: sft-accepts-tool-call-assistant-message
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Use a tool."
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function"
+        }
+      ]
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_sft_example(&row);
+        let actual_value = serde_json::to_value(actual)
+            .expect("sft-accepts-tool-call-assistant-message: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("sft-accepts-tool-call-assistant-message: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "sft-accepts-tool-call-assistant-message misrouted"
+        );
+    }
+    // vector: sft-rejects-non-assistant-final-message
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is 2+2?"
+    },
+    {
+      "role": "user",
+      "content": "4"
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_sft_example(&row);
+        let actual_value = serde_json::to_value(actual)
+            .expect("sft-rejects-non-assistant-final-message: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "example: messages must include at least one assistant message",
+  "example: final message role must be 'assistant', got 'user'"
+]
+"####,
+        )
+        .expect("sft-rejects-non-assistant-final-message: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "sft-rejects-non-assistant-final-message misrouted"
+        );
+    }
+    // vector: sft-validates-assistant-completion
+    {
+        let row: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "Be terse."
+    },
+    {
+      "role": "user",
+      "content": "What is 2+2?"
+    },
+    {
+      "role": "assistant",
+      "content": "4"
+    }
+  ]
+}
+"####,
+        )
+        .expect("row parses");
+        let actual = seam.validate_sft_example(&row);
+        let actual_value =
+            serde_json::to_value(actual).expect("sft-validates-assistant-completion: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("sft-validates-assistant-completion: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "sft-validates-assistant-completion misrouted"
+        );
+    }
+    // vector: validate-grader-prefixes-sub-grader-problems
+    {
+        let grader: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "type": "multi",
+  "name": "combo",
+  "graders": {
+    "acc": {
+      "type": "string_check",
+      "name": "acc"
+    }
+  },
+  "calculate_output": "acc"
+}
+"####,
+        )
+        .expect("grader parses");
+        let actual = seam.validate_grader(&grader);
+        let actual_value = serde_json::to_value(actual)
+            .expect("validate-grader-prefixes-sub-grader-problems: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "sub-grader 'acc': string_check grader missing required field 'input'",
+  "sub-grader 'acc': string_check grader missing required field 'reference'",
+  "sub-grader 'acc': string_check grader missing required field 'operation'"
+]
+"####,
+        )
+        .expect("validate-grader-prefixes-sub-grader-problems: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "validate-grader-prefixes-sub-grader-problems misrouted"
+        );
+    }
+    // vector: validate-grader-rejects-numeric-string-check-operation
+    {
+        let grader: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "type": "string_check",
+  "name": "acc",
+  "input": "a",
+  "reference": "b",
+  "operation": 5
+}
+"####,
+        )
+        .expect("grader parses");
+        let actual = seam.validate_grader(&grader);
+        let actual_value = serde_json::to_value(actual)
+            .expect("validate-grader-rejects-numeric-string-check-operation: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "string_check operation 5 not in ('eq', 'ne', 'like', 'ilike')"
+]
+"####,
+        )
+        .expect("validate-grader-rejects-numeric-string-check-operation: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "validate-grader-rejects-numeric-string-check-operation misrouted"
+        );
+    }
+    // vector: validate-grader-rejects-unknown-type-and-template-namespace
+    {
+        let grader: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "type": "mystery",
+  "name": "n",
+  "input": "{{ foo.bar }}"
+}
+"####,
+        )
+        .expect("grader parses");
+        let actual = seam.validate_grader(&grader);
+        let actual_value = serde_json::to_value(actual)
+            .expect("validate-grader-rejects-unknown-type-and-template-namespace: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "grader type 'mystery' is not one of ('string_check', 'text_similarity', 'score_model', 'python', 'multi', 'endpoint')",
+  "template {{ foo.bar }} uses unknown namespace 'foo' (expected one of ('sample', 'item'))"
+]
+"####,
+        )
+        .expect("validate-grader-rejects-unknown-type-and-template-namespace: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "validate-grader-rejects-unknown-type-and-template-namespace misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for HostingCredentialsRuntime. Pass your real `impl HostingCredentialsRuntime`; the
 /// `S: HostingCredentialsRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_hosting_credentials_runtime_conformance(&HostingCredentialsRuntimeImpl).await;` (or without `.await` when sync).

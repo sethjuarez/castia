@@ -93,6 +93,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "FinetuningTrainingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "FinetuningTrainingRuntime",
+      "generatedSource": "finetuning_training_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "HostingCredentialsRuntime",
       "target": "rust",
       "group": "",
