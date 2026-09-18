@@ -33,13 +33,13 @@ castia/
 └─ packages/
    ├─ python/         # the Python SDK (PyPI: castia)
    │  └─ AGENTS.md    # consumer guide for agents using the Python SDK
-   └─ rust/           # generated Rust contract crate scaffold
+   └─ rust/           # experimental Rust SDK/runtime crate
 ```
 
 | SDK | Path | Registry | Status |
 | --- | --- | --- | --- |
 | Python | [`packages/python`](packages/python) | [PyPI `castia`](https://pypi.org/project/castia/) | alpha |
-| Rust | [`packages/rust`](packages/rust) | crates.io `castia` | generated contract scaffold |
+| Rust | [`packages/rust`](packages/rust) | crates.io `castia` | experimental, unpublished |
 
 Each SDK owns its native toolchain, lockfile, and release cadence. Versions and
 release tags are **per language** (e.g. `python-v0.1.0`), not repo-wide.
@@ -51,8 +51,11 @@ The short public API remains unchanged; lower-level imports use the capability
 paths.
 
 The [spec guide](spec/README.md) separates shared data and behavior from runtime
-adapters. Typra emits the first Rust contract scaffold from TypeSpec; the current
-Python runtime implementation remains handwritten.
+adapters. Typra emits Rust contract traits, models, and conformance tests from
+TypeSpec. The Rust package is still experimental, but it now implements the
+portable behavior seams covered by those vectors plus a hosted deployment smoke.
+The Python runtime remains the shipped SDK and source of proven production
+ergonomics.
 
 ## Contributing
 

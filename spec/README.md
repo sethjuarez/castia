@@ -42,11 +42,11 @@ into capability namespaces that mirror the Python package map:
 | `Castia.Spec.Lifecycle` | `lifecycle/*.tsp` | `castia.lifecycle` |
 | `Castia.Spec.Optimizing` | `optimizing/config.tsp` | `castia.optimizing` |
 
-Typra currently emits Rust models and compile-only interface scaffolds into the
-Rust SDK package under `../packages/rust/src/model/`, with generated tests under
-`../packages/rust/tests/generated/`. The Rust package also includes parity tests
-that prove the generated Activity wire model can reproduce the current Python
-Activity alias and helper semantics. Run:
+Typra currently emits Rust models, interface traits, and vector conformance tests
+into the experimental Rust SDK package under `../packages/rust/src/model/`, with
+generated tests under `../packages/rust/tests/generated/`. The Rust package also
+includes handwritten parity tests for the portable Python behavior seams covered
+by the TypeSpec contracts. Run:
 
 ```powershell
 Set-Location packages\rust
@@ -90,10 +90,12 @@ own test suite. A new protocol behavior should land as a fixture here first, the
 be implemented in each SDK against it, so parity is verifiable rather than
 assumed.
 
-The current shared fixtures cover rubric dimensions, optimizer candidate
-precedence, RFT grader validation, and lifecycle records. They do not yet cover
-every capability in the Python SDK. RFT service acceptance remains provisional
-as recorded in the grader fixtures.
+The current shared fixtures cover protocol helpers, runtime seams, messaging,
+inference/tool shaping, evaluation, lifecycle, optimizer behavior, observation,
+delivery/build planning, hosting helpers, and fine-tuning preparation/job
+management. They still do not cover every Python host adapter or every live
+service operation. RFT service acceptance remains provisional as recorded in the
+grader fixtures.
 
 ## Ownership before adding runtimes
 
@@ -121,5 +123,6 @@ or other runtime behavior exists. Track uncovered behavior explicitly when
 adding another runtime.
 
 There is no published spec version or per-runtime conformance declaration yet.
-Extract contracts incrementally and record their coverage before claiming a
+Rust should be described as experimental until its native runtime ergonomics,
+host adapters, and release process are ready. Record coverage before claiming a
 runtime implements the whole lifecycle.

@@ -380,9 +380,9 @@ lists the owners. The 31 former flat submodules are intentionally removed;
 there are no aliases. Update old import and monkeypatch strings before running
 an older example.
 
-Python is the shipped SDK. Rust and Typra generation are future work.
-Prompty integration and a managed agent-memory API are not shipped. Do not
-invent their imports, dependencies, or CLI commands.
+Python is the shipped SDK. The Rust package and Typra generation are
+experimental and not published. Prompty integration and a managed agent-memory
+API are not shipped. Do not invent their imports, dependencies, or CLI commands.
 
 For trace queries and content-recording controls, read
 [the lifecycle guide](LIFECYCLE.md) and [the trace guide](TRACING.md).

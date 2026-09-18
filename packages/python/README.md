@@ -66,10 +66,10 @@ lives with the package documentation.
 
 Shared protocol definitions and behavioral fixtures belong in
 [`spec/`](https://github.com/sethjuarez/castia/tree/main/spec). These Python modules are handwritten today.
-The layout gives a future Typra integration places to attach generated types
-without making Python classes the specification for every runtime. Generated
-types alone will not establish parity; implementations also need to pass the
-same behavioral fixtures.
+Typra now emits the experimental Rust contract layer from those TypeSpec files,
+but Python remains the shipped SDK. Generated types alone do not establish
+parity; each runtime must pass the same behavioral fixtures and still provide
+native host adapters.
 
 ## Quickstart
 
