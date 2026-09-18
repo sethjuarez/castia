@@ -345,6 +345,9 @@ impl LifecycleStorageRuntime for CompileOnlyLifecycleStorageRuntime {
     fn get_artifact(&self, root: &String, id: &String) -> serde_json::Value {
         panic!("LifecycleStorageRuntime.getArtifact is a compile-only protocol scaffold.")
     }
+    fn journal_read(&self, root: &String) -> serde_json::Value {
+        panic!("LifecycleStorageRuntime.journalRead is a compile-only protocol scaffold.")
+    }
     fn put_artifact(&self, root: &String, record: &serde_json::Value) -> String {
         panic!("LifecycleStorageRuntime.putArtifact is a compile-only protocol scaffold.")
     }

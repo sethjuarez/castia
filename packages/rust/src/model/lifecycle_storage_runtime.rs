@@ -14,5 +14,6 @@
 #[async_trait::async_trait]
 pub trait LifecycleStorageRuntime: Send + Sync {
     fn get_artifact(&self, root: &String, id: &String) -> serde_json::Value;
+    fn journal_read(&self, root: &String) -> serde_json::Value;
     fn put_artifact(&self, root: &String, record: &serde_json::Value) -> String;
 }

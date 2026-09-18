@@ -2,8 +2,8 @@ use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
     canonical_json, check_public, compare_runs, content_hash, curate_dataset, dataset_jsonl,
-    default_gate, diff_candidates, evaluate_outcomes, example_id, get_artifact, normalize_record,
-    put_artifact, record_id, safe_path, stage_candidate,
+    default_gate, diff_candidates, evaluate_outcomes, example_id, get_artifact, journal_read,
+    normalize_record, put_artifact, record_id, safe_path, stage_candidate,
 };
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -190,6 +190,10 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleStorageRuntime.getArtifact",
             sync(lifecycle_get_artifact),
+        ),
+        (
+            "LifecycleStorageRuntime.journalRead",
+            sync_with_normalize(lifecycle_journal_read, lifecycle_record_to_camel),
         ),
         (
             "LifecycleStorageRuntime.putArtifact",
@@ -641,6 +645,17 @@ fn lifecycle_get_artifact(input: &Value, ctx: &Context) -> Result<Value, VectorE
     result
 }
 
+fn lifecycle_journal_read(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let temp = temp_dir(&vector_temp_label(ctx));
+    let result = (|| {
+        write_vector_files(&temp, &ctx.vector)?;
+        let root = vector_path(input, "root", &temp)?;
+        journal_read(root).map_err(vector_error)
+    })();
+    let _ = fs::remove_dir_all(temp);
+    result
+}
+
 fn lifecycle_default_gate(_: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(default_gate())
 }
@@ -1015,6 +1030,11 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                         (true, "maximumCost") => "maximum_cost",
                         (true, "requiredMetrics") => "required_metrics",
                         (true, "requireHeldout") => "require_heldout",
+                        (true, "knownGood") => "known_good",
+                        (true, "previousGood") => "previous_good",
+                        (true, "lastStatus") => "last_status",
+                        (true, "remoteState") => "remote_state",
+                        (true, "pendingCleanup") => "pending_cleanup",
                         (false, "schema_version") => "schemaVersion",
                         (false, "source_files") => "sourceFiles",
                         (false, "reference_origins") => "referenceOrigins",
@@ -1041,6 +1061,11 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                         (false, "maximum_cost") => "maximumCost",
                         (false, "required_metrics") => "requiredMetrics",
                         (false, "require_heldout") => "requireHeldout",
+                        (false, "known_good") => "knownGood",
+                        (false, "previous_good") => "previousGood",
+                        (false, "last_status") => "lastStatus",
+                        (false, "remote_state") => "remoteState",
+                        (false, "pending_cleanup") => "pendingCleanup",
                         _ => key.as_str(),
                     };
                     let value = if matches!(

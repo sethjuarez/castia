@@ -64,4 +64,13 @@ interface LifecycleStorageRuntime {
     expectedError: #{ message: "invalid artifact content" },
   })
   getArtifact(root: string, id: string): unknown;
+
+  @sync
+  @vector(#{
+    name: "journal-read-empty-state",
+    stage: "callable",
+    input: #{ root: "$temp/journal" },
+    expected: #{ revision: 0, knownGood: null, previousGood: #[], lastStatus: null, head: null, remoteState: "uninitialized", pendingCleanup: false },
+  })
+  journalRead(root: string): unknown;
 }

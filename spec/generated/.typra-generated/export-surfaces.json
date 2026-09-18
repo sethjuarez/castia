@@ -918,6 +918,18 @@
               "nonFatal": false
             },
             {
+              "name": "journalRead",
+              "returns": "unknown",
+              "params": {
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
               "name": "putArtifact",
               "returns": "string",
               "params": {

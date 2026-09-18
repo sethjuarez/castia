@@ -4976,6 +4976,34 @@
       "contract": "LifecycleStorageRuntime",
       "namespace": "Castia.Spec.Lifecycle",
       "group": "",
+      "operation": "journalRead",
+      "params": {
+        "root": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "journal-read-empty-state",
+        "stage": "callable",
+        "input": {
+          "root": "$temp/journal"
+        },
+        "expected": {
+          "revision": 0,
+          "knownGood": null,
+          "previousGood": [],
+          "lastStatus": null,
+          "head": null,
+          "remoteState": "uninitialized",
+          "pendingCleanup": false
+        },
+        "operation": "journalRead"
+      }
+    },
+    {
+      "contract": "LifecycleStorageRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
       "operation": "putArtifact",
       "params": {
         "root": "string",
