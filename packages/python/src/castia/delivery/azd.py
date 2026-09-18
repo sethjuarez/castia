@@ -99,6 +99,9 @@ class AzdDeployment:
         service = services.get(self.service) if isinstance(services, dict) else None
         if not isinstance(service, dict) or service.get("host") != "azure.ai.agent":
             raise ValueError("named service must exist and use host: azure.ai.agent")
+        from castia.delivery.manifest import validate_hosted_service_env
+
+        validate_hosted_service_env(self.service, service)
         if service.get("name", self.service) != self.service:
             raise ValueError("service key and deployed agent name must agree")
         project = (self.root / str(service.get("project", "."))).resolve(strict=True)

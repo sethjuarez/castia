@@ -275,12 +275,34 @@ def test_mcp_tool_overrides_reject_unknown_keys() -> None:
 
 
 def test_mcp_tool_overrides_reject_ambiguous_bare_keys() -> None:
-    with pytest.raises(ValueError, match="ambiguous toolbox descriptions key"):
+    with pytest.raises(ValueError, match="fully qualified toolbox tool name"):
         toolbox_mcp_tool(
             "https://x/mcp",
             allowed_tools=("one___search", "two___search"),
             descriptions={"search": "Ambiguous."},
         )
+
+
+def test_mcp_tool_overrides_reject_waypoint_ambiguous_kb_key() -> None:
+    with pytest.raises(ValueError) as exc:
+        toolbox_mcp_tool(
+            "https://x/mcp",
+            allowed_tools=(
+                "knowledge_base_retrieve",
+                "contracts-kb-mcp___knowledge_base_retrieve",
+            ),
+            descriptions={
+                "knowledge_base_retrieve": (
+                    "Search contract and billing policy sources."
+                )
+            },
+        )
+
+    message = str(exc.value)
+    assert "multiple allowed tools share the bare name 'knowledge_base_retrieve'" in message
+    assert "knowledge_base_retrieve" in message
+    assert "contracts-kb-mcp___knowledge_base_retrieve" in message
+    assert "fully qualified toolbox tool name" in message
 
 
 # --- knowledge_base_mcp_tool -------------------------------------------------

@@ -177,3 +177,21 @@ def test_existing_deployment_context_passes_without_echoing_values(tmp_path):
     bad = preflight(tmp_path, required_env=(), environment=environment, deployment=True)
     assert not bad.ok
     assert statuses(bad)["azd.project_arm_id"] == "fail"
+
+
+def test_preflight_rejects_reserved_hosted_env(tmp_path):
+    scaffold_project(tmp_path)
+    manifest = tmp_path / "azure.yaml"
+    manifest.write_text(
+        manifest.read_text().replace(
+            "      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}\n",
+            "      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}\n"
+            "      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}\n",
+        )
+    )
+    report = preflight(tmp_path, required_env=())
+    assert not report.ok
+    assert statuses(report)["manifest.env"] == "fail"
+    diagnostic = next(item for item in report.diagnostics if item.check == "manifest.env")
+    assert "FOUNDRY_PROJECT_ENDPOINT" in diagnostic.message
+    assert "Foundry manages FOUNDRY_* and AGENT_*" in diagnostic.message

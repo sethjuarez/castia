@@ -349,7 +349,9 @@ def _resolve_overrides(
         if len(matches) > 1:
             choices = ", ".join(tool.final_name for tool in matches)
             raise ValueError(
-                f"ambiguous toolbox {label} key {key!r}; matches: {choices}"
+                f"ambiguous toolbox {label} key {key!r}; multiple allowed tools "
+                f"share the bare name {key!r}. Use the fully qualified toolbox "
+                f"tool name instead; choices: {choices}"
             )
         resolved[matches[0].final_name] = value
     return resolved

@@ -105,6 +105,24 @@ def test_manifest_cannot_escape_root(tmp_path):
         )
 
 
+@pytest.mark.parametrize("reserved", ["FOUNDRY_PROJECT_ENDPOINT", "AGENT_SECRET"])
+def test_reserved_hosted_env_blocks_deployment_handoff(tmp_path, reserved):
+    (tmp_path / "azure.yaml").write_text(
+        "services:\n"
+        "  smoke:\n"
+        "    host: azure.ai.agent\n"
+        "    kind: hosted\n"
+        "    name: smoke\n"
+        "    project: .\n"
+        "    env:\n"
+        f"      {reserved}: ${{{reserved}}}\n"
+    )
+    with pytest.raises(ValueError, match=reserved):
+        AzdDeployment(
+            tmp_path, service="smoke", project_endpoint=ENDPOINT, project_resource_id=RESOURCE,
+        )
+
+
 def test_external_failure_does_not_echo_hook_secrets(tmp_path, monkeypatch):
     client = deployment(tmp_path)
     monkeypatch.setattr("castia.delivery.azd.shutil.which", lambda _: "azd.exe")

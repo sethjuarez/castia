@@ -118,8 +118,12 @@ services:
         version: 2.0.0
     env:
       AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
-      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
 ```
+
+Foundry hosted agents reserve all `FOUNDRY_*` and `AGENT_*` container
+variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local development or
+process/azd host-side context for Castia checks; do not declare it under a
+hosted service's `env:` block in `azure.yaml`.
 
 Use this baseline metadata shape:
 
