@@ -580,6 +580,38 @@ null
     }
 }
 
+/// Typed @vector conformance for BuildTestingRuntime. Pass your real `impl BuildTestingRuntime`; the
+/// `S: BuildTestingRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_build_testing_runtime_conformance(&BuildTestingRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_build_testing_runtime_conformance<S: crate::model::BuildTestingRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: test-timeout-accepts-positive-finite
+    {
+        let timeout: f64 = serde_json::from_str(
+            r####"
+60
+"####,
+        )
+        .expect("timeout parses");
+        let actual = seam.validate_test_timeout(&timeout);
+        let actual_value =
+            serde_json::to_value(actual).expect("test-timeout-accepts-positive-finite: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+60
+"####,
+        )
+        .expect("test-timeout-accepts-positive-finite: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "test-timeout-accepts-positive-finite misrouted"
+        );
+    }
+    // skipped: test-timeout-rejects-negative — expectedError on a @sync op has no typed error channel
+    // skipped: test-timeout-rejects-zero — expectedError on a @sync op has no typed error channel
+}
+
 /// Typed @vector conformance for ChatRuntime. Pass your real `impl ChatRuntime`; the
 /// `S: ChatRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_chat_runtime_conformance(&ChatRuntimeImpl).await;` (or without `.await` when sync).
