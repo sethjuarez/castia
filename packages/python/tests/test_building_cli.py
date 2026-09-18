@@ -55,7 +55,7 @@ def test_actual_project_test_subcommand(tmp_path, capsys):
     assert args.func(args) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] is True
-    assert "1 passed" in report["output"]
+    assert "2 passed" in report["output"]
 
 
 def test_deployment_flag_is_registered():

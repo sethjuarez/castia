@@ -16,7 +16,7 @@ def test_runner_executes_actual_scaffold_tests_and_restores_parent(tmp_path):
     report = run_project_tests(tmp_path)
     assert report.ok, report.output
     assert report.exit_code == 0
-    assert "1 passed" in report.output
+    assert "2 passed" in report.output
     assert report.to_dict()["scope"] == "offline"
     assert not list(tmp_path.glob(".castia-test-output-*"))
     assert socket.create_connection is original

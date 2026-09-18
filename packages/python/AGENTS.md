@@ -105,7 +105,7 @@ async def reply(text: str, model: Model = Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8088)
+    app.run(host="0.0.0.0", port=8088)
 ```
 
 `azure.yaml` for Foundry code deploy:
@@ -146,6 +146,7 @@ the app root so `.env` and `.agent_configs` resolve naturally:
 
 ```powershell
 uv sync --project <agent-root>
+$env:HOST = "127.0.0.1"
 uv run --directory <agent-root> python main.py
 ```
 
@@ -206,12 +207,11 @@ async def reply(text: str, model: Model = Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8088)
+    app.run(host="0.0.0.0", port=8088)
 ```
 
-For hosted deployment, change the bind address to `0.0.0.0`. The local example
-binds to loopback because this HTTP adapter does not authenticate incoming
-Responses requests.
+Set `HOST=127.0.0.1` for local-only runs. Hosted deployments need `0.0.0.0`
+so platform ingress can reach the process.
 
 `app.tools(...)` declares a pure provider for baseline generation. It must not
 fetch tokens or make network calls. The handler adds a fresh toolbox bearer

@@ -5,10 +5,10 @@ description: "Use the castia Python SDK to build a Foundry agent, attach native 
 
 # Castia package usage
 
-Use the [consumer agent guide](../../../packages/python/AGENTS.md) as the starting
-point. It contains a complete Responses application and an executable offline
-test, with a pure toolbox provider for baseline generation and token acquisition
-only in the request handler.
+Use the [consumer agent guide](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md)
+as the starting point. It contains a complete Responses application and an
+executable offline test, with a pure toolbox provider for baseline generation
+and token acquisition only in the request handler.
 
 Read the current CLI help before assembling commands. Run application commands
 from the application's root, where `main.py`, `azure.yaml`, `eval.yaml`, and
@@ -155,7 +155,7 @@ Lower-level imports use capability packages, such as
 `castia.inference.model`, `castia.integrations.toolbox`,
 `castia.evaluation.suite`, and `castia.optimizing.jobs`.
 The former 31 flat submodules are removed, without aliases. Update old import
-and monkeypatch paths using the [package map](../../../packages/python/README.md#package-organization).
+and monkeypatch paths using the [package map](https://github.com/sethjuarez/castia/blob/main/packages/python/README.md#package-organization).
 Python is shipped; Typra generation, Rust, Prompty integration, and managed
 agent memory are not shipped.
 
@@ -207,11 +207,11 @@ as a universal configuration.
 
 ## References and evidence
 
-- [Python README](../../../packages/python/README.md) covers tool builders,
+- [Python README](https://github.com/sethjuarez/castia/blob/main/packages/python/README.md) covers tool builders,
   evaluation suites, optimizer config, and provisional RFT.
-- [LIFECYCLE.md](../../../packages/python/LIFECYCLE.md) covers build, observation,
+- [LIFECYCLE.md](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md) covers build, observation,
   evidence, deployment verification, and existing fine-tuning job management.
-- [TRACING.md](../../../packages/python/TRACING.md) covers trace labels and queries.
+- [TRACING.md](https://github.com/sethjuarez/castia/blob/main/packages/python/TRACING.md) covers trace labels and queries.
 - [Issue #13](https://github.com/sethjuarez/castia/issues/13#issuecomment-5691920220)
   proves local consumer calls through live Foundry inference and native MCP,
   including controlled candidate fixtures. It does not prove a fresh

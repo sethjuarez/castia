@@ -1,11 +1,16 @@
 ---
-title: Castia Copilot extras
-description: Add Castia prompts and skills to a scenario repo.
+title: Manual repo setup
+description: Add the starter kit prompts and skills directly to a scenario repo.
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-A scenario repo should give Copilot the task, the tests, and the approval boundaries before it starts writing agent code.
+A scenario repo should give Copilot the task, the tests, and the approval
+boundaries before it starts writing agent code.
+
+For the normal install path, use the [Foundry Agent Starter Kit](../starter-kit/)
+as a Copilot plugin. Use this page only when you want the prompt files and
+skills committed to the scenario repo.
 
 ## Copy these into the scenario repo
 
@@ -15,7 +20,7 @@ A scenario repo should give Copilot the task, the tests, and the approval bounda
 | `.github/prompts/test-castia-agent.prompt.md` | Asks for local proof and a short transcript instead of a vague status update. |
 | `.github/skills/castia-lifecycle` | Teaches Copilot the Castia build, test, evaluate, optimize, and deployment boundaries. |
 | `.github/skills/castia-optimizer` | Keeps optimizer work on the Castia rails and separates it from azd deployment. |
-| `.github/skills/foundry-story-flow` | Teaches the local → Foundry → Teams demo path and the `.env.example`-first contract. |
+| `.github/skills/foundry-story-flow` | Teaches the local -> Foundry -> Teams demo path and the `.env.example` contract. |
 
 ```powershell
 New-Item -ItemType Directory -Force .github\prompts, .github\skills
@@ -26,20 +31,8 @@ Copy-Item ..\castia\.github\skills\castia-optimizer .github\skills\ -Recurse
 Copy-Item ..\castia\.github\skills\foundry-story-flow .github\skills\ -Recurse
 ```
 
-Adjust the paths for your checkout. Install the Foundry Agent Playground canvas
-as a Copilot extension when you want an interactive local/hosted test surface.
-Until then, keep the local tests and prompts canonical.
-
-## Add the playground
-
-The playground is the useful visual piece. It reads `.env` from the agent
-folder, checks local readiness, sends Responses prompts, and can refresh hosted
-endpoint details after deploy.
-
-Install it as a Copilot extension from a shared gist or from the repo folder
-that contains the extension. Once installed, open **Foundry Agent Playground**,
-choose the agent folder, refresh `.env`, and run the health check before sending
-a prompt.
+Adjust the paths for your checkout. Install the full plugin when you want
+**Foundry Agent Playground** in the Canvas view.
 
 <CardGrid>
   <Card title="Build" icon="right-arrow">

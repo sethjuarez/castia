@@ -28,11 +28,11 @@ async def reply(text: str, model: Model = Depends(model)) -> str:
     return await model.respond(text)
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8088)
+    app.run(host="0.0.0.0", port=8088)
 ```
 
-Use `127.0.0.1` for local unauthenticated demos. Hosted deployments can bind to
-`0.0.0.0`.
+Use `HOST=127.0.0.1` for local runs only. Hosted deployments need `0.0.0.0`
+so platform ingress can reach the process.
 
 ## SDK pieces
 
