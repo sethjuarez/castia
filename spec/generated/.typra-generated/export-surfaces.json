@@ -47,6 +47,7 @@
         "IdentityRuntime",
         "InvocationsRuntime",
         "InvokesRuntime",
+        "LifecycleAcceptanceRuntime",
         "LifecycleOperationsRuntime",
         "LifecycleRecordsRuntime",
         "LifecycleStorageRuntime",
@@ -153,6 +154,13 @@
           "kind": "type",
           "group": "",
           "source": "invokes_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleAcceptanceRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_acceptance_runtime",
           "protocol": true
         },
         {
@@ -684,6 +692,38 @@
           ]
         },
         {
+          "name": "LifecycleAcceptanceRuntime",
+          "group": "",
+          "symbol": "LifecycleAcceptanceRuntime",
+          "source": "lifecycle_acceptance_runtime",
+          "methods": [
+            {
+              "name": "compareRuns",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "candidate": "unknown",
+                "gate": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "defaultGate",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "LifecycleOperationsRuntime",
           "group": "",
           "symbol": "LifecycleOperationsRuntime",
@@ -1033,6 +1073,7 @@
         "identity_runtime",
         "invocations_runtime",
         "invokes_runtime",
+        "lifecycle_acceptance_runtime",
         "lifecycle_operations_runtime",
         "lifecycle_records_runtime",
         "lifecycle_storage_runtime",

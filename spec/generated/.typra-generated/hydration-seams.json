@@ -77,6 +77,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "LifecycleAcceptanceRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleAcceptanceRuntime",
+      "generatedSource": "lifecycle_acceptance_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "LifecycleOperationsRuntime",
       "target": "rust",
       "group": "",

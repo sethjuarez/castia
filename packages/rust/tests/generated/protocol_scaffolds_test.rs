@@ -227,6 +227,29 @@ fn invokes_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn InvokesRuntime> = Box::new(CompileOnlyInvokesRuntime);
 }
 
+struct CompileOnlyLifecycleAcceptanceRuntime;
+
+#[async_trait::async_trait]
+impl LifecycleAcceptanceRuntime for CompileOnlyLifecycleAcceptanceRuntime {
+    fn compare_runs(
+        &self,
+        baseline: &serde_json::Value,
+        candidate: &serde_json::Value,
+        gate: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("LifecycleAcceptanceRuntime.compareRuns is a compile-only protocol scaffold.")
+    }
+    fn default_gate(&self) -> serde_json::Value {
+        panic!("LifecycleAcceptanceRuntime.defaultGate is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn lifecycle_acceptance_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn LifecycleAcceptanceRuntime> =
+        Box::new(CompileOnlyLifecycleAcceptanceRuntime);
+}
+
 struct CompileOnlyLifecycleOperationsRuntime;
 
 #[async_trait::async_trait]

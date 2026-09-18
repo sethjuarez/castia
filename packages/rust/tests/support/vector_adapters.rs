@@ -1,8 +1,8 @@
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
-    canonical_json, check_public, content_hash, curate_dataset, dataset_jsonl, example_id,
-    get_artifact, normalize_record, put_artifact, record_id, safe_path,
+    canonical_json, check_public, compare_runs, content_hash, curate_dataset, dataset_jsonl,
+    default_gate, example_id, get_artifact, normalize_record, put_artifact, record_id, safe_path,
 };
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -11,8 +11,9 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
-    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
-    ModelRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ResponsesRuntime, RoutingRuntime,
+    SaveContext, ToolCatalogRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -192,6 +193,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleStorageRuntime.putArtifact",
             sync(lifecycle_put_artifact),
+        ),
+        (
+            "LifecycleAcceptanceRuntime.compareRuns",
+            sync_with_normalize(lifecycle_compare_runs, lifecycle_record_to_camel),
+        ),
+        (
+            "LifecycleAcceptanceRuntime.defaultGate",
+            sync_with_normalize(lifecycle_default_gate, lifecycle_record_to_camel),
         ),
         (
             "LifecycleOperationsRuntime.curateDataset",
@@ -596,6 +605,17 @@ fn lifecycle_get_artifact(input: &Value, ctx: &Context) -> Result<Value, VectorE
     result
 }
 
+fn lifecycle_default_gate(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(default_gate())
+}
+
+fn lifecycle_compare_runs(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let baseline = lifecycle_record_to_snake(input.get("baseline").unwrap_or(&Value::Null));
+    let candidate = lifecycle_record_to_snake(input.get("candidate").unwrap_or(&Value::Null));
+    let gate = lifecycle_record_to_snake(input.get("gate").unwrap_or(&Value::Null));
+    compare_runs(&baseline, &candidate, &gate).map_err(vector_error)
+}
+
 fn lifecycle_curate_dataset(input: &Value, _: &Context) -> Result<Value, VectorError> {
     let traces = input
         .get("traces")
@@ -867,6 +887,13 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                         (true, "traceId") => "trace_id",
                         (true, "referenceOrigin") => "reference_origin",
                         (true, "modelOutput") => "model_output",
+                        (true, "minimumQuality") => "minimum_quality",
+                        (true, "maximumQualityDrop") => "maximum_quality_drop",
+                        (true, "maximumExampleRegressions") => "maximum_example_regressions",
+                        (true, "maximumLatencySeconds") => "maximum_latency_seconds",
+                        (true, "maximumCost") => "maximum_cost",
+                        (true, "requiredMetrics") => "required_metrics",
+                        (true, "requireHeldout") => "require_heldout",
                         (false, "schema_version") => "schemaVersion",
                         (false, "source_files") => "sourceFiles",
                         (false, "reference_origins") => "referenceOrigins",
@@ -886,6 +913,13 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                         (false, "trace_id") => "traceId",
                         (false, "reference_origin") => "referenceOrigin",
                         (false, "model_output") => "modelOutput",
+                        (false, "minimum_quality") => "minimumQuality",
+                        (false, "maximum_quality_drop") => "maximumQualityDrop",
+                        (false, "maximum_example_regressions") => "maximumExampleRegressions",
+                        (false, "maximum_latency_seconds") => "maximumLatencySeconds",
+                        (false, "maximum_cost") => "maximumCost",
+                        (false, "required_metrics") => "requiredMetrics",
+                        (false, "require_heldout") => "requireHeldout",
                         _ => key.as_str(),
                     };
                     let value = if matches!(
@@ -896,7 +930,6 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                             | "metrics"
                             | "configuration"
                             | "aggregates"
-                            | "gate"
                     ) {
                         value.clone()
                     } else {
