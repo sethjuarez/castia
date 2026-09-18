@@ -40,6 +40,9 @@ pub use chat_runtime::*;
 pub mod delivery_azd_runtime;
 pub use delivery_azd_runtime::*;
 
+pub mod delivery_manifest_runtime;
+pub use delivery_manifest_runtime::*;
+
 pub mod entities_runtime;
 pub use entities_runtime::*;
 

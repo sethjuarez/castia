@@ -767,6 +767,73 @@ pub fn run_delivery_azd_runtime_conformance<S: crate::model::DeliveryAzdRuntime 
     }
 }
 
+/// Typed @vector conformance for DeliveryManifestRuntime. Pass your real `impl DeliveryManifestRuntime`; the
+/// `S: DeliveryManifestRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_delivery_manifest_runtime_conformance(&DeliveryManifestRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_delivery_manifest_runtime_conformance<
+    S: crate::model::DeliveryManifestRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: publishable-protocols-filters-local-only
+    {
+        let registered_protocols: Vec<String> = serde_json::from_str(
+            r####"
+[
+  "activity",
+  "chat",
+  "responses"
+]
+"####,
+        )
+        .expect("registeredProtocols parses");
+        let actual = seam.publishable_protocols(&registered_protocols);
+        let actual_value = serde_json::to_value(actual)
+            .expect("publishable-protocols-filters-local-only: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "activity",
+  "responses"
+]
+"####,
+        )
+        .expect("publishable-protocols-filters-local-only: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "publishable-protocols-filters-local-only misrouted"
+        );
+    }
+    // vector: skipped-protocols-captures-local-only
+    {
+        let registered_protocols: Vec<String> = serde_json::from_str(
+            r####"
+[
+  "activity",
+  "chat",
+  "responses"
+]
+"####,
+        )
+        .expect("registeredProtocols parses");
+        let actual = seam.skipped_protocols(&registered_protocols);
+        let actual_value =
+            serde_json::to_value(actual).expect("skipped-protocols-captures-local-only: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "chat"
+]
+"####,
+        )
+        .expect("skipped-protocols-captures-local-only: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "skipped-protocols-captures-local-only misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for IdentityRuntime. Pass your real `impl IdentityRuntime`; the
 /// `S: IdentityRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_identity_runtime_conformance(&IdentityRuntimeImpl).await;` (or without `.await` when sync).

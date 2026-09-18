@@ -1,5 +1,7 @@
 use castia::building::{CastiaBuildPreflightRuntime, CastiaBuildTestingRuntime};
-use castia::delivery::CastiaDeliveryAzdRuntime;
+use castia::delivery::{
+    plan_manifest as build_manifest_plan, CastiaDeliveryAzdRuntime, CastiaDeliveryManifestRuntime,
+};
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::integrations::{
@@ -18,9 +20,9 @@ use castia::messaging::{
 };
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
-    CardsRuntime, ChatRuntime, DeliveryAzdRuntime, EntitiesRuntime, EvaluationSuiteRuntime,
-    IdentityRuntime, IntegrationsGraphRuntime, IntegrationsToolboxRuntime, InvocationsRuntime,
-    InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
+    CardsRuntime, ChatRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime, EntitiesRuntime,
+    EvaluationSuiteRuntime, IdentityRuntime, IntegrationsGraphRuntime, IntegrationsToolboxRuntime,
+    InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
     LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
     ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
     ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
@@ -163,6 +165,22 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "DeliveryAzdRuntime.commandErrorMessage",
             sync(delivery_command_error_message),
+        ),
+        (
+            "DeliveryManifestRuntime.publishableProtocols",
+            sync(delivery_manifest_publishable_protocols),
+        ),
+        (
+            "DeliveryManifestRuntime.skippedProtocols",
+            sync(delivery_manifest_skipped_protocols),
+        ),
+        (
+            "DeliveryManifestRuntime.serviceProtocolItems",
+            sync(delivery_manifest_service_protocol_items),
+        ),
+        (
+            "DeliveryManifestRuntime.planManifest",
+            sync(delivery_manifest_plan),
         ),
         (
             "ChatRuntime.body",
@@ -1709,6 +1727,42 @@ fn delivery_command_error_message(input: &Value, _: &Context) -> Result<Value, V
     ))
 }
 
+fn delivery_manifest_publishable_protocols(
+    input: &Value,
+    _: &Context,
+) -> Result<Value, VectorError> {
+    Ok(json!(CastiaDeliveryManifestRuntime.publishable_protocols(
+        &string_array_input(input, "registeredProtocols")?
+    )))
+}
+
+fn delivery_manifest_skipped_protocols(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaDeliveryManifestRuntime.skipped_protocols(
+        &string_array_input(input, "registeredProtocols")?
+    )))
+}
+
+fn delivery_manifest_service_protocol_items(
+    input: &Value,
+    _: &Context,
+) -> Result<Value, VectorError> {
+    Ok(CastiaDeliveryManifestRuntime
+        .service_protocol_items(&string_array_input(input, "protocols")?))
+}
+
+fn delivery_manifest_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_manifest_plan(
+        &string_input(input, "appName")?,
+        &string_array_input(input, "registeredProtocols")?,
+        input.get("manifest").unwrap_or(&Value::Null),
+        input
+            .get("check")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    )
+    .map_err(vector_error)
+}
+
 fn responses_input_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(serde_json::json!(
         CastiaResponsesRuntime.input_text(input.get("value").unwrap_or(&Value::Null))
@@ -2585,6 +2639,25 @@ fn string_input(input: &Value, key: &str) -> Result<String, VectorError> {
             message: format!("{key} must be a string"),
             payload: None,
         })
+}
+
+fn string_array_input(input: &Value, key: &str) -> Result<Vec<String>, VectorError> {
+    required(input, key)?
+        .as_array()
+        .ok_or_else(|| VectorError {
+            message: format!("{key} must be a string array"),
+            payload: None,
+        })?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| VectorError {
+                    message: format!("{key} must be a string array"),
+                    payload: None,
+                })
+        })
+        .collect()
 }
 
 fn vector_temp_label(ctx: &Context) -> String {

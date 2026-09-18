@@ -69,6 +69,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "DeliveryManifestRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "DeliveryManifestRuntime",
+      "generatedSource": "delivery_manifest_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "EntitiesRuntime",
       "target": "rust",
       "group": "",

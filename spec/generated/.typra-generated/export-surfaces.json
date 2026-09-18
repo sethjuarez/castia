@@ -46,6 +46,7 @@
         "ChatRuntime",
         "ConversationAccount",
         "DeliveryAzdRuntime",
+        "DeliveryManifestRuntime",
         "EntitiesRuntime",
         "EvaluationSuiteRuntime",
         "IdentityRuntime",
@@ -158,6 +159,13 @@
           "kind": "type",
           "group": "",
           "source": "delivery_azd_runtime",
+          "protocol": true
+        },
+        {
+          "name": "DeliveryManifestRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "delivery_manifest_runtime",
           "protocol": true
         },
         {
@@ -671,6 +679,65 @@
                 "projectEndpoint": "string",
                 "projectResourceId": "string",
                 "service": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "DeliveryManifestRuntime",
+          "group": "",
+          "symbol": "DeliveryManifestRuntime",
+          "source": "delivery_manifest_runtime",
+          "methods": [
+            {
+              "name": "planManifest",
+              "returns": "unknown",
+              "params": {
+                "appName": "string",
+                "check": "boolean",
+                "manifest": "unknown",
+                "registeredProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "publishableProtocols",
+              "returns": "string[]",
+              "params": {
+                "registeredProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "serviceProtocolItems",
+              "returns": "unknown",
+              "params": {
+                "protocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "skippedProtocols",
+              "returns": "string[]",
+              "params": {
+                "registeredProtocols": "string[]"
               },
               "optional": false,
               "sync": true,
@@ -1868,6 +1935,7 @@
         "context",
         "conversation_account",
         "delivery_azd_runtime",
+        "delivery_manifest_runtime",
         "entities_runtime",
         "evaluation_suite_runtime",
         "identity_runtime",

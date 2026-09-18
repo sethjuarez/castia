@@ -225,6 +225,35 @@ fn delivery_azd_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn DeliveryAzdRuntime> = Box::new(CompileOnlyDeliveryAzdRuntime);
 }
 
+struct CompileOnlyDeliveryManifestRuntime;
+
+#[async_trait::async_trait]
+impl DeliveryManifestRuntime for CompileOnlyDeliveryManifestRuntime {
+    fn plan_manifest(
+        &self,
+        app_name: &String,
+        registered_protocols: &Vec<String>,
+        manifest: &serde_json::Value,
+        check: &bool,
+    ) -> serde_json::Value {
+        panic!("DeliveryManifestRuntime.planManifest is a compile-only protocol scaffold.")
+    }
+    fn publishable_protocols(&self, registered_protocols: &Vec<String>) -> Vec<String> {
+        panic!("DeliveryManifestRuntime.publishableProtocols is a compile-only protocol scaffold.")
+    }
+    fn service_protocol_items(&self, protocols: &Vec<String>) -> serde_json::Value {
+        panic!("DeliveryManifestRuntime.serviceProtocolItems is a compile-only protocol scaffold.")
+    }
+    fn skipped_protocols(&self, registered_protocols: &Vec<String>) -> Vec<String> {
+        panic!("DeliveryManifestRuntime.skippedProtocols is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn delivery_manifest_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn DeliveryManifestRuntime> = Box::new(CompileOnlyDeliveryManifestRuntime);
+}
+
 struct CompileOnlyEntitiesRuntime;
 
 #[async_trait::async_trait]
