@@ -68,25 +68,36 @@ def _any_of(surfaces: tuple[Teams, ...]) -> Callable[[Activity], bool]:
     return lambda activity: any(predicate(activity) for predicate in predicates)
 
 
-def _responses_body(text: str) -> dict:
+def _responses_body(
+    text: str,
+    *,
+    response_id: str | None = None,
+    output_item_id: str | None = None,
+    status: str = "completed",
+) -> dict:
     """An OpenAI Responses-shaped payload carrying ``text``.
 
     Minimal but real: ``output_text`` for simple readers and a structured
     ``output[]`` for clients that walk the content array. ``id`` lets a caller
     thread ``previous_response_id`` on a later turn.
     """
+    content_part = {"type": "output_text", "text": text}
+    message = {
+        "type": "message",
+        "role": "assistant",
+        "content": [content_part],
+    }
+    if output_item_id is not None:
+        content_part["annotations"] = []
+        message["id"] = output_item_id
+        message["status"] = status
+
     return {
-        "id": f"resp_{uuid4().hex}",
+        "id": response_id or f"resp_{uuid4().hex}",
         "object": "response",
-        "status": "completed",
+        "status": status,
         "output_text": text,
-        "output": [
-            {
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": text}],
-            }
-        ],
+        "output": [message],
     }
 
 
@@ -94,9 +105,42 @@ def _sse_event(event_type: str, payload: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
-def _responses_completed_event(text: str) -> dict:
-    body = _responses_body(text)
+def _sse_done() -> str:
+    return "data: [DONE]\n\n"
+
+
+def _responses_completed_event(
+    text: str, *, response_id: str, output_item_id: str
+) -> dict:
+    body = _responses_body(
+        text,
+        response_id=response_id,
+        output_item_id=output_item_id,
+    )
     return {"type": "response.completed", "response": body, **body}
+
+
+def _streaming_response(text: str, *, response_id: str, status: str) -> dict:
+    body = _responses_body(text, response_id=response_id, status=status)
+    body["output"] = []
+    return body
+
+
+def _streaming_item(item_id: str, text: str, *, status: str) -> dict:
+    content = []
+    if text or status == "completed":
+        content = [{"type": "output_text", "text": text, "annotations": []}]
+    return {
+        "id": item_id,
+        "type": "message",
+        "status": status,
+        "role": "assistant",
+        "content": content,
+    }
+
+
+def _streaming_content_part(text: str) -> dict:
+    return {"type": "output_text", "text": text, "annotations": []}
 
 
 def _chat_body(text: str) -> dict:
@@ -275,7 +319,47 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
             text = _responses_input(body.get("input"))
             if body.get("stream") is True:
                 async def events():
+                    response_id = f"resp_{uuid4().hex}"
+                    output_item_id = f"msg_{uuid4().hex}"
                     chunks: list[str] = []
+                    yield _sse_event(
+                        "response.created",
+                        {
+                            "type": "response.created",
+                            "response": _streaming_response(
+                                "", response_id=response_id, status="in_progress"
+                            ),
+                        },
+                    )
+                    yield _sse_event(
+                        "response.in_progress",
+                        {
+                            "type": "response.in_progress",
+                            "response": _streaming_response(
+                                "", response_id=response_id, status="in_progress"
+                            ),
+                        },
+                    )
+                    yield _sse_event(
+                        "response.output_item.added",
+                        {
+                            "type": "response.output_item.added",
+                            "output_index": 0,
+                            "item": _streaming_item(
+                                output_item_id, "", status="in_progress"
+                            ),
+                        },
+                    )
+                    yield _sse_event(
+                        "response.content_part.added",
+                        {
+                            "type": "response.content_part.added",
+                            "item_id": output_item_id,
+                            "output_index": 0,
+                            "content_index": 0,
+                            "part": _streaming_content_part(""),
+                        },
+                    )
                     if responses_stream_dispatch is not None:
                         async for delta in responses_stream_dispatch(text):
                             chunks.append(delta)
@@ -297,10 +381,46 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
                                     "delta": reply,
                                 },
                             )
+                    output_text = "".join(chunks)
+                    yield _sse_event(
+                        "response.output_text.done",
+                        {
+                            "type": "response.output_text.done",
+                            "item_id": output_item_id,
+                            "output_index": 0,
+                            "content_index": 0,
+                            "text": output_text,
+                        },
+                    )
+                    yield _sse_event(
+                        "response.content_part.done",
+                        {
+                            "type": "response.content_part.done",
+                            "item_id": output_item_id,
+                            "output_index": 0,
+                            "content_index": 0,
+                            "part": _streaming_content_part(output_text),
+                        },
+                    )
+                    yield _sse_event(
+                        "response.output_item.done",
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 0,
+                            "item": _streaming_item(
+                                output_item_id, output_text, status="completed"
+                            ),
+                        },
+                    )
                     yield _sse_event(
                         "response.completed",
-                        _responses_completed_event("".join(chunks)),
+                        _responses_completed_event(
+                            output_text,
+                            response_id=response_id,
+                            output_item_id=output_item_id,
+                        ),
                     )
+                    yield _sse_done()
 
                 return StreamingResponse(events(), media_type="text/event-stream")
 

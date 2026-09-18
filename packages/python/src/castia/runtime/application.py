@@ -122,8 +122,10 @@ class Router:
         ``POST /responses`` with ``{"stream": true}`` always returns SSE for a
         Responses app. Register this only when the app can produce real deltas;
         otherwise Castia streams the normal ``@app.responses()`` result as one
-        final text delta plus ``response.completed``. It does not add another
-        publishable protocol; hosted agents still advertise plain ``responses``.
+        final text delta. Both paths emit the Responses lifecycle done events,
+        ``response.completed``, and a ``[DONE]`` sentinel. It does not add
+        another publishable protocol; hosted agents still advertise plain
+        ``responses``.
         """
         return self._wire_decorator("responses_stream")
 
