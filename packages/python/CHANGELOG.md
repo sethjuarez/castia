@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/sethjuarez/castia/compare/python-v0.6.0...python-v0.7.0) (2026-09-18)
+
+
+### Features
+
+* add agent playground story flow baseline ([fdfdccd](https://github.com/sethjuarez/castia/commit/fdfdccd97fd45a15dd78ae35727fb83476dc1182))
+* **python:** add SFT and DPO fine-tuning ([#25](https://github.com/sethjuarez/castia/issues/25)) ([4a2daea](https://github.com/sethjuarez/castia/commit/4a2daead31517037304e0c5df48472f3d71ce227))
+* **python:** refine Castia starter and playground flow ([65abf95](https://github.com/sethjuarez/castia/commit/65abf95d947590091fe80ff24b1df510071d8489))
+* **rust:** add typra-governed runtime slices ([68bd555](https://github.com/sethjuarez/castia/commit/68bd555ec77b1b7d191ce6799328d4a6c342740f))
+
+
+### Bug Fixes
+
+* package starter kit for Copilot plugin install ([9d9d0d3](https://github.com/sethjuarez/castia/commit/9d9d0d3e6a7dee73fff120bd0d89e63aab57e754))
+
 ## [0.6.0](https://github.com/sethjuarez/castia/compare/python-v0.5.0...python-v0.6.0) (2026-09-16)
 
 
