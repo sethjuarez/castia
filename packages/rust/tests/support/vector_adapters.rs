@@ -6,12 +6,23 @@ use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::finetuning::{
     build_dpo_method as build_finetune_dpo_method, build_rft_job as build_finetune_rft_job,
     build_rft_method as build_finetune_rft_method, build_sft_job as build_finetune_sft_job,
-    build_sft_method as build_finetune_sft_method,
+    build_sft_method as build_finetune_sft_method, deployment_handoff as build_job_handoff,
+    download_guard as build_job_download_guard,
+    download_limit_exceeded as build_job_download_limit_exceeded,
+    job_page_request as build_job_job_page_request, job_reference as build_job_reference,
+    page_request as build_job_page_request, page_slice as build_job_page_slice,
+    parse_job_reference as build_job_parse_reference, result_files as build_job_result_files,
+    status_request as build_job_status_request,
     string_check_grader as build_finetune_string_check_grader,
+    terminal_status as build_job_terminal_status,
     validate_dpo_example as build_validate_dpo_example, validate_grader as build_validate_grader,
+    validate_request_timeout as build_job_validate_request_timeout,
     validate_rft_dataset as build_validate_rft_dataset,
     validate_rft_example as build_validate_rft_example,
-    validate_sft_example as build_validate_sft_example, CastiaFinetuningTrainingRuntime,
+    validate_sft_example as build_validate_sft_example,
+    watch_poll_timeout as build_job_watch_poll_timeout, watch_request as build_job_watch_request,
+    watch_sleep_duration as build_job_watch_sleep_duration, CastiaFinetuningJobsRuntime,
+    CastiaFinetuningTrainingRuntime,
 };
 use castia::hosting::{
     readiness_body as build_readiness_body, sse_event as build_sse_event,
@@ -37,13 +48,14 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, FinetuningTrainingRuntime, HostingCredentialsRuntime,
-    HostingServerRuntime, IdentityRuntime, IntegrationsGraphRuntime, IntegrationsToolboxRuntime,
-    InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
-    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
-    ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
-    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, RuntimeContextRuntime,
-    RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
+    EvaluationSuiteRuntime, FinetuningJobsRuntime, FinetuningTrainingRuntime,
+    HostingCredentialsRuntime, HostingServerRuntime, IdentityRuntime, IntegrationsGraphRuntime,
+    IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
+    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
+    ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
+    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime,
+    RuntimeContextRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext,
+    ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -298,6 +310,66 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "FinetuningTrainingRuntime.validateSftExample",
             sync(finetune_validate_sft_example),
+        ),
+        (
+            "FinetuningJobsRuntime.deploymentHandoff",
+            sync(finetune_jobs_deployment_handoff),
+        ),
+        (
+            "FinetuningJobsRuntime.downloadGuard",
+            sync(finetune_jobs_download_guard),
+        ),
+        (
+            "FinetuningJobsRuntime.downloadLimitExceeded",
+            sync(finetune_jobs_download_limit_exceeded),
+        ),
+        (
+            "FinetuningJobsRuntime.jobReference",
+            sync(finetune_jobs_reference),
+        ),
+        (
+            "FinetuningJobsRuntime.jobPageRequest",
+            sync(finetune_jobs_job_page_request),
+        ),
+        (
+            "FinetuningJobsRuntime.pageRequest",
+            sync(finetune_jobs_page_request),
+        ),
+        (
+            "FinetuningJobsRuntime.pageSlice",
+            sync(finetune_jobs_page_slice),
+        ),
+        (
+            "FinetuningJobsRuntime.parseJobReference",
+            sync(finetune_jobs_parse_reference),
+        ),
+        (
+            "FinetuningJobsRuntime.resultFiles",
+            sync(finetune_jobs_result_files),
+        ),
+        (
+            "FinetuningJobsRuntime.statusRequest",
+            sync(finetune_jobs_status_request),
+        ),
+        (
+            "FinetuningJobsRuntime.terminalStatus",
+            sync(finetune_jobs_terminal_status),
+        ),
+        (
+            "FinetuningJobsRuntime.validateRequestTimeout",
+            sync(finetune_jobs_validate_request_timeout),
+        ),
+        (
+            "FinetuningJobsRuntime.watchPollTimeout",
+            sync(finetune_jobs_watch_poll_timeout),
+        ),
+        (
+            "FinetuningJobsRuntime.watchRequest",
+            sync(finetune_jobs_watch_request),
+        ),
+        (
+            "FinetuningJobsRuntime.watchSleepDuration",
+            sync(finetune_jobs_watch_sleep_duration),
         ),
         ("HostingCredentialsRuntime.bearer", sync(hosting_bearer)),
         (
@@ -1039,6 +1111,113 @@ fn finetune_validate_sft_example(input: &Value, _: &Context) -> Result<Value, Ve
     Ok(json!(build_validate_sft_example(
         input.get("row").unwrap_or(&Value::Null)
     )))
+}
+
+fn finetune_jobs_deployment_handoff(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let endpoint = input.get("projectEndpoint").and_then(Value::as_str);
+    let job = input.get("job").unwrap_or(&Value::Null);
+    build_job_handoff(endpoint, job).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_download_guard(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let job = input.get("job").unwrap_or(&Value::Null);
+    let file_id = string_input(input, "fileId")?;
+    let max_bytes = input.get("maxBytes").unwrap_or(&Value::Null);
+    build_job_download_guard(job, &file_id, max_bytes)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_download_limit_exceeded(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_job_download_limit_exceeded(
+        input.get("written").unwrap_or(&Value::Null),
+        input.get("maxBytes").unwrap_or(&Value::Null),
+    )
+    .map_err(|error| VectorError::new(error.to_string()))?))
+}
+
+fn finetune_jobs_reference(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let project_endpoint = string_input(input, "projectEndpoint")?;
+    let job_id = string_input(input, "jobId")?;
+    let schema_version = i32_input(input, "schemaVersion")?;
+    build_job_reference(&project_endpoint, &job_id, schema_version)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_job_page_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let job_id = string_input(input, "jobId")?;
+    let limit = input.get("limit").unwrap_or(&Value::Null);
+    let after = input.get("after").and_then(Value::as_str);
+    build_job_job_page_request(&job_id, limit, after)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_page_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let limit = input.get("limit").unwrap_or(&Value::Null);
+    let after = input.get("after").and_then(Value::as_str);
+    build_job_page_request(limit, after).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_page_slice(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let data = input.get("data").unwrap_or(&Value::Null);
+    let limit = input.get("limit").unwrap_or(&Value::Null);
+    build_job_page_slice(data, limit).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_parse_reference(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_job_parse_reference(input.get("data").unwrap_or(&Value::Null))
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_result_files(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_job_result_files(
+        input.get("job").unwrap_or(&Value::Null)
+    )))
+}
+
+fn finetune_jobs_status_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let job_id = string_input(input, "jobId")?;
+    let request_timeout = f64_input(input, "requestTimeout")?;
+    let timeout = input.get("timeout").and_then(Value::as_f64);
+    build_job_status_request(&job_id, request_timeout, timeout)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_terminal_status(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(build_job_terminal_status(&string_input(
+        input, "status"
+    )?)))
+}
+
+fn finetune_jobs_validate_request_timeout(
+    input: &Value,
+    _: &Context,
+) -> Result<Value, VectorError> {
+    build_job_validate_request_timeout(f64_input(input, "requestTimeout")?)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_watch_poll_timeout(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_job_watch_poll_timeout(
+        f64_input(input, "requestTimeout")?,
+        f64_input(input, "remaining")?,
+    )
+    .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_watch_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let job_id = string_input(input, "jobId")?;
+    let timeout = f64_input(input, "timeout")?;
+    let poll_interval = f64_input(input, "pollInterval")?;
+    build_job_watch_request(&job_id, timeout, poll_interval)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn finetune_jobs_watch_sleep_duration(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_job_watch_sleep_duration(
+        f64_input(input, "pollInterval")?,
+        f64_input(input, "remaining")?,
+    )
+    .map_err(|error| VectorError::new(error.to_string()))
 }
 
 fn hosting_bearer(input: &Value, _: &Context) -> Result<Value, VectorError> {
@@ -3122,6 +3301,26 @@ fn string_input(input: &Value, key: &str) -> Result<String, VectorError> {
             message: format!("{key} must be a string"),
             payload: None,
         })
+}
+
+fn i32_input(input: &Value, key: &str) -> Result<i32, VectorError> {
+    let Some(value) = required(input, key)?.as_i64() else {
+        return Err(VectorError {
+            message: format!("{key} must be an integer"),
+            payload: None,
+        });
+    };
+    i32::try_from(value).map_err(|_| VectorError {
+        message: format!("{key} must fit int32"),
+        payload: None,
+    })
+}
+
+fn f64_input(input: &Value, key: &str) -> Result<f64, VectorError> {
+    required(input, key)?.as_f64().ok_or_else(|| VectorError {
+        message: format!("{key} must be a number"),
+        payload: None,
+    })
 }
 
 fn string_array_input(input: &Value, key: &str) -> Result<Vec<String>, VectorError> {

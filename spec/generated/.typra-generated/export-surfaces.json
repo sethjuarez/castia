@@ -49,6 +49,7 @@
         "DeliveryManifestRuntime",
         "EntitiesRuntime",
         "EvaluationSuiteRuntime",
+        "FinetuningJobsRuntime",
         "FinetuningTrainingRuntime",
         "HostingCredentialsRuntime",
         "HostingServerRuntime",
@@ -186,6 +187,13 @@
           "kind": "type",
           "group": "",
           "source": "evaluation_suite_runtime",
+          "protocol": true
+        },
+        {
+          "name": "FinetuningJobsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "finetuning_jobs_runtime",
           "protocol": true
         },
         {
@@ -943,6 +951,210 @@
               "returns": "unknown",
               "params": {
                 "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "FinetuningJobsRuntime",
+          "group": "",
+          "symbol": "FinetuningJobsRuntime",
+          "source": "finetuning_jobs_runtime",
+          "methods": [
+            {
+              "name": "deploymentHandoff",
+              "returns": "unknown",
+              "params": {
+                "job": "unknown",
+                "projectEndpoint": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "downloadGuard",
+              "returns": "unknown",
+              "params": {
+                "fileId": "string",
+                "job": "unknown",
+                "maxBytes": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "downloadLimitExceeded",
+              "returns": "boolean",
+              "params": {
+                "maxBytes": "unknown",
+                "written": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "jobPageRequest",
+              "returns": "unknown",
+              "params": {
+                "after": "string?",
+                "jobId": "string",
+                "limit": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "jobReference",
+              "returns": "unknown",
+              "params": {
+                "jobId": "string",
+                "projectEndpoint": "string",
+                "schemaVersion": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "pageRequest",
+              "returns": "unknown",
+              "params": {
+                "after": "string?",
+                "limit": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "pageSlice",
+              "returns": "unknown",
+              "params": {
+                "data": "unknown",
+                "limit": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "parseJobReference",
+              "returns": "unknown",
+              "params": {
+                "data": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "resultFiles",
+              "returns": "string[]",
+              "params": {
+                "job": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "statusRequest",
+              "returns": "unknown",
+              "params": {
+                "jobId": "string",
+                "requestTimeout": "float64",
+                "timeout": "float64?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "terminalStatus",
+              "returns": "boolean",
+              "params": {
+                "status": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateRequestTimeout",
+              "returns": "unknown",
+              "params": {
+                "requestTimeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "watchPollTimeout",
+              "returns": "unknown",
+              "params": {
+                "remaining": "float64",
+                "requestTimeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "watchRequest",
+              "returns": "unknown",
+              "params": {
+                "jobId": "string",
+                "pollInterval": "float64",
+                "timeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "watchSleepDuration",
+              "returns": "unknown",
+              "params": {
+                "pollInterval": "float64",
+                "remaining": "float64"
               },
               "optional": false,
               "sync": true,
@@ -2500,6 +2712,7 @@
         "delivery_manifest_runtime",
         "entities_runtime",
         "evaluation_suite_runtime",
+        "finetuning_jobs_runtime",
         "finetuning_training_runtime",
         "hosting_credentials_runtime",
         "hosting_server_runtime",

@@ -22,6 +22,7 @@ import "./delivery/azd.tsp";
 import "./delivery/manifest.tsp";
 import "./evaluation/suite.tsp";
 import "./finetuning/training.tsp";
+import "./finetuning/jobs.tsp";
 import "./lifecycle/records.tsp";
 import "./lifecycle/storage.tsp";
 import "./lifecycle/operations.tsp";

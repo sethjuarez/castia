@@ -49,6 +49,9 @@ pub use entities_runtime::*;
 pub mod evaluation_suite_runtime;
 pub use evaluation_suite_runtime::*;
 
+pub mod finetuning_jobs_runtime;
+pub use finetuning_jobs_runtime::*;
+
 pub mod finetuning_training_runtime;
 pub use finetuning_training_runtime::*;
 

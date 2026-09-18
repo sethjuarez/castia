@@ -834,6 +834,190 @@ pub fn run_delivery_manifest_runtime_conformance<
     }
 }
 
+/// Typed @vector conformance for FinetuningJobsRuntime. Pass your real `impl FinetuningJobsRuntime`; the
+/// `S: FinetuningJobsRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_finetuning_jobs_runtime_conformance(&FinetuningJobsRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_finetuning_jobs_runtime_conformance<S: crate::model::FinetuningJobsRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: job-download-limit-allows-exact-boundary
+    {
+        let written: serde_json::Value = serde_json::from_str(
+            r####"
+4
+"####,
+        )
+        .expect("written parses");
+        let max_bytes: serde_json::Value = serde_json::from_str(
+            r####"
+4
+"####,
+        )
+        .expect("maxBytes parses");
+        let actual = seam.download_limit_exceeded(&written, &max_bytes);
+        let actual_value = serde_json::to_value(actual)
+            .expect("job-download-limit-allows-exact-boundary: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("job-download-limit-allows-exact-boundary: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-download-limit-allows-exact-boundary misrouted"
+        );
+    }
+    // vector: job-download-limit-rejects-byte-after-boundary
+    {
+        let written: serde_json::Value = serde_json::from_str(
+            r####"
+5
+"####,
+        )
+        .expect("written parses");
+        let max_bytes: serde_json::Value = serde_json::from_str(
+            r####"
+4
+"####,
+        )
+        .expect("maxBytes parses");
+        let actual = seam.download_limit_exceeded(&written, &max_bytes);
+        let actual_value = serde_json::to_value(actual)
+            .expect("job-download-limit-rejects-byte-after-boundary: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("job-download-limit-rejects-byte-after-boundary: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-download-limit-rejects-byte-after-boundary misrouted"
+        );
+    }
+    // vector: job-result-files-omits-missing
+    {
+        let job: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "status": "running"
+}
+"####,
+        )
+        .expect("job parses");
+        let actual = seam.result_files(&job);
+        let actual_value =
+            serde_json::to_value(actual).expect("job-result-files-omits-missing: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("job-result-files-omits-missing: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-result-files-omits-missing misrouted"
+        );
+    }
+    // vector: job-result-files-preserves-array
+    {
+        let job: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "result_files": [
+    "file-a",
+    "file-b"
+  ]
+}
+"####,
+        )
+        .expect("job parses");
+        let actual = seam.result_files(&job);
+        let actual_value =
+            serde_json::to_value(actual).expect("job-result-files-preserves-array: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "file-a",
+  "file-b"
+]
+"####,
+        )
+        .expect("job-result-files-preserves-array: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-result-files-preserves-array misrouted"
+        );
+    }
+    // vector: job-running-is-not-terminal
+    {
+        let status: String = serde_json::from_str(
+            r####"
+"running"
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.terminal_status(&status);
+        let actual_value =
+            serde_json::to_value(actual).expect("job-running-is-not-terminal: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("job-running-is-not-terminal: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-running-is-not-terminal misrouted"
+        );
+    }
+    // vector: job-terminal-american-canceled-spelling
+    {
+        let status: String = serde_json::from_str(
+            r####"
+"canceled"
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.terminal_status(&status);
+        let actual_value = serde_json::to_value(actual)
+            .expect("job-terminal-american-canceled-spelling: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("job-terminal-american-canceled-spelling: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-terminal-american-canceled-spelling misrouted"
+        );
+    }
+    // vector: job-terminal-statuses-match-python
+    {
+        let status: String = serde_json::from_str(
+            r####"
+"cancelled"
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.terminal_status(&status);
+        let actual_value =
+            serde_json::to_value(actual).expect("job-terminal-statuses-match-python: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("job-terminal-statuses-match-python: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "job-terminal-statuses-match-python misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for FinetuningTrainingRuntime. Pass your real `impl FinetuningTrainingRuntime`; the
 /// `S: FinetuningTrainingRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_finetuning_training_runtime_conformance(&FinetuningTrainingRuntimeImpl).await;` (or without `.await` when sync).

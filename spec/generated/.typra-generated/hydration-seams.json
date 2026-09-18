@@ -93,6 +93,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "FinetuningJobsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "FinetuningJobsRuntime",
+      "generatedSource": "finetuning_jobs_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "FinetuningTrainingRuntime",
       "target": "rust",
       "group": "",

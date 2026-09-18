@@ -322,6 +322,95 @@ fn evaluation_suite_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn EvaluationSuiteRuntime> = Box::new(CompileOnlyEvaluationSuiteRuntime);
 }
 
+struct CompileOnlyFinetuningJobsRuntime;
+
+#[async_trait::async_trait]
+impl FinetuningJobsRuntime for CompileOnlyFinetuningJobsRuntime {
+    fn deployment_handoff(
+        &self,
+        project_endpoint: &Option<String>,
+        job: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.deploymentHandoff is a compile-only protocol scaffold.")
+    }
+    fn download_guard(
+        &self,
+        job: &serde_json::Value,
+        file_id: &String,
+        max_bytes: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.downloadGuard is a compile-only protocol scaffold.")
+    }
+    fn download_limit_exceeded(
+        &self,
+        written: &serde_json::Value,
+        max_bytes: &serde_json::Value,
+    ) -> bool {
+        panic!("FinetuningJobsRuntime.downloadLimitExceeded is a compile-only protocol scaffold.")
+    }
+    fn job_page_request(
+        &self,
+        job_id: &String,
+        limit: &serde_json::Value,
+        after: &Option<String>,
+    ) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.jobPageRequest is a compile-only protocol scaffold.")
+    }
+    fn job_reference(
+        &self,
+        project_endpoint: &String,
+        job_id: &String,
+        schema_version: &i32,
+    ) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.jobReference is a compile-only protocol scaffold.")
+    }
+    fn page_request(&self, limit: &serde_json::Value, after: &Option<String>) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.pageRequest is a compile-only protocol scaffold.")
+    }
+    fn page_slice(&self, data: &serde_json::Value, limit: &serde_json::Value) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.pageSlice is a compile-only protocol scaffold.")
+    }
+    fn parse_job_reference(&self, data: &serde_json::Value) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.parseJobReference is a compile-only protocol scaffold.")
+    }
+    fn result_files(&self, job: &serde_json::Value) -> Vec<String> {
+        panic!("FinetuningJobsRuntime.resultFiles is a compile-only protocol scaffold.")
+    }
+    fn status_request(
+        &self,
+        job_id: &String,
+        request_timeout: &f64,
+        timeout: &Option<f64>,
+    ) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.statusRequest is a compile-only protocol scaffold.")
+    }
+    fn terminal_status(&self, status: &String) -> bool {
+        panic!("FinetuningJobsRuntime.terminalStatus is a compile-only protocol scaffold.")
+    }
+    fn validate_request_timeout(&self, request_timeout: &f64) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.validateRequestTimeout is a compile-only protocol scaffold.")
+    }
+    fn watch_poll_timeout(&self, request_timeout: &f64, remaining: &f64) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.watchPollTimeout is a compile-only protocol scaffold.")
+    }
+    fn watch_request(
+        &self,
+        job_id: &String,
+        timeout: &f64,
+        poll_interval: &f64,
+    ) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.watchRequest is a compile-only protocol scaffold.")
+    }
+    fn watch_sleep_duration(&self, poll_interval: &f64, remaining: &f64) -> serde_json::Value {
+        panic!("FinetuningJobsRuntime.watchSleepDuration is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn finetuning_jobs_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn FinetuningJobsRuntime> = Box::new(CompileOnlyFinetuningJobsRuntime);
+}
+
 struct CompileOnlyFinetuningTrainingRuntime;
 
 #[async_trait::async_trait]
