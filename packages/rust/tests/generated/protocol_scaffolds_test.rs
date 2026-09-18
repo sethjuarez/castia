@@ -437,6 +437,33 @@ fn observe_suite_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ObserveSuiteRuntime> = Box::new(CompileOnlyObserveSuiteRuntime);
 }
 
+struct CompileOnlyObserveTelemetryRuntime;
+
+#[async_trait::async_trait]
+impl ObserveTelemetryRuntime for CompileOnlyObserveTelemetryRuntime {
+    fn http_error(&self, status: &i32) -> serde_json::Value {
+        panic!("ObserveTelemetryRuntime.httpError is a compile-only protocol scaffold.")
+    }
+    fn trace_query_kql(&self, query: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveTelemetryRuntime.traceQueryKql is a compile-only protocol scaffold.")
+    }
+    fn verify_probe(
+        &self,
+        attempts: &serde_json::Value,
+        probe_tag: &String,
+        timeout_seconds: &f64,
+        poll_seconds: &f64,
+        max_attempts: &i32,
+    ) -> serde_json::Value {
+        panic!("ObserveTelemetryRuntime.verifyProbe is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn observe_telemetry_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ObserveTelemetryRuntime> = Box::new(CompileOnlyObserveTelemetryRuntime);
+}
+
 struct CompileOnlyObserveTracingRuntime;
 
 #[async_trait::async_trait]

@@ -133,6 +133,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "ObserveTelemetryRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveTelemetryRuntime",
+      "generatedSource": "observe_telemetry_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ObserveTracingRuntime",
       "target": "rust",
       "group": "",

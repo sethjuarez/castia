@@ -55,6 +55,7 @@
         "ModelRuntime",
         "ObserveRecordsRuntime",
         "ObserveSuiteRuntime",
+        "ObserveTelemetryRuntime",
         "ObserveTracingRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
@@ -213,6 +214,13 @@
           "kind": "type",
           "group": "",
           "source": "observe_suite_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveTelemetryRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_telemetry_runtime",
           "protocol": true
         },
         {
@@ -1106,6 +1114,54 @@
           ]
         },
         {
+          "name": "ObserveTelemetryRuntime",
+          "group": "",
+          "symbol": "ObserveTelemetryRuntime",
+          "source": "observe_telemetry_runtime",
+          "methods": [
+            {
+              "name": "httpError",
+              "returns": "unknown",
+              "params": {
+                "status": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "traceQueryKql",
+              "returns": "unknown",
+              "params": {
+                "query": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "verifyProbe",
+              "returns": "unknown",
+              "params": {
+                "attempts": "unknown",
+                "maxAttempts": "int32",
+                "pollSeconds": "float64",
+                "probeTag": "string",
+                "timeoutSeconds": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ObserveTracingRuntime",
           "group": "",
           "symbol": "ObserveTracingRuntime",
@@ -1292,6 +1348,7 @@
         "model_runtime",
         "observe_records_runtime",
         "observe_suite_runtime",
+        "observe_telemetry_runtime",
         "observe_tracing_runtime",
         "responses_runtime",
         "routing_runtime",

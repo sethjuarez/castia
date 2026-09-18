@@ -14,10 +14,12 @@ use castia::model::{
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
     LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext,
+    ToolCatalogRuntime,
 };
 use castia::observe::{
-    CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime, CastiaObserveTracingRuntime,
+    CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime, CastiaObserveTelemetryRuntime,
+    CastiaObserveTracingRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -262,6 +264,18 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "ObserveTracingRuntime.executeToolSpan",
             sync_with_normalize(observe_execute_tool_span, observe_tracing_to_camel),
+        ),
+        (
+            "ObserveTelemetryRuntime.traceQueryKql",
+            sync(observe_trace_query_kql),
+        ),
+        (
+            "ObserveTelemetryRuntime.httpError",
+            sync_with_normalize(observe_http_error, observe_telemetry_to_camel),
+        ),
+        (
+            "ObserveTelemetryRuntime.verifyProbe",
+            sync_with_normalize(observe_verify_probe, observe_telemetry_to_camel),
         ),
         ("ModelRuntime.publicToolSpec", sync(model_public_tool_spec)),
         ("ModelRuntime.reasoningParam", sync(model_reasoning_param)),
@@ -975,6 +989,83 @@ fn observe_execute_tool_span(input: &Value, _: &Context) -> Result<Value, Vector
     ))
 }
 
+fn observe_trace_query_kql(input: &Value, context: &Context) -> Result<Value, VectorError> {
+    let query = observe_telemetry_to_snake(input.get("query").unwrap_or(&Value::Null));
+    let kql = castia::observe::trace_query_kql(&query).map_err(vector_error)?;
+    for needle in context
+        .vector
+        .get("expectedContains")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if !kql.contains(needle) {
+            return Err(VectorError {
+                message: format!("query missing expected fragment: {needle}"),
+                payload: Some(Value::String(kql)),
+            });
+        }
+    }
+    for needle in context
+        .vector
+        .get("expectedNotContains")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if kql.contains(needle) {
+            return Err(VectorError {
+                message: format!("query contained forbidden fragment: {needle}"),
+                payload: Some(Value::String(kql)),
+            });
+        }
+    }
+    if let Some(suffix) = context.vector.get("expectedSuffix").and_then(Value::as_str) {
+        if !kql.ends_with(suffix) {
+            return Err(VectorError {
+                message: format!("query did not end with: {suffix}"),
+                payload: Some(Value::String(kql)),
+            });
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn observe_http_error(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaObserveTelemetryRuntime.http_error(
+        &(input
+            .get("status")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+    ))
+}
+
+fn observe_verify_probe(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let attempts = observe_telemetry_to_snake(input.get("attempts").unwrap_or(&Value::Null));
+    Ok(CastiaObserveTelemetryRuntime.verify_probe(
+        &attempts,
+        &input
+            .get("probeTag")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        &input
+            .get("timeoutSeconds")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+        &input
+            .get("pollSeconds")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+        &(input
+            .get("maxAttempts")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+    ))
+}
+
 fn model_instructions_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaModelRuntime.instructions_param(
         &input
@@ -1180,6 +1271,62 @@ fn observe_suite_to_camel(value: &Value, _: &Context) -> Value {
 
 fn observe_tracing_to_camel(value: &Value, _: &Context) -> Value {
     observe_tracing_keys(value)
+}
+
+fn observe_telemetry_to_camel(value: &Value, _: &Context) -> Value {
+    observe_vector_numbers(&observe_telemetry_keys(value, false))
+}
+
+fn observe_telemetry_to_snake(value: &Value) -> Value {
+    observe_telemetry_keys(value, true)
+}
+
+fn observe_telemetry_keys(value: &Value, to_snake: bool) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match (to_snake, key.as_str()) {
+                        (true, "agentName") => "agent_name",
+                        (true, "agentVersion") => "agent_version",
+                        (true, "probeTag") => "probe_tag",
+                        (true, "includeContent") => "include_content",
+                        (true, "traceId") => "trace_id",
+                        (true, "timeoutSeconds") => "timeout_seconds",
+                        (true, "pollSeconds") => "poll_seconds",
+                        (true, "maxAttempts") => "max_attempts",
+                        (true, "matchedRecords") => "matched_records",
+                        (true, "elapsedSeconds") => "elapsed_seconds",
+                        (true, "statusCode") => "status_code",
+                        (false, "agent_name") => "agentName",
+                        (false, "agent_version") => "agentVersion",
+                        (false, "probe_tag") => "probeTag",
+                        (false, "include_content") => "includeContent",
+                        (false, "trace_id") => "traceId",
+                        (false, "timeout_seconds") => "timeoutSeconds",
+                        (false, "poll_seconds") => "pollSeconds",
+                        (false, "max_attempts") => "maxAttempts",
+                        (false, "matched_records") => "matchedRecords",
+                        (false, "elapsed_seconds") => "elapsedSeconds",
+                        (false, "status_code") => "statusCode",
+                        _ => key.as_str(),
+                    };
+                    (
+                        translated.to_string(),
+                        observe_telemetry_keys(value, to_snake),
+                    )
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|value| observe_telemetry_keys(value, to_snake))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 fn observe_tracing_keys(value: &Value) -> Value {
