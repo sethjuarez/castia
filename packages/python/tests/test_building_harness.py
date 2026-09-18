@@ -1,6 +1,7 @@
 """The harness runs real routes and restores all process-wide test seams."""
 
 import asyncio
+import json
 import socket
 import subprocess
 
@@ -24,6 +25,69 @@ def activity(**changes):
         "recipient": {"id": "bot"},
         **changes,
     }
+
+
+def sse_events(text: str):
+    events = []
+    event_type = None
+    data_lines = []
+    for line in text.splitlines():
+        if line.startswith("event: "):
+            event_type = line.removeprefix("event: ")
+        elif line.startswith("data: "):
+            data_lines.append(line.removeprefix("data: "))
+        elif not line and data_lines:
+            data = "\n".join(data_lines)
+            events.append((event_type, data if data == "[DONE]" else json.loads(data)))
+            event_type = None
+            data_lines = []
+    return events
+
+
+def assert_responses_sse_contract(response, *, deltas: list[str], output_text: str):
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    events = sse_events(response.text)
+    assert [event for event, _ in events] == [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.content_part.added",
+        *["response.output_text.delta" for _ in deltas],
+        "response.output_text.done",
+        "response.content_part.done",
+        "response.output_item.done",
+        "response.completed",
+        None,
+    ]
+
+    payloads = [payload for _, payload in events]
+    response_id = payloads[0]["response"]["id"]
+    output_item_id = payloads[2]["item"]["id"]
+    assert payloads[1]["response"]["id"] == response_id
+    assert payloads[3]["item_id"] == output_item_id
+
+    delta_payloads = payloads[4: 4 + len(deltas)]
+    assert [payload["delta"] for payload in delta_payloads] == deltas
+    assert all(payload["type"] == "response.output_text.delta" for payload in delta_payloads)
+
+    done_offset = 4 + len(deltas)
+    assert payloads[done_offset]["type"] == "response.output_text.done"
+    assert payloads[done_offset]["item_id"] == output_item_id
+    assert payloads[done_offset]["text"] == output_text
+    assert payloads[done_offset + 1]["type"] == "response.content_part.done"
+    assert payloads[done_offset + 1]["item_id"] == output_item_id
+    assert payloads[done_offset + 1]["part"]["text"] == output_text
+    assert payloads[done_offset + 2]["type"] == "response.output_item.done"
+    assert payloads[done_offset + 2]["item"]["id"] == output_item_id
+    assert payloads[done_offset + 2]["item"]["status"] == "completed"
+    assert payloads[done_offset + 2]["item"]["content"][0]["text"] == output_text
+    assert payloads[done_offset + 3]["type"] == "response.completed"
+    assert payloads[done_offset + 3]["response"]["id"] == response_id
+    assert payloads[done_offset + 3]["response"]["status"] == "completed"
+    assert payloads[done_offset + 3]["response"]["output_text"] == output_text
+    assert payloads[done_offset + 3]["response"]["output"][0]["id"] == output_item_id
+    assert payloads[done_offset + 4] == "[DONE]"
 
 
 def test_real_wire_endpoints_and_strict_isolated_overrides():
@@ -96,18 +160,54 @@ def test_responses_stream_uses_stream_handler_for_sse():
             response = await test.client.post(
                 "/responses", json={"input": "hello", "stream": True}
             )
-            assert response.status_code == 200
-            assert "text/event-stream" in response.headers["content-type"]
-            assert "event: response.output_text.delta" in response.text
-            assert '"delta":"stream:"' in response.text
-            assert '"delta":"hello"' in response.text
-            assert "event: response.completed" in response.text
-            assert '"output_text":"stream:hello"' in response.text
+            assert_responses_sse_contract(
+                response,
+                deltas=["stream:", "hello"],
+                output_text="stream:hello",
+            )
 
             response = await test.client.post(
                 "/responses", json={"input": "hello", "stream": False}
             )
+            assert "application/json" in response.headers["content-type"]
             assert response.json()["output_text"] == "single:hello"
+            assert response.json()["output"][0] == {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "single:hello"}],
+            }
+
+    asyncio.run(run())
+
+
+def test_responses_stream_falls_back_to_responses_handler_for_sse():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return f"single:{text}"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses", json={"input": "hello", "stream": True}
+            )
+            assert_responses_sse_contract(
+                response,
+                deltas=["single:hello"],
+                output_text="single:hello",
+            )
+
+            response = await test.client.post(
+                "/responses", json={"input": "hello"}
+            )
+            assert "application/json" in response.headers["content-type"]
+            assert response.json()["output_text"] == "single:hello"
+            assert response.json()["output"][0] == {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "single:hello"}],
+            }
 
     asyncio.run(run())
 
