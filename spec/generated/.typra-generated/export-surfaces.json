@@ -2501,6 +2501,21 @@
               "nonFatal": false
             },
             {
+              "name": "telemetryProbePlan",
+              "returns": "unknown",
+              "params": {
+                "ingestionDiagnostic": "string",
+                "ingestionEvidence": "unknown",
+                "ingestionStatus": "string",
+                "query": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
               "name": "traceQueryKql",
               "returns": "unknown",
               "params": {
@@ -2638,6 +2653,18 @@
                 "candidateId": "string?",
                 "jobId": "string?",
                 "projectEndpoint": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerToolNames",
+              "returns": "string[]",
+              "params": {
+                "tools": "unknown"
               },
               "optional": false,
               "sync": true,

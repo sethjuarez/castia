@@ -1,6 +1,6 @@
 use castia::optimizing::{
     best_optimizer_candidate_id, optimizer_candidate_apply_plan, optimizer_job_id,
-    optimizer_request, optimizer_rest_request, terminal_optimizer_status,
+    optimizer_request, optimizer_rest_request, optimizer_tool_names, terminal_optimizer_status,
 };
 use serde_json::json;
 
@@ -44,6 +44,18 @@ fn optimizer_request_inlines_baseline_tools_and_dataset() {
     assert_eq!(
         request["train_dataset"],
         json!({"type": "inline", "items": [{"query": "hello", "answer": "world"}]})
+    );
+}
+
+#[test]
+fn optimizer_tool_names_match_config_helper() {
+    assert_eq!(
+        optimizer_tool_names(&json!([
+            {"type": "function", "function": {"name": "nested"}},
+            {"type": "function", "name": "flat"},
+            {"type": "mcp", "serverLabel": "graph"},
+        ])),
+        vec!["nested".to_string(), "flat".to_string()]
     );
 }
 

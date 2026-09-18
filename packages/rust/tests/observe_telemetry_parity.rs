@@ -1,4 +1,4 @@
-use castia::observe::{http_error, trace_query_kql, verify_probe};
+use castia::observe::{http_error, telemetry_probe_plan, trace_query_kql, verify_probe};
 use serde_json::json;
 
 fn query(extra: serde_json::Value) -> serde_json::Value {
@@ -180,4 +180,44 @@ fn tag_verification_missing_is_blocked_not_fake_pass() {
     assert_eq!(result["status"], "blocked");
     assert_eq!(result["attempts"], 2);
     assert_eq!(result["elapsed_seconds"], 3.0);
+}
+
+#[test]
+fn telemetry_probe_plan_sanitizes_query_content_and_requires_probe_tag() {
+    assert_eq!(
+        telemetry_probe_plan(
+            &json!({"agentName": "agent", "includeContent": true, "probeTag": "tag"}),
+            "pass",
+            "Tagged trace visible.",
+            &json!({"matchedRecords": 1}),
+        ),
+        json!({
+            "query": {
+                "agentName": "agent",
+                "includeContent": false,
+                "include_content": false,
+                "probeTag": "tag",
+            },
+            "ingestion": {
+                "status": "pass",
+                "diagnostic": "Tagged trace visible.",
+                "reason": null,
+                "evidence": {"matchedRecords": 1},
+            },
+        })
+    );
+    assert_eq!(
+        telemetry_probe_plan(
+            &json!({"agentName": "agent", "includeContent": true}),
+            "pass",
+            "ignored",
+            &json!({}),
+        )["ingestion"],
+        json!({
+            "status": "blocked",
+            "diagnostic": "An exact tagged probe is required.",
+            "reason": "prerequisite",
+            "evidence": null,
+        })
+    );
 }

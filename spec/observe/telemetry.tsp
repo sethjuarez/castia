@@ -51,4 +51,19 @@ interface ObserveTelemetryRuntime {
     expected: #{ status: "blocked", probeTag: "wanted", attempts: 2, matchedRecords: 0, elapsedSeconds: 3.0, diagnostic: "Tagged trace not observed within the ingestion window; not proof of agent failure." },
   })
   verifyProbe(attempts: unknown, probeTag: string, timeoutSeconds: float64, pollSeconds: float64, maxAttempts: int32): unknown;
+
+  @sync
+  @vector(#{
+    name: "telemetry-probe-query-sanitizes-content",
+    stage: "callable",
+    input: #{ query: #{ agentName: "agent", includeContent: true, probeTag: "tag" }, ingestionStatus: "pass", ingestionDiagnostic: "Tagged trace visible.", ingestionEvidence: #{ matchedRecords: 1 } },
+    expected: #{ query: #{ agentName: "agent", includeContent: false, probeTag: "tag" }, ingestion: #{ status: "pass", diagnostic: "Tagged trace visible.", reason: null, evidence: #{ matchedRecords: 1 } } },
+  })
+  @vector(#{
+    name: "telemetry-probe-ingestion-needs-tag",
+    stage: "callable",
+    input: #{ query: #{ agentName: "agent", includeContent: true }, ingestionStatus: "pass", ingestionDiagnostic: "ignored", ingestionEvidence: #{} },
+    expected: #{ query: #{ agentName: "agent", includeContent: false }, ingestion: #{ status: "blocked", diagnostic: "An exact tagged probe is required.", reason: "prerequisite", evidence: null } },
+  })
+  telemetryProbePlan(query: unknown, ingestionStatus: string, ingestionDiagnostic: string, ingestionEvidence: unknown): unknown;
 }

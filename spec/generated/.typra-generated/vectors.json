@@ -12180,6 +12180,92 @@
       "contract": "ObserveTelemetryRuntime",
       "namespace": "Castia.Spec.Observe",
       "group": "",
+      "operation": "telemetryProbePlan",
+      "params": {
+        "query": "unknown",
+        "ingestionStatus": "string",
+        "ingestionDiagnostic": "string",
+        "ingestionEvidence": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "telemetry-probe-ingestion-needs-tag",
+        "stage": "callable",
+        "input": {
+          "query": {
+            "agentName": "agent",
+            "includeContent": true
+          },
+          "ingestionStatus": "pass",
+          "ingestionDiagnostic": "ignored",
+          "ingestionEvidence": {}
+        },
+        "expected": {
+          "query": {
+            "agentName": "agent",
+            "includeContent": false
+          },
+          "ingestion": {
+            "status": "blocked",
+            "diagnostic": "An exact tagged probe is required.",
+            "reason": "prerequisite",
+            "evidence": null
+          }
+        },
+        "operation": "telemetryProbePlan"
+      }
+    },
+    {
+      "contract": "ObserveTelemetryRuntime",
+      "namespace": "Castia.Spec.Observe",
+      "group": "",
+      "operation": "telemetryProbePlan",
+      "params": {
+        "query": "unknown",
+        "ingestionStatus": "string",
+        "ingestionDiagnostic": "string",
+        "ingestionEvidence": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "telemetry-probe-query-sanitizes-content",
+        "stage": "callable",
+        "input": {
+          "query": {
+            "agentName": "agent",
+            "includeContent": true,
+            "probeTag": "tag"
+          },
+          "ingestionStatus": "pass",
+          "ingestionDiagnostic": "Tagged trace visible.",
+          "ingestionEvidence": {
+            "matchedRecords": 1
+          }
+        },
+        "expected": {
+          "query": {
+            "agentName": "agent",
+            "includeContent": false,
+            "probeTag": "tag"
+          },
+          "ingestion": {
+            "status": "pass",
+            "diagnostic": "Tagged trace visible.",
+            "reason": null,
+            "evidence": {
+              "matchedRecords": 1
+            }
+          }
+        },
+        "operation": "telemetryProbePlan"
+      }
+    },
+    {
+      "contract": "ObserveTelemetryRuntime",
+      "namespace": "Castia.Spec.Observe",
+      "group": "",
       "operation": "traceQueryKql",
       "params": {
         "query": "unknown"
@@ -13238,6 +13324,44 @@
           "body": null
         },
         "operation": "optimizerRestRequest"
+      }
+    },
+    {
+      "contract": "OptimizerJobsRuntime",
+      "namespace": "Castia.Spec.Optimizing",
+      "group": "",
+      "operation": "optimizerToolNames",
+      "params": {
+        "tools": "unknown"
+      },
+      "returns": "string[]",
+      "sync": true,
+      "vector": {
+        "name": "optimizer-tool-names-from-nested-and-flat-functions",
+        "stage": "callable",
+        "input": {
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "nested"
+              }
+            },
+            {
+              "type": "function",
+              "name": "flat"
+            },
+            {
+              "type": "mcp",
+              "serverLabel": "graph"
+            }
+          ]
+        },
+        "expected": [
+          "nested",
+          "flat"
+        ],
+        "operation": "optimizerToolNames"
       }
     },
     {

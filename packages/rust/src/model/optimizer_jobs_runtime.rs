@@ -40,5 +40,6 @@ pub trait OptimizerJobsRuntime: Send + Sync {
         candidate_id: &Option<String>,
         body: &serde_json::Value,
     ) -> serde_json::Value;
+    fn optimizer_tool_names(&self, tools: &serde_json::Value) -> Vec<String>;
     fn terminal_optimizer_status(&self, status: &Option<String>) -> bool;
 }

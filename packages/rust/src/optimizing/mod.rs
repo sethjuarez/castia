@@ -5,7 +5,7 @@ pub mod tools;
 pub use config_resolver::CastiaAgentConfigResolver;
 pub use jobs::{
     best_optimizer_candidate_id, optimizer_candidate_apply_plan, optimizer_job_id,
-    optimizer_request, optimizer_rest_request, terminal_optimizer_status,
+    optimizer_request, optimizer_rest_request, optimizer_tool_names, terminal_optimizer_status,
     CastiaOptimizerJobsRuntime,
 };
 pub use tools::{

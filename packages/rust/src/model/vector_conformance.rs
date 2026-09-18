@@ -3215,6 +3215,46 @@ true
             "optimizer-terminal-statuses misrouted"
         );
     }
+    // vector: optimizer-tool-names-from-nested-and-flat-functions
+    {
+        let tools: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "nested"
+    }
+  },
+  {
+    "type": "function",
+    "name": "flat"
+  },
+  {
+    "type": "mcp",
+    "serverLabel": "graph"
+  }
+]
+"####,
+        )
+        .expect("tools parses");
+        let actual = seam.optimizer_tool_names(&tools);
+        let actual_value = serde_json::to_value(actual)
+            .expect("optimizer-tool-names-from-nested-and-flat-functions: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+[
+  "nested",
+  "flat"
+]
+"####,
+        )
+        .expect("optimizer-tool-names-from-nested-and-flat-functions: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-tool-names-from-nested-and-flat-functions misrouted"
+        );
+    }
 }
 
 /// Typed @vector conformance for ResponsesRuntime. Pass your real `impl ResponsesRuntime`; the

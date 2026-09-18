@@ -158,6 +158,10 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             sync(optimizer_request),
         ),
         (
+            "OptimizerJobsRuntime.optimizerToolNames",
+            sync(optimizer_tool_names),
+        ),
+        (
             "OptimizerJobsRuntime.optimizerRestRequest",
             sync(optimizer_rest_request),
         ),
@@ -732,6 +736,10 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "ObserveTelemetryRuntime.verifyProbe",
             sync_with_normalize(observe_verify_probe, observe_telemetry_to_camel),
+        ),
+        (
+            "ObserveTelemetryRuntime.telemetryProbePlan",
+            sync_with_normalize(observe_telemetry_probe_plan, observe_telemetry_to_camel),
         ),
         (
             "ObserveLiveRuntime.validateLimits",
@@ -2270,6 +2278,15 @@ fn observe_verify_probe(input: &Value, _: &Context) -> Result<Value, VectorError
     ))
 }
 
+fn observe_telemetry_probe_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaObserveTelemetryRuntime.telemetry_probe_plan(
+        input.get("query").unwrap_or(&Value::Null),
+        &string_input(input, "ingestionStatus")?,
+        &string_input(input, "ingestionDiagnostic")?,
+        input.get("ingestionEvidence").unwrap_or(&Value::Null),
+    ))
+}
+
 fn observe_validate_limits(input: &Value, _: &Context) -> Result<Value, VectorError> {
     let limits = observe_live_to_snake(input.get("limits").unwrap_or(&Value::Null));
     castia::observe::validate_limits(&limits).map_err(vector_error)
@@ -2530,6 +2547,12 @@ fn optimizer_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
             .map(|value| value as i32),
     )
     .map_err(vector_error)
+}
+
+fn optimizer_tool_names(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaOptimizerJobsRuntime.optimizer_tool_names(
+        input.get("tools").unwrap_or(&Value::Null)
+    )))
 }
 
 fn optimizer_rest_request(input: &Value, _: &Context) -> Result<Value, VectorError> {

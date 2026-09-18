@@ -14,6 +14,13 @@
 #[async_trait::async_trait]
 pub trait ObserveTelemetryRuntime: Send + Sync {
     fn http_error(&self, status: &i32) -> serde_json::Value;
+    fn telemetry_probe_plan(
+        &self,
+        query: &serde_json::Value,
+        ingestion_status: &String,
+        ingestion_diagnostic: &String,
+        ingestion_evidence: &serde_json::Value,
+    ) -> serde_json::Value;
     fn trace_query_kql(&self, query: &serde_json::Value) -> serde_json::Value;
     fn verify_probe(
         &self,

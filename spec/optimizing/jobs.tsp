@@ -4,6 +4,15 @@ namespace Castia.Spec.Optimizing;
 interface OptimizerJobsRuntime {
   @sync
   @vector(#{
+    name: "optimizer-tool-names-from-nested-and-flat-functions",
+    stage: "callable",
+    input: #{ tools: #[#{ `type`: "function", `function`: #{ name: "nested" } }, #{ `type`: "function", name: "flat" }, #{ `type`: "mcp", serverLabel: "graph" }] },
+    expected: #["nested", "flat"],
+  })
+  optimizerToolNames(tools: unknown): string[];
+
+  @sync
+  @vector(#{
     name: "optimizer-request-inlines-baseline-and-dataset",
     stage: "callable",
     input: #{

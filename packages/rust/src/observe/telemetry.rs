@@ -61,6 +61,21 @@ impl ObserveTelemetryRuntime for CastiaObserveTelemetryRuntime {
         )
         .unwrap_or_else(|error| panic!("{}", error.message))
     }
+
+    fn telemetry_probe_plan(
+        &self,
+        query: &Value,
+        ingestion_status: &String,
+        ingestion_diagnostic: &String,
+        ingestion_evidence: &Value,
+    ) -> Value {
+        telemetry_probe_plan(
+            query,
+            ingestion_status,
+            ingestion_diagnostic,
+            ingestion_evidence,
+        )
+    }
 }
 
 pub fn http_error(status: i64) -> ObserveError {
@@ -256,6 +271,42 @@ pub fn verify_probe(
         "elapsed_seconds": elapsed.max(0.0),
         "diagnostic": "Tagged trace not observed within the ingestion window; not proof of agent failure.",
     }))
+}
+
+pub fn telemetry_probe_plan(
+    query: &Value,
+    ingestion_status: &str,
+    ingestion_diagnostic: &str,
+    ingestion_evidence: &Value,
+) -> Value {
+    let mut safe_query = query.as_object().cloned().unwrap_or_default();
+    safe_query.insert("includeContent".to_string(), Value::Bool(false));
+    safe_query.insert("include_content".to_string(), Value::Bool(false));
+    let has_probe_tag = safe_query
+        .get("probeTag")
+        .or_else(|| safe_query.get("probe_tag"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .is_some();
+    let ingestion = if has_probe_tag {
+        json!({
+            "status": ingestion_status,
+            "diagnostic": ingestion_diagnostic,
+            "reason": if ingestion_status == "pass" { Value::Null } else { Value::String("ingestion_delay".to_string()) },
+            "evidence": ingestion_evidence,
+        })
+    } else {
+        json!({
+            "status": "blocked",
+            "diagnostic": "An exact tagged probe is required.",
+            "reason": "prerequisite",
+            "evidence": null,
+        })
+    };
+    json!({
+        "query": safe_query,
+        "ingestion": ingestion,
+    })
 }
 
 fn required_text<'a>(value: Option<&'a Value>, name: &str) -> Result<&'a str, ObserveError> {

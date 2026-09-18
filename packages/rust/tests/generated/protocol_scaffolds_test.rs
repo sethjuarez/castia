@@ -1057,6 +1057,15 @@ impl ObserveTelemetryRuntime for CompileOnlyObserveTelemetryRuntime {
     fn http_error(&self, status: &i32) -> serde_json::Value {
         panic!("ObserveTelemetryRuntime.httpError is a compile-only protocol scaffold.")
     }
+    fn telemetry_probe_plan(
+        &self,
+        query: &serde_json::Value,
+        ingestion_status: &String,
+        ingestion_diagnostic: &String,
+        ingestion_evidence: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("ObserveTelemetryRuntime.telemetryProbePlan is a compile-only protocol scaffold.")
+    }
     fn trace_query_kql(&self, query: &serde_json::Value) -> serde_json::Value {
         panic!("ObserveTelemetryRuntime.traceQueryKql is a compile-only protocol scaffold.")
     }
@@ -1142,6 +1151,9 @@ impl OptimizerJobsRuntime for CompileOnlyOptimizerJobsRuntime {
         body: &serde_json::Value,
     ) -> serde_json::Value {
         panic!("OptimizerJobsRuntime.optimizerRestRequest is a compile-only protocol scaffold.")
+    }
+    fn optimizer_tool_names(&self, tools: &serde_json::Value) -> Vec<String> {
+        panic!("OptimizerJobsRuntime.optimizerToolNames is a compile-only protocol scaffold.")
     }
     fn terminal_optimizer_status(&self, status: &Option<String>) -> bool {
         panic!("OptimizerJobsRuntime.terminalOptimizerStatus is a compile-only protocol scaffold.")

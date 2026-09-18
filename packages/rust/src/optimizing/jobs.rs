@@ -34,6 +34,10 @@ impl OptimizerJobsRuntime for CastiaOptimizerJobsRuntime {
         optimizer_job_id(payload)
     }
 
+    fn optimizer_tool_names(&self, tools: &Value) -> Vec<String> {
+        optimizer_tool_names(tools)
+    }
+
     fn optimizer_request(
         &self,
         eval_config: &Value,
@@ -81,6 +85,22 @@ impl OptimizerJobsRuntime for CastiaOptimizerJobsRuntime {
     fn terminal_optimizer_status(&self, status: &Option<String>) -> bool {
         terminal_optimizer_status(status.as_deref())
     }
+}
+
+pub fn optimizer_tool_names(tools: &Value) -> Vec<String> {
+    tools
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| {
+            tool.get("function")
+                .and_then(|function| function.get("name"))
+                .or_else(|| tool.get("name"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .collect()
 }
 
 pub fn optimizer_request(
