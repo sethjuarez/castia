@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/sethjuarez/castia/compare/python-v0.7.1...python-v0.7.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* **python:** stream responses fallback for portal ([fb00673](https://github.com/sethjuarez/castia/commit/fb00673c3117e7b822f8cf04af7792dae8adb523))
+
 ## [0.7.1](https://github.com/sethjuarez/castia/compare/python-v0.7.0...python-v0.7.1) (2026-09-18)
 
 
