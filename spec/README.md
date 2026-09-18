@@ -9,9 +9,67 @@ they evolve independently.
 
 ```
 spec/
-├─ protocols/     # the wire contracts each SDK speaks
+├─ main.tsp       # aggregate TypeSpec generation root
+├─ protocols/     # protocol contracts each SDK speaks
+├─ messaging/     # portable Teams message builders, invokes, identity and routing seams
+├─ inference/     # model-call helper and tool-catalog seams
+├─ evaluation/    # eval-suite command builders and rubric parsing seams
+├─ lifecycle/     # immutable evidence primitive and lifecycle record seams
+├─ optimizing/    # optimizer configuration contracts and seams
 └─ conformance/   # language-neutral fixtures / golden cases the SDKs test against
 ```
+
+## TypeSpec and Typra
+
+Typra is configured from this folder. Install/update the local generator
+dependencies once, then regenerate the committed output:
+
+```powershell
+Set-Location spec
+npm install
+npm run generate
+```
+
+`main.tsp` is only the aggregate generation root. Contract ownership is split
+into capability namespaces that mirror the Python package map:
+
+| TypeSpec namespace | Source file | Python reference package |
+| --- | --- | --- |
+| `Castia.Spec.Protocols` | `protocols/activity.tsp` | `castia.protocols`, `castia.messaging` |
+| `Castia.Spec.Messaging` | `messaging/*.tsp` | `castia.messaging`, `castia.hosting.identity` |
+| `Castia.Spec.Inference` | `inference/*.tsp` | `castia.inference` |
+| `Castia.Spec.Evaluation` | `evaluation/*.tsp` | `castia.evaluation` |
+| `Castia.Spec.Lifecycle` | `lifecycle/*.tsp` | `castia.lifecycle` |
+| `Castia.Spec.Optimizing` | `optimizing/config.tsp` | `castia.optimizing` |
+
+Typra currently emits Rust models, interface traits, and vector conformance tests
+into the experimental Rust SDK package under `../packages/rust/src/model/`, with
+generated tests under `../packages/rust/tests/generated/`. The Rust package also
+includes handwritten parity tests for the portable Python behavior seams covered
+by the TypeSpec contracts. Run:
+
+```powershell
+Set-Location packages\rust
+cargo test
+cargo test --features serde
+```
+
+`@sample` and `@vector` are useful for examples and callable seam checks, but
+they do not replace `conformance/`. Keep stateful behavioral contracts there:
+optimizer precedence, lifecycle hashing, immutable writes, deployment locking,
+fail-closed acceptance, cancellation, and other rules that need multi-step
+fixtures or nontrivial oracles.
+
+The optimizer config source is modeled as a string for now. Typra's Rust target
+currently emits mismatched enum variant names/tests for snake_case string-union
+wire values such as `inline_config`; the portable source-precedence behavior is
+still pinned by `conformance/optimization/candidate_precedence.json`.
+
+Some Teams schema.org payload keys such as `@type`, `@context`, `@id`, and
+Adaptive Card `$schema` cannot be represented directly in the current inline
+TypeSpec vector literals. Generated vectors cover the portable callable seam and
+the Rust handwritten parity tests assert the exact Teams wire shape until Typra
+adds a first-class escape hatch for those JSON keys.
 
 ## Protocols
 
@@ -32,10 +90,12 @@ own test suite. A new protocol behavior should land as a fixture here first, the
 be implemented in each SDK against it, so parity is verifiable rather than
 assumed.
 
-The current shared fixtures cover rubric dimensions, optimizer candidate
-precedence, RFT grader validation, and lifecycle records. They do not yet cover
-every capability in the Python SDK. RFT service acceptance remains provisional
-as recorded in the grader fixtures.
+The current shared fixtures cover protocol helpers, runtime seams, messaging,
+inference/tool shaping, evaluation, lifecycle, optimizer behavior, observation,
+delivery/build planning, hosting helpers, and fine-tuning preparation/job
+management. They still do not cover every Python host adapter or every live
+service operation. RFT service acceptance remains provisional as recorded in the
+grader fixtures.
 
 ## Ownership before adding runtimes
 
@@ -50,11 +110,11 @@ The Python [package map](../packages/python/README.md#package-organization)
 locates each capability. A future SDK should preserve those responsibilities
 while using its own language's module conventions.
 
-Typra is not configured in this repository yet. When generation is added,
-schema inputs belong in the shared spec. Each SDK should keep generated types
-separate from handwritten behavior and host adapters, with a reproducible
-generation check. Avoid putting Python decorators, SDK clients, credentials,
-or callbacks into a portable data contract.
+TypeSpec schema inputs belong in the shared spec. Generated runtime output
+belongs with the SDK package that builds it. Each SDK keeps generated types
+separate from handwritten behavior and host adapters, with reproducible
+generation checks. Avoid putting Python decorators, SDK clients, credentials, or
+callbacks into a portable data contract.
 
 Parity needs two checks. Generated models must preserve the same data, and the
 real implementations must produce the same behavior for shared fixtures.
@@ -63,5 +123,6 @@ or other runtime behavior exists. Track uncovered behavior explicitly when
 adding another runtime.
 
 There is no published spec version or per-runtime conformance declaration yet.
-Extract contracts incrementally and record their coverage before claiming a
+Rust should be described as experimental until its native runtime ergonomics,
+host adapters, and release process are ready. Record coverage before claiming a
 runtime implements the whole lifecycle.

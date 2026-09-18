@@ -1,0 +1,3265 @@
+{
+  "emitter": "typra-emitter",
+  "version": 1,
+  "toolchain": {
+    "packages": [
+      {
+        "name": "@typespec/compiler",
+        "version": "1.16.0",
+        "supportedRange": ">=1.10.0 <2.0.0",
+        "supported": true
+      },
+      {
+        "name": "@typespec/json-schema",
+        "version": "1.16.0",
+        "supportedRange": ">=1.10.0 <2.0.0",
+        "supported": true
+      },
+      {
+        "name": "@typra/emitter",
+        "version": "2.1.8",
+        "supportedRange": "2.1.8",
+        "supported": true
+      }
+    ]
+  },
+  "root": {
+    "object": "Castia.Spec.CastiaContracts",
+    "namespace": "Castia.Spec",
+    "alias": "Spec"
+  },
+  "targets": [
+    {
+      "target": "rust",
+      "outputRoot": "../packages/rust/src/model",
+      "rootExports": [
+        "Activity",
+        "ActivityRuntime",
+        "AgentConfigResolution",
+        "AgentConfigResolver",
+        "BuildPreflightRuntime",
+        "BuildScaffoldRuntime",
+        "BuildTestingRuntime",
+        "CardsRuntime",
+        "CastiaContracts",
+        "ChannelAccount",
+        "ChatRuntime",
+        "ConnectorRuntime",
+        "ConversationAccount",
+        "DeliveryAzdRuntime",
+        "DeliveryManifestRuntime",
+        "EntitiesRuntime",
+        "EvaluationSuiteRuntime",
+        "FinetuningJobsRuntime",
+        "FinetuningTrainingRuntime",
+        "HostingAuthRuntime",
+        "HostingCredentialsRuntime",
+        "HostingServerRuntime",
+        "IdentityRuntime",
+        "IntegrationsGraphRuntime",
+        "IntegrationsToolboxRuntime",
+        "InvocationsRuntime",
+        "InvokesRuntime",
+        "LifecycleAcceptanceRuntime",
+        "LifecycleOperationsRuntime",
+        "LifecycleRecordsRuntime",
+        "LifecycleStorageRuntime",
+        "Mention",
+        "ModelRuntime",
+        "ObserveLiveRuntime",
+        "ObserveRecordsRuntime",
+        "ObserveSuiteRuntime",
+        "ObserveTelemetryRuntime",
+        "ObserveTracingRuntime",
+        "OptimizerJobsRuntime",
+        "ResponsesRuntime",
+        "RoutingRuntime",
+        "RuntimeApplicationRuntime",
+        "RuntimeContextRuntime",
+        "RuntimeDependenciesRuntime",
+        "RuntimeDispatchRuntime",
+        "RuntimeRouterRuntime",
+        "StreamingRuntime",
+        "ToolCatalogRuntime"
+      ],
+      "exports": [
+        {
+          "name": "Activity",
+          "kind": "value",
+          "group": "",
+          "source": "activity",
+          "protocol": false
+        },
+        {
+          "name": "ActivityRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "activity_runtime",
+          "protocol": true
+        },
+        {
+          "name": "AgentConfigResolution",
+          "kind": "value",
+          "group": "",
+          "source": "agent_config_resolution",
+          "protocol": false
+        },
+        {
+          "name": "AgentConfigResolver",
+          "kind": "type",
+          "group": "",
+          "source": "agent_config_resolver",
+          "protocol": true
+        },
+        {
+          "name": "BuildPreflightRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "build_preflight_runtime",
+          "protocol": true
+        },
+        {
+          "name": "BuildScaffoldRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "build_scaffold_runtime",
+          "protocol": true
+        },
+        {
+          "name": "BuildTestingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "build_testing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "CardsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "cards_runtime",
+          "protocol": true
+        },
+        {
+          "name": "CastiaContracts",
+          "kind": "value",
+          "group": "",
+          "source": "castia_contracts",
+          "protocol": false
+        },
+        {
+          "name": "ChannelAccount",
+          "kind": "value",
+          "group": "",
+          "source": "channel_account",
+          "protocol": false
+        },
+        {
+          "name": "ChatRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "chat_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ConnectorRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "connector_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ConversationAccount",
+          "kind": "value",
+          "group": "",
+          "source": "conversation_account",
+          "protocol": false
+        },
+        {
+          "name": "DeliveryAzdRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "delivery_azd_runtime",
+          "protocol": true
+        },
+        {
+          "name": "DeliveryManifestRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "delivery_manifest_runtime",
+          "protocol": true
+        },
+        {
+          "name": "EntitiesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "entities_runtime",
+          "protocol": true
+        },
+        {
+          "name": "EvaluationSuiteRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "evaluation_suite_runtime",
+          "protocol": true
+        },
+        {
+          "name": "FinetuningJobsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "finetuning_jobs_runtime",
+          "protocol": true
+        },
+        {
+          "name": "FinetuningTrainingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "finetuning_training_runtime",
+          "protocol": true
+        },
+        {
+          "name": "HostingAuthRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "hosting_auth_runtime",
+          "protocol": true
+        },
+        {
+          "name": "HostingCredentialsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "hosting_credentials_runtime",
+          "protocol": true
+        },
+        {
+          "name": "HostingServerRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "hosting_server_runtime",
+          "protocol": true
+        },
+        {
+          "name": "IdentityRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "identity_runtime",
+          "protocol": true
+        },
+        {
+          "name": "IntegrationsGraphRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "integrations_graph_runtime",
+          "protocol": true
+        },
+        {
+          "name": "IntegrationsToolboxRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "integrations_toolbox_runtime",
+          "protocol": true
+        },
+        {
+          "name": "InvocationsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "invocations_runtime",
+          "protocol": true
+        },
+        {
+          "name": "InvokesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "invokes_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleAcceptanceRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_acceptance_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleOperationsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_operations_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleRecordsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_records_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleStorageRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_storage_runtime",
+          "protocol": true
+        },
+        {
+          "name": "Mention",
+          "kind": "value",
+          "group": "",
+          "source": "mention",
+          "protocol": false
+        },
+        {
+          "name": "ModelRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "model_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveLiveRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_live_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveRecordsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_records_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveSuiteRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_suite_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveTelemetryRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_telemetry_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveTracingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_tracing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "OptimizerJobsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "optimizer_jobs_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ResponsesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "responses_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RoutingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "routing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeApplicationRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_application_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeContextRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_context_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeDependenciesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_dependencies_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeDispatchRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_dispatch_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeRouterRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_router_runtime",
+          "protocol": true
+        },
+        {
+          "name": "StreamingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "streaming_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ToolCatalogRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "tool_catalog_runtime",
+          "protocol": true
+        }
+      ],
+      "groups": [],
+      "protocols": [
+        {
+          "name": "ActivityRuntime",
+          "group": "",
+          "symbol": "ActivityRuntime",
+          "source": "activity_runtime",
+          "methods": [
+            {
+              "name": "agenticInstanceId",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "agenticTenantId",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "agenticUser",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "channel",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "isAgenticRequest",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "mentions",
+              "returns": "Mention[]",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "AgentConfigResolver",
+          "group": "",
+          "symbol": "AgentConfigResolver",
+          "source": "agent_config_resolver",
+          "methods": [
+            {
+              "name": "resolve",
+              "returns": "AgentConfigResolution",
+              "params": {
+                "configDir": "string?"
+              },
+              "optional": false,
+              "sync": false,
+              "runtimeCancellable": true,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "BuildPreflightRuntime",
+          "group": "",
+          "symbol": "BuildPreflightRuntime",
+          "source": "build_preflight_runtime",
+          "methods": [
+            {
+              "name": "deploymentContextDiagnostics",
+              "returns": "unknown",
+              "params": {
+                "deployment": "boolean",
+                "environment": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "preflightReport",
+              "returns": "unknown",
+              "params": {
+                "appTarget": "string",
+                "diagnostics": "unknown",
+                "protocols": "string[]",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "requiredEnvDiagnostics",
+              "returns": "unknown",
+              "params": {
+                "environment": "unknown",
+                "requiredEnv": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "BuildScaffoldRuntime",
+          "group": "",
+          "symbol": "BuildScaffoldRuntime",
+          "source": "build_scaffold_runtime",
+          "methods": [
+            {
+              "name": "scaffoldFiles",
+              "returns": "unknown",
+              "params": {
+                "model": "string",
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "BuildTestingRuntime",
+          "group": "",
+          "symbol": "BuildTestingRuntime",
+          "source": "build_testing_runtime",
+          "methods": [
+            {
+              "name": "projectTestReport",
+              "returns": "unknown",
+              "params": {
+                "exitCode": "int32",
+                "output": "string",
+                "root": "string",
+                "timedOut": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateTestTimeout",
+              "returns": "float64",
+              "params": {
+                "timeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "CardsRuntime",
+          "group": "",
+          "symbol": "CardsRuntime",
+          "source": "cards_runtime",
+          "methods": [
+            {
+              "name": "actionChips",
+              "returns": "unknown",
+              "params": {
+                "actions": "unknown",
+                "prompt": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "adaptiveCard",
+              "returns": "unknown",
+              "params": {
+                "body": "unknown",
+                "card": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "decisionCard",
+              "returns": "unknown",
+              "params": {
+                "actions": "unknown",
+                "card": "unknown",
+                "prompt": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "suggestedActions",
+              "returns": "unknown",
+              "params": {
+                "actions": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ChatRuntime",
+          "group": "",
+          "symbol": "ChatRuntime",
+          "source": "chat_runtime",
+          "methods": [
+            {
+              "name": "body",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "lastUserText",
+              "returns": "string",
+              "params": {
+                "messages": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ConnectorRuntime",
+          "group": "",
+          "symbol": "ConnectorRuntime",
+          "source": "connector_runtime",
+          "methods": [
+            {
+              "name": "connectorEndpoint",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "connectorEnvelope",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "connectorOk",
+              "returns": "boolean",
+              "params": {
+                "response": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "createdActivityId",
+              "returns": "string?",
+              "params": {
+                "response": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "deleteActivityRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "activityId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "postActivityRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "reactionRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "method": "string",
+                "reactionType": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "typingRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "updateActivityRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "activityId": "string",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "DeliveryAzdRuntime",
+          "group": "",
+          "symbol": "DeliveryAzdRuntime",
+          "source": "delivery_azd_runtime",
+          "methods": [
+            {
+              "name": "commandErrorMessage",
+              "returns": "string",
+              "params": {
+                "command": "string[]",
+                "returnCode": "int32",
+                "stderr": "string",
+                "stdout": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateDeploymentInput",
+              "returns": "unknown",
+              "params": {
+                "environment": "string?",
+                "projectEndpoint": "string",
+                "projectResourceId": "string",
+                "service": "string",
+                "timeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateEnvironmentValues",
+              "returns": "unknown",
+              "params": {
+                "projectEndpoint": "string",
+                "projectResourceId": "string",
+                "requestedEnvironment": "string?",
+                "subscriptionId": "string",
+                "values": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "verifyPayload",
+              "returns": "unknown",
+              "params": {
+                "expectedCandidate": "string?",
+                "expectedModel": "string?",
+                "expectedVersion": "string?",
+                "payload": "unknown",
+                "projectEndpoint": "string",
+                "projectResourceId": "string",
+                "service": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "DeliveryManifestRuntime",
+          "group": "",
+          "symbol": "DeliveryManifestRuntime",
+          "source": "delivery_manifest_runtime",
+          "methods": [
+            {
+              "name": "planManifest",
+              "returns": "unknown",
+              "params": {
+                "appName": "string",
+                "check": "boolean",
+                "manifest": "unknown",
+                "registeredProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "publishableProtocols",
+              "returns": "string[]",
+              "params": {
+                "registeredProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "serviceProtocolItems",
+              "returns": "unknown",
+              "params": {
+                "protocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "skippedProtocols",
+              "returns": "string[]",
+              "params": {
+                "registeredProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "EntitiesRuntime",
+          "group": "",
+          "symbol": "EntitiesRuntime",
+          "source": "entities_runtime",
+          "methods": [
+            {
+              "name": "citation",
+              "returns": "unknown",
+              "params": {
+                "abstractText": "string",
+                "icon": "string",
+                "keywords": "unknown",
+                "name": "string",
+                "position": "int32",
+                "url": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "feedbackChannelData",
+              "returns": "unknown",
+              "params": {
+                "kind": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "mentionEntity",
+              "returns": "unknown",
+              "params": {
+                "accountId": "string",
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "messageEntity",
+              "returns": "unknown",
+              "params": {
+                "aiGenerated": "boolean",
+                "citations": "unknown",
+                "sensitivity": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "sensitivityLabel",
+              "returns": "unknown",
+              "params": {
+                "description": "string",
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "EvaluationSuiteRuntime",
+          "group": "",
+          "symbol": "EvaluationSuiteRuntime",
+          "source": "evaluation_suite_runtime",
+          "methods": [
+            {
+              "name": "buildGenerateArgv",
+              "returns": "unknown",
+              "params": {
+                "options": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildRunArgv",
+              "returns": "unknown",
+              "params": {
+                "options": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildUpdateArgv",
+              "returns": "unknown",
+              "params": {
+                "options": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "loadSuite",
+              "returns": "unknown",
+              "params": {
+                "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "readRubric",
+              "returns": "unknown",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateSuite",
+              "returns": "unknown",
+              "params": {
+                "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "FinetuningJobsRuntime",
+          "group": "",
+          "symbol": "FinetuningJobsRuntime",
+          "source": "finetuning_jobs_runtime",
+          "methods": [
+            {
+              "name": "deploymentHandoff",
+              "returns": "unknown",
+              "params": {
+                "job": "unknown",
+                "projectEndpoint": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "downloadGuard",
+              "returns": "unknown",
+              "params": {
+                "fileId": "string",
+                "job": "unknown",
+                "maxBytes": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "downloadLimitExceeded",
+              "returns": "boolean",
+              "params": {
+                "maxBytes": "unknown",
+                "written": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "jobPageRequest",
+              "returns": "unknown",
+              "params": {
+                "after": "string?",
+                "jobId": "string",
+                "limit": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "jobReference",
+              "returns": "unknown",
+              "params": {
+                "jobId": "string",
+                "projectEndpoint": "string",
+                "schemaVersion": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "pageRequest",
+              "returns": "unknown",
+              "params": {
+                "after": "string?",
+                "limit": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "pageSlice",
+              "returns": "unknown",
+              "params": {
+                "data": "unknown",
+                "limit": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "parseJobReference",
+              "returns": "unknown",
+              "params": {
+                "data": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "resultFiles",
+              "returns": "string[]",
+              "params": {
+                "job": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "statusRequest",
+              "returns": "unknown",
+              "params": {
+                "jobId": "string",
+                "requestTimeout": "float64",
+                "timeout": "float64?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "terminalStatus",
+              "returns": "boolean",
+              "params": {
+                "status": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateRequestTimeout",
+              "returns": "unknown",
+              "params": {
+                "requestTimeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "watchPollTimeout",
+              "returns": "unknown",
+              "params": {
+                "remaining": "float64",
+                "requestTimeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "watchRequest",
+              "returns": "unknown",
+              "params": {
+                "jobId": "string",
+                "pollInterval": "float64",
+                "timeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "watchSleepDuration",
+              "returns": "unknown",
+              "params": {
+                "pollInterval": "float64",
+                "remaining": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "FinetuningTrainingRuntime",
+          "group": "",
+          "symbol": "FinetuningTrainingRuntime",
+          "source": "finetuning_training_runtime",
+          "methods": [
+            {
+              "name": "buildDpoMethod",
+              "returns": "unknown",
+              "params": {
+                "hyperparameters": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildRftJob",
+              "returns": "unknown",
+              "params": {
+                "grader": "unknown",
+                "hyperparameters": "unknown",
+                "model": "string",
+                "responseFormat": "unknown",
+                "seed": "int32?",
+                "suffix": "string?",
+                "trainingFile": "string",
+                "validationFile": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildRftMethod",
+              "returns": "unknown",
+              "params": {
+                "grader": "unknown",
+                "hyperparameters": "unknown",
+                "responseFormat": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildSftJob",
+              "returns": "unknown",
+              "params": {
+                "hyperparameters": "unknown",
+                "model": "string",
+                "seed": "int32?",
+                "suffix": "string?",
+                "trainingFile": "string",
+                "validationFile": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildSftMethod",
+              "returns": "unknown",
+              "params": {
+                "hyperparameters": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "stringCheckGrader",
+              "returns": "unknown",
+              "params": {
+                "input": "string",
+                "name": "string",
+                "operation": "string",
+                "reference": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateDpoExample",
+              "returns": "string[]",
+              "params": {
+                "row": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateGrader",
+              "returns": "string[]",
+              "params": {
+                "grader": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateRftDataset",
+              "returns": "string[]",
+              "params": {
+                "grader": "unknown",
+                "rows": "unknown",
+                "split": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateRftExample",
+              "returns": "string[]",
+              "params": {
+                "row": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateSftExample",
+              "returns": "string[]",
+              "params": {
+                "row": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "HostingAuthRuntime",
+          "group": "",
+          "symbol": "HostingAuthRuntime",
+          "source": "hosting_auth_runtime",
+          "methods": [
+            {
+              "name": "localRun",
+              "returns": "boolean",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "HostingCredentialsRuntime",
+          "group": "",
+          "symbol": "HostingCredentialsRuntime",
+          "source": "hosting_credentials_runtime",
+          "methods": [
+            {
+              "name": "agenticIdentityFromEnv",
+              "returns": "unknown",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "bearer",
+              "returns": "string",
+              "params": {
+                "token": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "botConnectorCredential",
+              "returns": "unknown",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "hostingScopes",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "instanceTokenRequest",
+              "returns": "unknown",
+              "params": {
+                "agentAssertion": "string",
+                "instanceClientId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "isLocalRun",
+              "returns": "boolean",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "tenantTokenEndpoint",
+              "returns": "string",
+              "params": {
+                "tenantId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "tokenResponseAccessToken",
+              "returns": "string",
+              "params": {
+                "body": "unknown",
+                "status": "int32",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "userFicTokenRequest",
+              "returns": "unknown",
+              "params": {
+                "agentAssertion": "string",
+                "agenticUserId": "string",
+                "instanceClientId": "string",
+                "instanceToken": "string",
+                "scope": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "HostingServerRuntime",
+          "group": "",
+          "symbol": "HostingServerRuntime",
+          "source": "hosting_server_runtime",
+          "methods": [
+            {
+              "name": "readinessBody",
+              "returns": "string",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "sseEvent",
+              "returns": "string",
+              "params": {
+                "eventType": "string",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "wireEndpoints",
+              "returns": "unknown",
+              "params": {
+                "wireProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "IdentityRuntime",
+          "group": "",
+          "symbol": "IdentityRuntime",
+          "source": "identity_runtime",
+          "methods": [
+            {
+              "name": "agenticUserId",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "requireAgenticUser",
+              "returns": "string",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "IntegrationsGraphRuntime",
+          "group": "",
+          "symbol": "IntegrationsGraphRuntime",
+          "source": "integrations_graph_runtime",
+          "methods": [
+            {
+              "name": "driveShareInvitePayload",
+              "returns": "unknown",
+              "params": {
+                "requesterObjectId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "driveShareResult",
+              "returns": "unknown",
+              "params": {
+                "detail": "string",
+                "itemId": "string",
+                "requesterObjectId": "string",
+                "status": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "driveUploadResult",
+              "returns": "unknown",
+              "params": {
+                "detail": "string",
+                "grantedScopes": "string",
+                "shared": "unknown",
+                "status": "int32",
+                "webUrl": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "driveUploadUrl",
+              "returns": "string",
+              "params": {
+                "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "mailboxMessagesUrl",
+              "returns": "string",
+              "params": {
+                "top": "int32",
+                "unreadOnly": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "replyMailRequest",
+              "returns": "unknown",
+              "params": {
+                "body": "string",
+                "messageId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "replyMailResult",
+              "returns": "unknown",
+              "params": {
+                "detail": "string",
+                "grantedScopes": "string",
+                "status": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "sendMailPayload",
+              "returns": "unknown",
+              "params": {
+                "body": "string",
+                "subject": "string",
+                "to": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "sendMailResult",
+              "returns": "unknown",
+              "params": {
+                "detail": "string",
+                "grantedScopes": "string",
+                "status": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "summarizeMailboxMessage",
+              "returns": "unknown",
+              "params": {
+                "message": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "IntegrationsToolboxRuntime",
+          "group": "",
+          "symbol": "IntegrationsToolboxRuntime",
+          "source": "integrations_toolbox_runtime",
+          "methods": [
+            {
+              "name": "composeToolboxEndpoint",
+              "returns": "string",
+              "params": {
+                "name": "string",
+                "projectEndpoint": "string",
+                "version": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "knowledgeBaseMcpTool",
+              "returns": "unknown",
+              "params": {
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "platformEndpointEnv",
+              "returns": "string",
+              "params": {
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "resolveToolboxEndpoint",
+              "returns": "string?",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "toolboxMcpTool",
+              "returns": "unknown",
+              "params": {
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "InvocationsRuntime",
+          "group": "",
+          "symbol": "InvocationsRuntime",
+          "source": "invocations_runtime",
+          "methods": [
+            {
+              "name": "body",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "inputText",
+              "returns": "string",
+              "params": {
+                "body": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "InvokesRuntime",
+          "group": "",
+          "symbol": "InvokesRuntime",
+          "source": "invokes_runtime",
+          "methods": [
+            {
+              "name": "cardAction",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "cardInvokeResponse",
+              "returns": "unknown",
+              "params": {
+                "card": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "feedbackPayload",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "messageInvokeResponse",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "LifecycleAcceptanceRuntime",
+          "group": "",
+          "symbol": "LifecycleAcceptanceRuntime",
+          "source": "lifecycle_acceptance_runtime",
+          "methods": [
+            {
+              "name": "compareRuns",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "candidate": "unknown",
+                "gate": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "defaultGate",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "LifecycleOperationsRuntime",
+          "group": "",
+          "symbol": "LifecycleOperationsRuntime",
+          "source": "lifecycle_operations_runtime",
+          "methods": [
+            {
+              "name": "curateDataset",
+              "returns": "unknown",
+              "params": {
+                "heldoutFraction": "float64",
+                "redactionVersion": "string",
+                "seed": "string",
+                "traces": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "datasetJsonl",
+              "returns": "string",
+              "params": {
+                "dataset": "unknown",
+                "split": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "diffCandidates",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "candidate": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "evaluateOutcomes",
+              "returns": "unknown",
+              "params": {
+                "agent": "unknown",
+                "concurrency": "int32",
+                "dataset": "unknown",
+                "evaluator": "unknown",
+                "outcomes": "unknown",
+                "repeats": "int32",
+                "split": "string",
+                "timeoutSeconds": "float64"
+              },
+              "optional": false,
+              "sync": false,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "stageCandidate",
+              "returns": "unknown",
+              "params": {
+                "agent": "unknown",
+                "baseline": "unknown",
+                "files": "unknown",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "LifecycleRecordsRuntime",
+          "group": "",
+          "symbol": "LifecycleRecordsRuntime",
+          "source": "lifecycle_records_runtime",
+          "methods": [
+            {
+              "name": "canonicalJson",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "checkPublic",
+              "returns": "boolean",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "contentHash",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "exampleId",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "normalizeRecord",
+              "returns": "unknown",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "recordId",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "safePath",
+              "returns": "string",
+              "params": {
+                "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "LifecycleStorageRuntime",
+          "group": "",
+          "symbol": "LifecycleStorageRuntime",
+          "source": "lifecycle_storage_runtime",
+          "methods": [
+            {
+              "name": "getArtifact",
+              "returns": "unknown",
+              "params": {
+                "id": "string",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "journalRead",
+              "returns": "unknown",
+              "params": {
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "putArtifact",
+              "returns": "string",
+              "params": {
+                "record": "unknown",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ModelRuntime",
+          "group": "",
+          "symbol": "ModelRuntime",
+          "source": "model_runtime",
+          "methods": [
+            {
+              "name": "instructionsParam",
+              "returns": "unknown",
+              "params": {
+                "instructions": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "publicToolSpec",
+              "returns": "unknown",
+              "params": {
+                "spec": "unknown",
+                "toolDefinitions": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "reasoningParam",
+              "returns": "unknown",
+              "params": {
+                "effort": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ObserveLiveRuntime",
+          "group": "",
+          "symbol": "ObserveLiveRuntime",
+          "source": "observe_live_runtime",
+          "methods": [
+            {
+              "name": "candidateConfig",
+              "returns": "unknown",
+              "params": {
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerStatus",
+              "returns": "unknown",
+              "params": {
+                "expectedId": "string?",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "responseTextResult",
+              "returns": "unknown",
+              "params": {
+                "expected": "string?",
+                "response": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "streamResult",
+              "returns": "unknown",
+              "params": {
+                "events": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateLimits",
+              "returns": "unknown",
+              "params": {
+                "limits": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateLiveConfig",
+              "returns": "unknown",
+              "params": {
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ObserveRecordsRuntime",
+          "group": "",
+          "symbol": "ObserveRecordsRuntime",
+          "source": "observe_records_runtime",
+          "methods": [
+            {
+              "name": "normalizeRecord",
+              "returns": "unknown",
+              "params": {
+                "includeContent": "boolean",
+                "row": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "summarize",
+              "returns": "unknown",
+              "params": {
+                "records": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ObserveSuiteRuntime",
+          "group": "",
+          "symbol": "ObserveSuiteRuntime",
+          "source": "observe_suite_runtime",
+          "methods": [
+            {
+              "name": "compareReports",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "current": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "featureCatalog",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "runSuite",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "generatedAt": "string",
+                "prerequisites": "unknown",
+                "probes": "unknown",
+                "suite": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateSuite",
+              "returns": "unknown",
+              "params": {
+                "suite": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ObserveTelemetryRuntime",
+          "group": "",
+          "symbol": "ObserveTelemetryRuntime",
+          "source": "observe_telemetry_runtime",
+          "methods": [
+            {
+              "name": "httpError",
+              "returns": "unknown",
+              "params": {
+                "status": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "telemetryProbePlan",
+              "returns": "unknown",
+              "params": {
+                "ingestionDiagnostic": "string",
+                "ingestionEvidence": "unknown",
+                "ingestionStatus": "string",
+                "query": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "traceQueryKql",
+              "returns": "unknown",
+              "params": {
+                "query": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "verifyProbe",
+              "returns": "unknown",
+              "params": {
+                "attempts": "unknown",
+                "maxAttempts": "int32",
+                "pollSeconds": "float64",
+                "probeTag": "string",
+                "timeoutSeconds": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ObserveTracingRuntime",
+          "group": "",
+          "symbol": "ObserveTracingRuntime",
+          "source": "observe_tracing_runtime",
+          "methods": [
+            {
+              "name": "executeToolSpan",
+              "returns": "unknown",
+              "params": {
+                "name": "string",
+                "system": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "invokeAgentSpan",
+              "returns": "unknown",
+              "params": {
+                "envName": "string?",
+                "envVersion": "string?",
+                "name": "string?",
+                "system": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "OptimizerJobsRuntime",
+          "group": "",
+          "symbol": "OptimizerJobsRuntime",
+          "source": "optimizer_jobs_runtime",
+          "methods": [
+            {
+              "name": "bestOptimizerCandidateId",
+              "returns": "string?",
+              "params": {
+                "status": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerCandidateApplyPlan",
+              "returns": "unknown",
+              "params": {
+                "candidateId": "string",
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerJobId",
+              "returns": "string?",
+              "params": {
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerRequest",
+              "returns": "unknown",
+              "params": {
+                "agentName": "string?",
+                "agentVersion": "string?",
+                "baseline": "unknown",
+                "datasetItems": "unknown",
+                "evalConfig": "unknown",
+                "evalModel": "string?",
+                "maxCandidates": "int32?",
+                "optimizeModel": "string?",
+                "validationItems": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerRestRequest",
+              "returns": "unknown",
+              "params": {
+                "action": "string",
+                "body": "unknown",
+                "candidateId": "string?",
+                "jobId": "string?",
+                "projectEndpoint": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerToolNames",
+              "returns": "string[]",
+              "params": {
+                "tools": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "terminalOptimizerStatus",
+              "returns": "boolean",
+              "params": {
+                "status": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ResponsesRuntime",
+          "group": "",
+          "symbol": "ResponsesRuntime",
+          "source": "responses_runtime",
+          "methods": [
+            {
+              "name": "inputText",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "outputBody",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RoutingRuntime",
+          "group": "",
+          "symbol": "RoutingRuntime",
+          "source": "routing_runtime",
+          "methods": [
+            {
+              "name": "teamsDirectMessage",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "teamsGroupChatMessage",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "teamsTaggedChannelMessage",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RuntimeApplicationRuntime",
+          "group": "",
+          "symbol": "RuntimeApplicationRuntime",
+          "source": "runtime_application_runtime",
+          "methods": [
+            {
+              "name": "includeApplicationPlan",
+              "returns": "unknown",
+              "params": {
+                "existingToolProviderCount": "int32",
+                "incomingToolProviderCount": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "registeredTools",
+              "returns": "unknown",
+              "params": {
+                "providerOutputs": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "responsesOnlyApplicationProjection",
+              "returns": "unknown",
+              "params": {
+                "hasResponses": "boolean",
+                "hasResponsesStream": "boolean",
+                "name": "string",
+                "registeredTools": "unknown",
+                "requestedName": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RuntimeContextRuntime",
+          "group": "",
+          "symbol": "RuntimeContextRuntime",
+          "source": "runtime_context_runtime",
+          "methods": [
+            {
+              "name": "decorateMessage",
+              "returns": "unknown",
+              "params": {
+                "aiGenerated": "boolean",
+                "citations": "unknown",
+                "feedback": "string?",
+                "importance": "string?",
+                "payload": "unknown",
+                "sensitivity": "unknown",
+                "turn": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "turnCite",
+              "returns": "unknown",
+              "params": {
+                "abstractText": "string",
+                "citations": "unknown",
+                "icon": "string",
+                "keywords": "unknown",
+                "name": "string",
+                "url": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RuntimeDependenciesRuntime",
+          "group": "",
+          "symbol": "RuntimeDependenciesRuntime",
+          "source": "runtime_dependencies_runtime",
+          "methods": [
+            {
+              "name": "dependsMarker",
+              "returns": "unknown",
+              "params": {
+                "dependencyName": "string",
+                "useCache": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "resolveDependencyPlan",
+              "returns": "unknown",
+              "params": {
+                "cacheKeys": "string[]",
+                "dependencyName": "string",
+                "useCache": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RuntimeDispatchRuntime",
+          "group": "",
+          "symbol": "RuntimeDispatchRuntime",
+          "source": "runtime_dispatch_runtime",
+          "methods": [
+            {
+              "name": "activityDispatchPlan",
+              "returns": "unknown",
+              "params": {
+                "parameters": "unknown",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "activityResultText",
+              "returns": "string?",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "invokeDispatchPlan",
+              "returns": "unknown",
+              "params": {
+                "parameters": "unknown",
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "invokeResultBody",
+              "returns": "unknown",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "returnBody",
+              "returns": "string",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "streamChunks",
+              "returns": "string[]",
+              "params": {
+                "result": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "wireDispatchPlan",
+              "returns": "unknown",
+              "params": {
+                "handlerName": "string",
+                "parameters": "unknown",
+                "streaming": "boolean",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RuntimeRouterRuntime",
+          "group": "",
+          "symbol": "RuntimeRouterRuntime",
+          "source": "runtime_router_runtime",
+          "methods": [
+            {
+              "name": "includePlan",
+              "returns": "unknown",
+              "params": {
+                "existingInvokes": "string[]",
+                "existingWire": "string[]",
+                "incomingInvokes": "string[]",
+                "incomingWire": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "registeredProtocols",
+              "returns": "string[]",
+              "params": {
+                "activityRouteCount": "int32",
+                "invokeNames": "string[]",
+                "wireProtocols": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "responsesOnlyProjection",
+              "returns": "unknown",
+              "params": {
+                "hasResponses": "boolean",
+                "name": "string",
+                "toolNames": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "StreamingRuntime",
+          "group": "",
+          "symbol": "StreamingRuntime",
+          "source": "streaming_runtime",
+          "methods": [
+            {
+              "name": "appendPlan",
+              "returns": "unknown",
+              "params": {
+                "currentText": "string",
+                "delta": "string",
+                "finished": "boolean",
+                "lastFlush": "float64",
+                "minInterval": "float64",
+                "now": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "captureStreamId",
+              "returns": "string?",
+              "params": {
+                "createdId": "string?",
+                "currentStreamId": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "finishAllowed",
+              "returns": "boolean",
+              "params": {
+                "finished": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "finishText",
+              "returns": "string",
+              "params": {
+                "currentText": "string",
+                "overrideText": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "nextFlush",
+              "returns": "unknown",
+              "params": {
+                "emitted": "boolean",
+                "lastFlush": "float64",
+                "now": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "nextSequence",
+              "returns": "int32",
+              "params": {
+                "isFinal": "boolean",
+                "sequence": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "streamChunk",
+              "returns": "unknown",
+              "params": {
+                "attachments": "unknown",
+                "isFinal": "boolean",
+                "sequence": "int32",
+                "streamId": "string?",
+                "streamType": "string",
+                "suggestions": "unknown",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "updateAllowed",
+              "returns": "boolean",
+              "params": {
+                "currentText": "string",
+                "finished": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ToolCatalogRuntime",
+          "group": "",
+          "symbol": "ToolCatalogRuntime",
+          "source": "tool_catalog_runtime",
+          "methods": [
+            {
+              "name": "activityToolNames",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "agentToolNames",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "graphToolNames",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "toolSpec",
+              "returns": "unknown",
+              "params": {
+                "tool": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        }
+      ],
+      "modules": [
+        "activity",
+        "activity_runtime",
+        "agent_config_resolution",
+        "agent_config_resolver",
+        "build_preflight_runtime",
+        "build_scaffold_runtime",
+        "build_testing_runtime",
+        "cards_runtime",
+        "castia_contracts",
+        "channel_account",
+        "chat_runtime",
+        "connector_runtime",
+        "context",
+        "conversation_account",
+        "delivery_azd_runtime",
+        "delivery_manifest_runtime",
+        "entities_runtime",
+        "evaluation_suite_runtime",
+        "finetuning_jobs_runtime",
+        "finetuning_training_runtime",
+        "hosting_auth_runtime",
+        "hosting_credentials_runtime",
+        "hosting_server_runtime",
+        "identity_runtime",
+        "integrations_graph_runtime",
+        "integrations_toolbox_runtime",
+        "invocations_runtime",
+        "invokes_runtime",
+        "lifecycle_acceptance_runtime",
+        "lifecycle_operations_runtime",
+        "lifecycle_records_runtime",
+        "lifecycle_storage_runtime",
+        "mention",
+        "model_runtime",
+        "observe_live_runtime",
+        "observe_records_runtime",
+        "observe_suite_runtime",
+        "observe_telemetry_runtime",
+        "observe_tracing_runtime",
+        "optimizer_jobs_runtime",
+        "responses_runtime",
+        "routing_runtime",
+        "runtime_application_runtime",
+        "runtime_context_runtime",
+        "runtime_dependencies_runtime",
+        "runtime_dispatch_runtime",
+        "runtime_router_runtime",
+        "streaming_runtime",
+        "tool_catalog_runtime"
+      ]
+    }
+  ]
+}

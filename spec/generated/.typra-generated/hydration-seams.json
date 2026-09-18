@@ -1,0 +1,344 @@
+{
+  "emitter": "typra-emitter",
+  "version": 1,
+  "protectedPaths": [],
+  "hydrationZones": [],
+  "seams": [
+    {
+      "contract": "ActivityRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ActivityRuntime",
+      "generatedSource": "activity_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "AgentConfigResolver",
+      "target": "rust",
+      "group": "",
+      "symbol": "AgentConfigResolver",
+      "generatedSource": "agent_config_resolver",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "BuildPreflightRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "BuildPreflightRuntime",
+      "generatedSource": "build_preflight_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "BuildScaffoldRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "BuildScaffoldRuntime",
+      "generatedSource": "build_scaffold_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "BuildTestingRuntime",
+      "generatedSource": "build_testing_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "CardsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "CardsRuntime",
+      "generatedSource": "cards_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ChatRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ChatRuntime",
+      "generatedSource": "chat_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ConnectorRuntime",
+      "generatedSource": "connector_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "DeliveryAzdRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "DeliveryAzdRuntime",
+      "generatedSource": "delivery_azd_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "DeliveryManifestRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "DeliveryManifestRuntime",
+      "generatedSource": "delivery_manifest_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "EntitiesRuntime",
+      "generatedSource": "entities_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "EvaluationSuiteRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "EvaluationSuiteRuntime",
+      "generatedSource": "evaluation_suite_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "FinetuningJobsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "FinetuningJobsRuntime",
+      "generatedSource": "finetuning_jobs_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "FinetuningTrainingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "FinetuningTrainingRuntime",
+      "generatedSource": "finetuning_training_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "HostingAuthRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "HostingAuthRuntime",
+      "generatedSource": "hosting_auth_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "HostingCredentialsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "HostingCredentialsRuntime",
+      "generatedSource": "hosting_credentials_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "HostingServerRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "HostingServerRuntime",
+      "generatedSource": "hosting_server_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "IdentityRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "IdentityRuntime",
+      "generatedSource": "identity_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "IntegrationsGraphRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "IntegrationsGraphRuntime",
+      "generatedSource": "integrations_graph_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "IntegrationsToolboxRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "IntegrationsToolboxRuntime",
+      "generatedSource": "integrations_toolbox_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "InvocationsRuntime",
+      "generatedSource": "invocations_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "InvokesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "InvokesRuntime",
+      "generatedSource": "invokes_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "LifecycleAcceptanceRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleAcceptanceRuntime",
+      "generatedSource": "lifecycle_acceptance_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "LifecycleOperationsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleOperationsRuntime",
+      "generatedSource": "lifecycle_operations_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleRecordsRuntime",
+      "generatedSource": "lifecycle_records_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "LifecycleStorageRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleStorageRuntime",
+      "generatedSource": "lifecycle_storage_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ModelRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ModelRuntime",
+      "generatedSource": "model_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ObserveLiveRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveLiveRuntime",
+      "generatedSource": "observe_live_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ObserveRecordsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveRecordsRuntime",
+      "generatedSource": "observe_records_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ObserveSuiteRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveSuiteRuntime",
+      "generatedSource": "observe_suite_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ObserveTelemetryRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveTelemetryRuntime",
+      "generatedSource": "observe_telemetry_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ObserveTracingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveTracingRuntime",
+      "generatedSource": "observe_tracing_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "OptimizerJobsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "OptimizerJobsRuntime",
+      "generatedSource": "optimizer_jobs_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ResponsesRuntime",
+      "generatedSource": "responses_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RoutingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RoutingRuntime",
+      "generatedSource": "routing_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeApplicationRuntime",
+      "generatedSource": "runtime_application_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RuntimeContextRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeContextRuntime",
+      "generatedSource": "runtime_context_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeDependenciesRuntime",
+      "generatedSource": "runtime_dependencies_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RuntimeDispatchRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeDispatchRuntime",
+      "generatedSource": "runtime_dispatch_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RuntimeRouterRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeRouterRuntime",
+      "generatedSource": "runtime_router_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "StreamingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "StreamingRuntime",
+      "generatedSource": "streaming_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ToolCatalogRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ToolCatalogRuntime",
+      "generatedSource": "tool_catalog_runtime",
+      "seamKind": "protocol-adapter"
+    }
+  ]
+}

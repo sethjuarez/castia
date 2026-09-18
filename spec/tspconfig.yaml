@@ -1,0 +1,19 @@
+emit:
+  - "@typra/emitter"
+
+options:
+  "@typra/emitter":
+    emitter-output-dir: "{cwd}/generated"
+    root-object: "Castia.Spec.CastiaContracts"
+    root-namespace: "Castia.Spec"
+    deterministic-output: true
+    emit-targets:
+      - type: Rust
+        output-dir: "../packages/rust/src/model"
+        test-dir: "../packages/rust/tests/generated"
+        import-path: "castia::model"
+        enum-parsing: "case-insensitive"
+        native-serialization: "serde"
+        protocol-scaffolds: "compile-only"
+        cancellation-token-path: "std::sync::atomic::AtomicBool"
+        vector-adapter-path: "../support/vector_adapters.rs"

@@ -27,17 +27,19 @@ reusable SDK, specs, and Copilot extras.
 ```
 castia/
 ├─ examples/
-│  └─ python/         # checked-in lifecycle examples for agent/plugin validation
+│  ├─ python/         # checked-in lifecycle examples for agent/plugin validation
+│  └─ rust/           # checked-in smoke examples for Rust parity work
 ├─ spec/              # source of truth: protocol contracts + conformance fixtures
 └─ packages/
-   └─ python/         # the Python SDK (PyPI: castia)
-      └─ AGENTS.md    # consumer guide for agents using the Python SDK
+   ├─ python/         # the Python SDK (PyPI: castia)
+   │  └─ AGENTS.md    # consumer guide for agents using the Python SDK
+   └─ rust/           # experimental Rust SDK/runtime crate
 ```
 
 | SDK | Path | Registry | Status |
 | --- | --- | --- | --- |
 | Python | [`packages/python`](packages/python) | [PyPI `castia`](https://pypi.org/project/castia/) | alpha |
-| Rust | `packages/rust` *(planned)* | crates.io `castia` | planned |
+| Rust | [`packages/rust`](packages/rust) | crates.io `castia` | experimental, unpublished |
 
 Each SDK owns its native toolchain, lockfile, and release cadence. Versions and
 release tags are **per language** (e.g. `python-v0.1.0`), not repo-wide.
@@ -49,8 +51,11 @@ The short public API remains unchanged; lower-level imports use the capability
 paths.
 
 The [spec guide](spec/README.md) separates shared data and behavior from runtime
-adapters. Typra generation is future work; the current Python implementation is
-handwritten, and Rust remains planned.
+adapters. Typra emits Rust contract traits, models, and conformance tests from
+TypeSpec. The Rust package is still experimental, but it now implements the
+portable behavior seams covered by those vectors plus a hosted deployment smoke.
+The Python runtime remains the shipped SDK and source of proven production
+ergonomics.
 
 ## Contributing
 

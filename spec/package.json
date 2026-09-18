@@ -1,0 +1,16 @@
+{
+  "name": "@castia/spec",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "tsp compile ./main.tsp --config ./tspconfig.yaml",
+    "generate:rust": "tsp compile ./main.tsp --config ./tspconfig.yaml"
+  },
+  "devDependencies": {
+    "@typespec/compiler": "^1.16.0",
+    "@typespec/http": "^1.16.0",
+    "@typespec/json-schema": "^1.16.0",
+    "@typra/emitter": "^2.1.8"
+  }
+}
