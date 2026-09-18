@@ -16,5 +16,7 @@ pub trait EvaluationSuiteRuntime: Send + Sync {
     fn build_generate_argv(&self, options: &serde_json::Value) -> serde_json::Value;
     fn build_run_argv(&self, options: &serde_json::Value) -> serde_json::Value;
     fn build_update_argv(&self, options: &serde_json::Value) -> serde_json::Value;
+    fn load_suite(&self, path: &String) -> serde_json::Value;
     fn read_rubric(&self, value: &serde_json::Value) -> serde_json::Value;
+    fn validate_suite(&self, path: &String) -> serde_json::Value;
 }

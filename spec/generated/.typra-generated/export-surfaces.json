@@ -502,10 +502,34 @@
               "nonFatal": false
             },
             {
+              "name": "loadSuite",
+              "returns": "unknown",
+              "params": {
+                "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
               "name": "readRubric",
               "returns": "unknown",
               "params": {
                 "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateSuite",
+              "returns": "unknown",
+              "params": {
+                "path": "string"
               },
               "optional": false,
               "sync": true,

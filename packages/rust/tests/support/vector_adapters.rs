@@ -133,8 +133,16 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             sync(evaluation_build_update_argv),
         ),
         (
+            "EvaluationSuiteRuntime.loadSuite",
+            sync(evaluation_load_suite),
+        ),
+        (
             "EvaluationSuiteRuntime.readRubric",
             sync(evaluation_read_rubric),
+        ),
+        (
+            "EvaluationSuiteRuntime.validateSuite",
+            sync(evaluation_validate_suite),
         ),
         (
             "IdentityRuntime.agenticUserId",
@@ -411,6 +419,30 @@ fn evaluation_build_run_argv(input: &Value, _: &Context) -> Result<Value, Vector
 
 fn evaluation_read_rubric(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaEvaluationSuiteRuntime.read_rubric(input.get("value").unwrap_or(&Value::Null)))
+}
+
+fn evaluation_load_suite(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let temp = temp_dir(&vector_temp_label(ctx));
+    let result = (|| {
+        write_vector_files(&temp, &ctx.vector)?;
+        let path = vector_path(input, "path", &temp)?;
+        let mut value = CastiaEvaluationSuiteRuntime.load_suite(&path);
+        replace_temp_path(&mut value, &temp.to_string_lossy());
+        Ok(value)
+    })();
+    let _ = fs::remove_dir_all(temp);
+    result
+}
+
+fn evaluation_validate_suite(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let temp = temp_dir(&vector_temp_label(ctx));
+    let result = (|| {
+        write_vector_files(&temp, &ctx.vector)?;
+        let path = vector_path(input, "path", &temp)?;
+        Ok(CastiaEvaluationSuiteRuntime.validate_suite(&path))
+    })();
+    let _ = fs::remove_dir_all(temp);
+    result
 }
 
 fn identity_agentic_user_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
@@ -698,6 +730,60 @@ fn write_vector_files(root: &Path, vector: &Value) -> Result<(), VectorError> {
         fs::write(path, contents).map_err(io_error)?;
     }
     Ok(())
+}
+
+fn replace_temp_path(value: &mut Value, temp: &str) {
+    match value {
+        Value::String(value) if value == temp => *value = "$temp".to_string(),
+        Value::String(value) => {
+            let normalized = value.replace('\\', "/");
+            let temp = temp.replace('\\', "/");
+            if normalized.starts_with(&temp) {
+                *value = normalized.replacen(&temp, "$temp", 1);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                replace_temp_path(item, temp);
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values_mut() {
+                replace_temp_path(value, temp);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn vector_path(input: &Value, key: &str, temp: &Path) -> Result<String, VectorError> {
+    let Some(path) = input.get(key).and_then(Value::as_str) else {
+        return Err(VectorError {
+            message: format!("missing {key} input"),
+            payload: None,
+        });
+    };
+    if path == "$temp" {
+        return Ok(temp.to_string_lossy().to_string());
+    }
+    if let Some(rest) = path
+        .strip_prefix("$temp/")
+        .or_else(|| path.strip_prefix("$temp\\"))
+    {
+        return Ok(temp.join(rest).to_string_lossy().to_string());
+    }
+    Ok(path.to_string())
+}
+
+fn vector_temp_label(ctx: &Context) -> String {
+    format!(
+        "{}-{}",
+        ctx.operation,
+        ctx.vector
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("unnamed")
+    )
 }
 
 fn temp_dir(label: &str) -> PathBuf {

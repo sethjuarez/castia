@@ -154,8 +154,14 @@ impl EvaluationSuiteRuntime for CompileOnlyEvaluationSuiteRuntime {
     fn build_update_argv(&self, options: &serde_json::Value) -> serde_json::Value {
         panic!("EvaluationSuiteRuntime.buildUpdateArgv is a compile-only protocol scaffold.")
     }
+    fn load_suite(&self, path: &String) -> serde_json::Value {
+        panic!("EvaluationSuiteRuntime.loadSuite is a compile-only protocol scaffold.")
+    }
     fn read_rubric(&self, value: &serde_json::Value) -> serde_json::Value {
         panic!("EvaluationSuiteRuntime.readRubric is a compile-only protocol scaffold.")
+    }
+    fn validate_suite(&self, path: &String) -> serde_json::Value {
+        panic!("EvaluationSuiteRuntime.validateSuite is a compile-only protocol scaffold.")
     }
 }
 
