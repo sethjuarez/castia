@@ -13,8 +13,51 @@ Keep the user path small:
 3. Foundry: deploy and test the hosted agent.
 4. Teams: guide the Microsoft 365 Copilot/Teams publish-and-hire check.
 
-Do not lead with Castia, metadata, protocol plumbing, fingerprints, or Azure
+For a new Python hosted agent in this story flow, prefer a Castia SDK
+implementation by default. Use another implementation only when the user asks
+for it or the target repo already has a non-Castia agent that should be
+preserved.
+
+Do not lead the user with metadata, protocol plumbing, fingerprints, or Azure
 resource taxonomy. Surface those only as troubleshooting details.
+
+## Build step
+
+When the repo does not already contain a hosted agent and the user asks to
+build, scaffold, or try the full story flow, create a Castia-based Python agent
+unless explicitly told otherwise.
+
+If the `castia-lifecycle` skill is available, use it before creating files. Its
+new-agent golden path is authoritative for the Castia file layout and code
+shape.
+
+Minimum shape:
+
+- `main.py` defines a Castia `Agent` and registers `@app.responses()`.
+- `.env.example` names `FOUNDRY_PROJECT_ENDPOINT` and
+  `AZURE_AI_MODEL_DEPLOYMENT_NAME`; `.env` is ignored and user-filled.
+- If Teams validation is in scope, also register Activity/Teams handling using
+  Castia primitives.
+- `azure.yaml` declares one `host: azure.ai.agent` service with
+  `codeConfiguration` for Python remote build.
+- `.agent_configs/baseline/` contains the baseline instructions/metadata.
+- The entrypoint loads `.env` and fails before serving if `.env` or baseline
+  instructions are missing/incomplete.
+- `eval.yaml` and any seed data should be present only if they are part of the
+  starter flow being exercised.
+
+Prefer `uv` for local setup and dependency execution. In a monorepo/source
+checkout, use the local Castia source package or editable install; in a clean
+starter repo, depend on the published `castia[deploy,optimize,test]` package
+unless the user specifically wants to test unpublished local SDK changes.
+
+Do not scaffold or keep an Agent Framework sample as the implementation for a
+Castia story-flow starter. If an external scaffold command creates one, replace
+it before local testing or deployment.
+
+The playground should not ask for project/model settings. If `.env` is missing
+or incomplete, tell the user to copy `.env.example` to `.env`, fill those two
+values, and refresh.
 
 ## Agent identity
 
@@ -40,12 +83,15 @@ user explicitly overrides it.
 If the user does not already have a project and deployed model, guide them to
 create those first before starting the local run.
 
-Persist these values only to developer-local state:
+Persist these values first to developer-local `.env` only:
 
 ```powershell
-azd env set FOUNDRY_PROJECT_ENDPOINT "<project-endpoint>"
-azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME "<model-deployment-name>"
+Copy-Item .env.example .env
+# Fill FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME in .env
 ```
+
+Set the same values in the azd environment only when the user explicitly moves
+from local testing to hosted deployment.
 
 Do not commit project endpoints, subscriptions, resource groups, tenant IDs,
 connection strings, keys, tokens, or user-specific auth state.
@@ -54,13 +100,12 @@ connection strings, keys, tokens, or user-specific auth state.
 
 Do not start local testing until the first-run Foundry target is known.
 
-Show the exact command for the selected agent folder. For the Python example:
+Show the exact command for the selected agent folder. For the Castia Python example:
 
 ```powershell
-cd examples\python\minimal-agent
-$env:FOUNDRY_PROJECT_ENDPOINT="<project-endpoint>"
-$env:AZURE_AI_MODEL_DEPLOYMENT_NAME="<model-deployment-name>"
-python main.py
+cd <agent-root>
+uv sync --project .
+uv run --directory . python main.py
 ```
 
 Then test:

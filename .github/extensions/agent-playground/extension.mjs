@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { dirname, join, relative } from "node:path";
+import { delimiter, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 
@@ -9,8 +9,18 @@ const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
 const DEFAULT_SERVICE_NAME = "minimal-agent";
 const DEFAULT_AGENT_ROOT = join(process.cwd(), "examples", "python", "minimal-agent");
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
+const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
 const servers = new Map();
 const tokenCache = new Map();
+
+async function exists(path) {
+    try {
+        await access(path);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 function normalizeEndpoint(value) {
     const endpoint = String(value || DEFAULT_ENDPOINT).trim().replace(/\/+$/, "");
@@ -372,6 +382,12 @@ function parseAzdEnv(output) {
     return values;
 }
 
+async function readAgentEnv(agent) {
+    const envPath = join(agent.root, ".env");
+    const output = await readFile(envPath, "utf8").catch(() => "");
+    return { envPath, exists: Boolean(output), values: parseAzdEnv(output) };
+}
+
 function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
     return new Promise((resolve) => {
         const output = [];
@@ -397,6 +413,119 @@ function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
             resolve({ code: code ?? 0, output: output.join("") });
         });
     });
+}
+
+async function localStartCommand(agent) {
+    if (await exists(join(agent.root, "main.py"))) {
+        const localVenv = process.platform === "win32"
+            ? join(agent.root, ".venv", "Scripts", "python.exe")
+            : join(agent.root, ".venv", "bin", "python");
+        const workspaceVenv = process.platform === "win32"
+            ? join(process.cwd(), ".venv", "Scripts", "python.exe")
+            : join(process.cwd(), ".venv", "bin", "python");
+        const pythonPath = await discoverPythonPath(agent.root);
+        if (!(await exists(localVenv)) && !(await exists(workspaceVenv)) && pythonPath) {
+            const packageRoot = dirname(pythonPath);
+            return {
+                command: "uv",
+                args: [
+                    "run",
+                    "--project",
+                    packageRoot,
+                    "--with-editable",
+                    packageRoot,
+                    "--extra",
+                    "deploy",
+                    "--extra",
+                    "optimize",
+                    "--extra",
+                    "test",
+                    "python",
+                    "main.py",
+                ],
+                env: {},
+            };
+        }
+        const command = await exists(localVenv) ? localVenv : await exists(workspaceVenv) ? workspaceVenv : "python";
+        return {
+            command,
+            args: ["main.py"],
+            env: pythonPath
+                ? { PYTHONPATH: [pythonPath, process.env.PYTHONPATH].filter(Boolean).join(delimiter) }
+                : {},
+        };
+    }
+    return null;
+}
+
+async function discoverPythonPath(start) {
+    let current = start;
+    while (true) {
+        const sourceRoot = join(current, "packages", "python", "src");
+        if (await exists(join(sourceRoot, "castia", "__init__.py"))) return sourceRoot;
+        const parent = dirname(current);
+        if (parent === current) return null;
+        current = parent;
+    }
+}
+
+async function startLocalAgent(state) {
+    if (state.localRun?.running) return;
+    const agent = selectedAgent(state);
+    const local = await localStartCommand(agent);
+    if (!local) {
+        throw new CanvasError("local_start_unsupported", "No local start command was discovered for this agent.");
+    }
+    state.localRun = {
+        running: true,
+        command: `${local.command} ${local.args.join(" ")}`,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        exitCode: null,
+        log: [`$ ${local.command} ${local.args.join(" ")}\n`],
+        process: null,
+    };
+    const child = spawn(local.command, local.args, {
+        cwd: agent.root,
+        shell: false,
+        env: {
+            ...process.env,
+            ...(local.env || {}),
+            FOUNDRY_PROJECT_ENDPOINT: state.foundryConnection.projectEndpoint || process.env.FOUNDRY_PROJECT_ENDPOINT || "",
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: state.foundryConnection.modelDeployment || process.env.AZURE_AI_MODEL_DEPLOYMENT_NAME || "",
+        },
+    });
+    state.localRun.process = child;
+    const append = (chunk) => state.localRun.log.push(chunk.toString());
+    child.stdout.on("data", append);
+    child.stderr.on("data", append);
+    child.on("error", (error) => {
+        state.localRun.running = false;
+        state.localRun.completedAt = new Date().toISOString();
+        state.localRun.exitCode = 1;
+        state.localRun.log.push(`${error.name}: ${error.message}\n`);
+    });
+    child.on("close", (code) => {
+        state.localRun.running = false;
+        state.localRun.completedAt = new Date().toISOString();
+        state.localRun.exitCode = code ?? 0;
+        delete state.localRun.process;
+    });
+}
+
+function stopLocalAgent(state) {
+    const child = state.localRun?.process;
+    if (child && !child.killed) {
+        child.kill();
+    }
+    state.localRun = {
+        ...state.localRun,
+        running: false,
+        completedAt: new Date().toISOString(),
+        exitCode: state.localRun?.exitCode ?? null,
+        log: [...(state.localRun?.log || []), "$ stopped local agent\n"],
+        process: null,
+    };
 }
 
 async function refreshHostedContext(state) {
@@ -486,6 +615,45 @@ async function hydrateFoundryConnectionFromAzd(state) {
         lastRefreshExitCode: 0,
     };
     state.hosted = state.hostedByAgent[agent.id];
+}
+
+async function hydrateFoundryConnectionFromDotEnv(state) {
+    const agent = selectedAgent(state);
+    const env = await readAgentEnv(agent);
+    state.localEnv = {
+        path: env.envPath,
+        exists: env.exists,
+        loadedAt: new Date().toISOString(),
+    };
+    const projectEndpoint =
+        env.values.FOUNDRY_PROJECT_ENDPOINT ||
+        env.values.AZURE_AI_PROJECT_ENDPOINT ||
+        env.values.AZURE_AIPROJECT_ENDPOINT ||
+        null;
+    const modelDeployment =
+        env.values.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
+        env.values.AZURE_OPENAI_DEPLOYMENT_NAME ||
+        null;
+    if (!projectEndpoint && !modelDeployment) return;
+    state.foundryConnection = {
+        ...state.foundryConnection,
+        projectEndpoint: projectEndpoint || state.foundryConnection.projectEndpoint,
+        modelDeployment: modelDeployment || state.foundryConnection.modelDeployment,
+        connectedAt: new Date().toISOString(),
+        lastConnectExitCode: 0,
+        lastDiscoveryMessage: "Loaded Foundry project from .env.",
+    };
+    const hosted = state.hostedByAgent[agent.id] || emptyHostedContext(agent);
+    state.hostedByAgent[agent.id] = {
+        ...hosted,
+        projectEndpoint: projectEndpoint || hosted.projectEndpoint,
+        modelDeployment: modelDeployment || hosted.modelDeployment,
+    };
+    state.hosted = state.hostedByAgent[agent.id];
+}
+
+async function hydrateFoundryConnection(state) {
+    await hydrateFoundryConnectionFromDotEnv(state);
 }
 
 async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
@@ -782,6 +950,11 @@ function stateSnapshot(state) {
         foundryConnection: state.foundryConnection,
         hosted: state.hosted,
         deployment: state.deployment,
+        localEnv: state.localEnv,
+        localRun: {
+            ...state.localRun,
+            process: undefined,
+        },
         teams: state.teams,
         messages: state.messages,
         lastHealth: state.lastHealth,
@@ -966,13 +1139,14 @@ function renderHtml() {
     }
     .step {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 10px;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
       align-items: center;
       min-width: 0;
-      padding: 10px;
+      min-height: 48px;
+      padding: 8px;
       border: 1px solid transparent;
-      border-radius: 16px;
+      border-radius: 14px;
       background: var(--cp-surface-soft);
       color: var(--cp-text);
       text-align: left;
@@ -1026,9 +1200,45 @@ function renderHtml() {
       font-weight: 500;
     }
     .step-state {
+      display: none;
       color: var(--cp-text-muted);
       font-size: 12px;
       font-weight: 700;
+    }
+    @media (max-width: 900px) {
+      .journey {
+        gap: 6px;
+      }
+      .step {
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 8px;
+        padding: 8px;
+      }
+      .step-index {
+        width: 24px;
+        height: 24px;
+      }
+    }
+    @media (max-width: 520px) {
+      .journey {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .step {
+        grid-template-columns: auto minmax(0, 1fr);
+        min-height: 44px;
+        padding: 8px 6px;
+        border-radius: 14px;
+      }
+      .step-index {
+        width: 22px;
+        height: 22px;
+      }
+      .step-title {
+        font-size: 13px;
+      }
+      .step-subtitle {
+        display: none;
+      }
     }
     .action-card {
       display: grid;
@@ -1053,12 +1263,15 @@ function renderHtml() {
       gap: 8px;
       align-items: center;
     }
+    .hero-picker {
+      width: min(240px, 34vw);
+    }
     .secondary {
       color: var(--cp-text-muted);
     }
     .advanced-row {
       display: grid;
-      grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(110px, 0.5fr) auto;
+      grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(110px, 0.5fr) auto auto;
       gap: 8px;
       align-items: center;
     }
@@ -1264,7 +1477,112 @@ function renderHtml() {
     }
     .bubble-body {
       padding: 12px;
-      white-space: pre-wrap;
+      white-space: normal;
+    }
+    .bubble-body .md {
+      display: grid;
+      gap: 6px;
+    }
+    .bubble-body p,
+    .bubble-body h1,
+    .bubble-body h2,
+    .bubble-body h3,
+    .bubble-body ul,
+    .bubble-body ol,
+    .bubble-body pre,
+    .bubble-body .table-scroll {
+      margin: 0;
+    }
+    .bubble-body h1,
+    .bubble-body h2,
+    .bubble-body h3 {
+      color: var(--cp-text);
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .bubble-body h1 {
+      font-size: 16px;
+    }
+    .bubble-body h2 {
+      font-size: 14px;
+    }
+    .bubble-body h3 {
+      font-size: 13px;
+    }
+    .bubble-body ul,
+    .bubble-body ol {
+      padding-left: 18px;
+    }
+    .bubble-body li {
+      margin: 2px 0;
+    }
+    .bubble-body code {
+      padding: 1px 4px;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--cp-text) 8%, transparent);
+      font-size: 12px;
+    }
+    .bubble-body pre {
+      overflow: auto;
+      padding: 8px;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--cp-text) 8%, transparent);
+    }
+    .bubble-body pre code {
+      padding: 0;
+      background: transparent;
+    }
+    .bubble-body pre.json-pre {
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+    }
+    .json-key {
+      color: var(--cp-accent);
+      font-weight: 600;
+    }
+    .json-string {
+      color: var(--cp-success);
+    }
+    .json-number {
+      color: var(--cp-warning);
+    }
+    .json-literal {
+      color: var(--cp-danger);
+      font-weight: 600;
+    }
+    .bubble-body .table-scroll {
+      overflow-x: auto;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-surface);
+    }
+    .bubble-body table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .bubble-body th,
+    .bubble-body td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--cp-border);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    .bubble-body th {
+      color: var(--cp-text);
+      font-weight: 700;
+      background: var(--cp-surface-soft);
+    }
+    .bubble-body tr:last-child td {
+      border-bottom: 0;
+    }
+    .bubble-body a {
+      color: var(--cp-accent);
+      text-decoration: none;
+    }
+    .bubble-body a:hover {
+      text-decoration: underline;
     }
     .first-token {
       display: inline-flex;
@@ -1483,11 +1801,17 @@ function renderHtml() {
     }
     @media (max-width: 820px) {
       .advanced-row,
-      .journey,
       .action-card,
       .deploy-summary,
       .content {
         grid-template-columns: 1fr;
+      }
+      .action-buttons {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
+      .hero-picker {
+        width: 100%;
       }
       .bubble.user,
       .bubble.agent {
@@ -1525,25 +1849,27 @@ function renderHtml() {
           <div id="guideCopy" class="action-copy">Check the local agent, then send a prompt.</div>
         </div>
         <div class="action-buttons">
+          <div class="agent-picker hero-picker">
+            <button id="agentPickerButton" class="agent-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="agentPickerLabel" class="agent-picker-label">Agent</span>
+              <span class="agent-picker-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="agentMenu" class="agent-menu" role="listbox" hidden></div>
+          </div>
           <button id="primaryGuideAction" class="primary" type="button">Choose project</button>
+          <button id="stopLocalAction" class="secondary danger" type="button" hidden>Stop local</button>
           <button id="testHostedAction" class="secondary" type="button" hidden>Test hosted</button>
-          <button id="advancedToggle" class="secondary" type="button" hidden>Settings</button>
+          <button id="advancedToggle" class="secondary" type="button" hidden>Refresh .env</button>
         </div>
       </div>
       <div id="advancedRow" class="advanced-row" hidden>
-        <div class="agent-picker">
-          <button id="agentPickerButton" class="agent-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">
-            <span id="agentPickerLabel" class="agent-picker-label">Agent</span>
-            <span class="agent-picker-chevron" aria-hidden="true"></span>
-          </button>
-          <div id="agentMenu" class="agent-menu" role="listbox" hidden></div>
-        </div>
         <input id="endpoint" aria-label="Agent endpoint" spellcheck="false" placeholder="http://127.0.0.1:8088" />
         <input id="foundryEndpoint" aria-label="Foundry project endpoint" spellcheck="false" placeholder="https://.../api/projects/..." />
         <input id="modelDeployment" aria-label="Model deployment" spellcheck="false" placeholder="gpt-5.5" />
         <button id="connectFoundry" type="button" hidden>Use project</button>
         <button id="checkHealth" type="button">Check readiness</button>
-        <div class="project-hint">Start by choosing an existing Foundry project with a deployed model, or create one first and paste its project endpoint plus model deployment name.</div>
+        <button id="startLocal" type="button">Start local</button>
+        <div class="project-hint">Missing config? Copy .env.example to .env in the agent folder, fill FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh.</div>
       </div>
     </section>
     <main class="content">
@@ -1665,6 +1991,8 @@ function renderHtml() {
     const teamsAgent = document.getElementById("teamsAgent");
     const teamsVersion = document.getElementById("teamsVersion");
     const checkHealthButton = document.getElementById("checkHealth");
+    const startLocalButton = document.getElementById("startLocal");
+    const stopLocalAction = document.getElementById("stopLocalAction");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
     const turnCount = document.getElementById("turnCount");
@@ -1719,6 +2047,7 @@ function renderHtml() {
 
     function renderJourney(state) {
       const localOk = state.lastHealth?.ok || state.messages?.some((message) => message.target !== "hosted" && message.response?.ok);
+      const localRunning = Boolean(state.localRun?.running);
       const connected = Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
       const foundryOk = Boolean(state.hosted?.version || state.hosted?.responsesEndpoint);
       const versionLabel = state.hosted?.version ? "v" + state.hosted.version : "";
@@ -1726,7 +2055,7 @@ function renderHtml() {
       localStep.classList.toggle("done", localOk);
       foundryStep.classList.toggle("done", foundryOk);
       teamsStep.classList.toggle("done", teamsOk);
-      localStepText.textContent = !connected ? "Project" : localOk ? "Answered" : "Run it";
+      localStepText.textContent = !connected ? "Project" : localRunning && !localOk ? "Starting" : localOk ? "Answered" : "Run it";
       foundryStepText.textContent = foundryOk ? "Hosted" : "Deploy it";
       teamsStepText.textContent = teamsOk ? "Tested" : "Hire it";
       localStepState.textContent = !connected ? "First" : localOk ? "Done" : "Start";
@@ -1736,15 +2065,15 @@ function renderHtml() {
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk);
-        guideTitle.textContent = !connected ? "Choose a Foundry project" : "Make it work in Foundry";
+        guideTitle.textContent = !connected ? "Fill .env first" : "Make it work in Foundry";
         guideCopy.textContent = !connected
-          ? "Local cannot answer until this agent points at a Foundry project with a deployed model."
+          ? "Copy .env.example to .env, add FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh."
           : needsProvision
           ? "Prepare this repo for hosted deployment into the connected Foundry project."
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? (settingsOpen ? "Use project" : "Choose project") : needsProvision ? "Prepare deploy" : "Deploy";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : "Deploy";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = false;
@@ -1756,20 +2085,21 @@ function renderHtml() {
       } else {
         primaryGuideAction.hidden = connected && state.target !== "hosted" && localOk;
         testHostedAction.hidden = true;
-        guideTitle.textContent = !connected ? "Choose a Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
+        guideTitle.textContent = !connected ? "Fill .env first" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
         guideCopy.textContent = !connected
-          ? "Use an existing project/model, or create one first, before starting the local run."
+          ? "Copy .env.example to .env in the selected agent folder, add the Foundry endpoint and model deployment, then refresh."
           : state.target === "hosted"
           ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
-          : "Check readiness if needed, then send a prompt to the local agent.";
-        primaryGuideAction.textContent = !connected ? (settingsOpen ? "Use project" : "Choose project") : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : "Check local";
+          : localRunning
+          ? "Local agent is starting. Check readiness, then send a prompt."
+          : "Start the local agent, check readiness, then send a prompt.";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : localRunning ? "Check local" : "Start local";
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
       }
-      const settingsAllowed = connected && activeView !== "deploy" && state.target !== "hosted";
-      if (!settingsAllowed) settingsOpen = false;
-      advancedRow.hidden = !settingsOpen || !settingsAllowed;
-      advancedToggle.hidden = !settingsAllowed;
-      advancedToggle.textContent = settingsOpen ? "Hide settings" : "Settings";
+      settingsOpen = false;
+      advancedRow.hidden = true;
+      advancedToggle.hidden = true;
+      advancedToggle.textContent = "Refresh .env";
     }
 
     function renderAgentPicker(state) {
@@ -1818,6 +2148,11 @@ function renderHtml() {
       promptInput.hidden = activeView !== "chat";
       promptInput.disabled = localBlocked;
       checkHealthButton.disabled = localBlocked;
+      startLocalButton.hidden = activeView !== "chat" || latestState?.target === "hosted";
+      startLocalButton.disabled = localBlocked;
+      startLocalButton.textContent = latestState?.localRun?.running ? "Stop local" : "Start local";
+      stopLocalAction.hidden = !(activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running);
+      stopLocalAction.disabled = false;
       clearButton.hidden = activeView === "teams";
       clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
     }
@@ -1862,7 +2197,7 @@ function renderHtml() {
         return '<article class="turn">' +
           '<section class="bubble user">' +
           '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
-          '<div class="bubble-body">' + escapeHtml(turn.input) + '</div>' +
+          '<div class="bubble-body">' + renderMarkdown(turn.input) + '</div>' +
           '</section>' +
           '<section class="bubble agent">' +
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
@@ -1877,10 +2212,7 @@ function renderHtml() {
     async function sendPrompt() {
       if (inFlight) return;
       if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment) && latestState?.target !== "hosted") {
-        setStatus("fail", "Choose a Foundry project and model first.");
-        settingsOpen = true;
-        renderJourney(latestState || {});
-        foundryEndpointInput.focus();
+        setStatus("fail", "Fill .env from .env.example with FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh.");
         return;
       }
       const input = promptInput.value.trim();
@@ -1943,10 +2275,162 @@ function renderHtml() {
     }
 
     function renderMarkdown(value) {
-      return escapeHtml(String(value || ""))
-        .replace(/\\*\\*(.+?)\\*\\*/g, "<strong>$1</strong>")
-        .replace(/^- (.+)$/gm, "• $1")
-        .replace(/\\n/g, "<br>");
+      const jsonDocument = renderJsonDocument(value);
+      if (jsonDocument) return '<div class="md">' + jsonDocument + "</div>";
+      const blocks = [];
+      let inFence = false;
+      let fence = [];
+      let fenceLanguage = "";
+      let list = null;
+      let paragraph = [];
+
+      function flushParagraph() {
+        if (!paragraph.length) return;
+        blocks.push("<p>" + renderInline(paragraph.join(" ")) + "</p>");
+        paragraph = [];
+      }
+
+      function flushList() {
+        if (!list) return;
+        blocks.push("<" + list.type + ">" + list.items.map((item) => "<li>" + renderInline(item) + "</li>").join("") + "</" + list.type + ">");
+        list = null;
+      }
+
+      const lines = String(value || "").split(/\\r?\\n/);
+      for (let index = 0; index < lines.length; index += 1) {
+        const rawLine = lines[index];
+        const line = rawLine.replace(/\\s+$/, "");
+        if (line.trim().startsWith(String.fromCharCode(96, 96, 96))) {
+          if (inFence) {
+            blocks.push(renderCodeBlock(fence.join("\\n"), fenceLanguage));
+            fence = [];
+            fenceLanguage = "";
+            inFence = false;
+          } else {
+            flushParagraph();
+            flushList();
+            fenceLanguage = line.trim().slice(3).trim().toLowerCase();
+            inFence = true;
+          }
+          continue;
+        }
+        if (inFence) {
+          fence.push(rawLine);
+          continue;
+        }
+        if (!line.trim()) {
+          flushParagraph();
+          flushList();
+          continue;
+        }
+        const heading = line.match(/^\\s*(#{1,3})\\s+(.+)$/);
+        if (heading) {
+          flushParagraph();
+          flushList();
+          blocks.push("<h" + heading[1].length + ">" + renderInline(heading[2]) + "</h" + heading[1].length + ">");
+          continue;
+        }
+        const table = renderTable(lines, index);
+        if (table) {
+          flushParagraph();
+          flushList();
+          blocks.push(table.html);
+          index = table.nextIndex - 1;
+          continue;
+        }
+        const unordered = line.match(/^\\s*[-*]\\s+(.+)$/);
+        const ordered = line.match(/^\\s*\\d+[.)]\\s+(.+)$/);
+        if (unordered || ordered) {
+          flushParagraph();
+          const type = unordered ? "ul" : "ol";
+          if (!list || list.type !== type) flushList();
+          list ||= { type, items: [] };
+          list.items.push((unordered || ordered)[1]);
+          continue;
+        }
+        flushList();
+        paragraph.push(line.trim());
+      }
+      if (inFence) blocks.push(renderCodeBlock(fence.join("\\n"), fenceLanguage));
+      flushParagraph();
+      flushList();
+      return '<div class="md">' + (blocks.join("") || "<p></p>") + "</div>";
+    }
+
+    function renderCodeBlock(value, language) {
+      const json = renderJsonDocument(value, language);
+      if (json) return json;
+      return "<pre><code>" + escapeHtml(value) + "</code></pre>";
+    }
+
+    function renderJsonDocument(value, language = "") {
+      const text = String(value || "").trim();
+      if (!text || (!["json", "jsonc"].includes(language) && !/^[\\[{]/.test(text))) return null;
+      try {
+        const parsed = JSON.parse(text);
+        return '<pre class="json-pre"><code>' + highlightJson(JSON.stringify(parsed, null, 2)) + "</code></pre>";
+      } catch {
+        return null;
+      }
+    }
+
+    function highlightJson(value) {
+      const tokenPattern = /("(?:\\\\.|[^"\\\\])*")(\\s*:)?|\\b(true|false|null)\\b|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?/g;
+      let output = "";
+      let lastIndex = 0;
+      String(value || "").replace(tokenPattern, (match, stringToken, keySuffix, literal, offset) => {
+        output += escapeHtml(value.slice(lastIndex, offset));
+        if (stringToken) {
+          const className = keySuffix ? "json-key" : "json-string";
+          output += '<span class="' + className + '">' + escapeHtml(stringToken) + "</span>" + escapeHtml(keySuffix || "");
+        } else if (literal) {
+          output += '<span class="json-literal">' + escapeHtml(match) + "</span>";
+        } else {
+          output += '<span class="json-number">' + escapeHtml(match) + "</span>";
+        }
+        lastIndex = offset + match.length;
+        return match;
+      });
+      return output + escapeHtml(value.slice(lastIndex));
+    }
+
+    function renderTable(lines, start) {
+      if (!String(lines[start] || "").includes("|") || !isTableSeparator(lines[start + 1] || "")) return null;
+      const header = splitTableRow(lines[start]);
+      const separator = splitTableRow(lines[start + 1]);
+      if (!header.length || separator.length < header.length) return null;
+      const alignments = separator.map((cell) =>
+        cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : cell.startsWith(":") ? "left" : ""
+      );
+      const rows = [];
+      let index = start + 2;
+      while (index < lines.length && String(lines[index] || "").trim() && String(lines[index] || "").includes("|")) {
+        if (String(lines[index]).trim().startsWith(String.fromCharCode(96, 96, 96))) break;
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      const cellAttr = (column) => alignments[column] ? ' style="text-align:' + alignments[column] + '"' : "";
+      const head = "<thead><tr>" + header.map((cell, column) => "<th" + cellAttr(column) + ">" + renderInline(cell) + "</th>").join("") + "</tr></thead>";
+      const body = "<tbody>" + rows.map((row) => "<tr>" + header.map((_, column) => "<td" + cellAttr(column) + ">" + renderInline(row[column] || "") + "</td>").join("") + "</tr>").join("") + "</tbody>";
+      return { html: '<div class="table-scroll"><table>' + head + body + "</table></div>", nextIndex: index };
+    }
+
+    function splitTableRow(line) {
+      return String(line || "").trim().replace(/^\\|/, "").replace(/\\|$/, "").split("|").map((cell) => cell.trim());
+    }
+
+    function isTableSeparator(line) {
+      return /^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$/.test(String(line || ""));
+    }
+
+    function renderInline(value) {
+      const tick = String.fromCharCode(96);
+      const inlineCode = new RegExp(tick + "([^" + tick + "]+)" + tick, "g");
+      return escapeHtml(value)
+        .replace(inlineCode, "<code>$1</code>")
+        .replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+        .replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>")
+        .replace(/\\*([^*]+)\\*/g, "<em>$1</em>");
     }
 
     function formatTime(value) {
@@ -2012,6 +2496,56 @@ function renderHtml() {
       }
     }
 
+    async function refreshConfigFromDisk() {
+      primaryGuideAction.disabled = true;
+      setStatus("", "Refreshing .env...");
+      try {
+        const state = await request("/api/config/refresh", { method: "POST" });
+        renderSnapshot(state);
+        const connected = Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
+        setStatus(connected ? "ok" : "fail", connected ? "Loaded .env configuration." : "Still missing .env Foundry values.");
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        primaryGuideAction.disabled = false;
+        renderView();
+      }
+    }
+
+    async function startLocalFromCanvas() {
+      startLocalButton.disabled = true;
+      primaryGuideAction.disabled = true;
+      setStatus("", "Starting local agent...");
+      try {
+        const state = await request("/api/local/start", { method: "POST" });
+        renderSnapshot(state);
+        setStatus("", "Local agent starting: " + (state.localRun?.command || "agent"));
+        window.setTimeout(() => void load(), 1200);
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        primaryGuideAction.disabled = false;
+        renderView();
+      }
+    }
+
+    async function stopLocalFromCanvas() {
+      startLocalButton.disabled = true;
+      stopLocalAction.disabled = true;
+      primaryGuideAction.disabled = true;
+      setStatus("", "Stopping local agent...");
+      try {
+        const state = await request("/api/local/stop", { method: "POST" });
+        renderSnapshot(state);
+        setStatus("", "Local agent stopped.");
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        primaryGuideAction.disabled = false;
+        renderView();
+      }
+    }
+
     async function markTeamsTested() {
       primaryGuideAction.disabled = true;
       teamsTestedButton.disabled = true;
@@ -2037,6 +2571,18 @@ function renderHtml() {
 
     connectFoundryButton.addEventListener("click", async () => {
       await connectFoundryFromInputs();
+    });
+
+    startLocalButton.addEventListener("click", async () => {
+      if (latestState?.localRun?.running) {
+        await stopLocalFromCanvas();
+      } else {
+        await startLocalFromCanvas();
+      }
+    });
+
+    stopLocalAction.addEventListener("click", async () => {
+      await stopLocalFromCanvas();
     });
 
     agentPickerButton.addEventListener("click", () => {
@@ -2127,19 +2673,12 @@ function renderHtml() {
     });
 
     advancedToggle.addEventListener("click", () => {
-      settingsOpen = !settingsOpen;
-      renderJourney(latestState || {});
+      void refreshConfigFromDisk();
     });
 
     primaryGuideAction.addEventListener("click", () => {
       if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment)) {
-        if (settingsOpen && foundryEndpointInput.value.trim() && modelDeploymentInput.value.trim()) {
-          void connectFoundryFromInputs();
-        } else {
-          settingsOpen = true;
-          renderJourney(latestState || {});
-          (foundryEndpointInput.value.trim() ? modelDeploymentInput : foundryEndpointInput).focus();
-        }
+        void refreshConfigFromDisk();
         return;
       }
       if (activeView === "deploy") {
@@ -2154,6 +2693,8 @@ function renderHtml() {
         void showDeploy();
       } else if (latestState?.lastHealth?.ok || latestState?.messages?.some((message) => message.target !== "hosted" && message.response?.ok)) {
         promptInput.focus();
+      } else if (!latestState?.localRun?.running) {
+        void startLocalFromCanvas();
       } else {
         checkHealthButton.click();
       }
@@ -2165,7 +2706,7 @@ function renderHtml() {
 
     checkHealthButton.addEventListener("click", async () => {
       if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment) && latestState?.target !== "hosted") {
-        setStatus("fail", "Choose a Foundry project and model first.");
+        setStatus("fail", "Fill .env from .env.example with FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh.");
         return;
       }
       checkHealthButton.disabled = true;
@@ -2359,8 +2900,24 @@ async function handleRequest(req, res, state) {
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
+        if (req.method === "POST" && url.pathname === "/api/config/refresh") {
+            state.foundryConnection = emptyFoundryConnection();
+            await hydrateFoundryConnection(state);
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
         if (req.method === "POST" && url.pathname === "/api/health") {
             state.lastHealth = await checkReadiness(activeEndpoint(state));
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/local/start") {
+            await startLocalAgent(state);
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/local/stop") {
+            stopLocalAgent(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -2497,6 +3054,14 @@ async function startServer(ctx) {
             needsProvision: false,
             log: [],
         },
+        localRun: {
+            running: false,
+            command: null,
+            startedAt: null,
+            completedAt: null,
+            exitCode: null,
+            log: [],
+        },
         teams: {
             testedAt: null,
             agentId: null,
@@ -2505,7 +3070,7 @@ async function startServer(ctx) {
         messages: [],
         lastHealth: null,
     };
-    await hydrateFoundryConnectionFromAzd(state);
+    await hydrateFoundryConnection(state);
     const server = createServer((req, res) => {
         void handleRequest(req, res, state);
     });
@@ -2609,6 +3174,7 @@ await joinSession({
                     entry.state.localEndpoints[entry.state.selectedAgentId] = normalizeEndpoint(ctx.input.endpoint);
                 }
                 return {
+                    icon: ICON_PATH,
                     title: "Agent Playground",
                     status: activeEndpoint(entry.state),
                     url: entry.url,
@@ -2617,6 +3183,9 @@ await joinSession({
             onClose: async (ctx) => {
                 const entry = servers.get(ctx.instanceId);
                 if (entry) {
+                    if (entry.state.localRun?.process && !entry.state.localRun.process.killed) {
+                        entry.state.localRun.process.kill();
+                    }
                     servers.delete(ctx.instanceId);
                     await new Promise((resolve) => entry.server.close(() => resolve()));
                 }

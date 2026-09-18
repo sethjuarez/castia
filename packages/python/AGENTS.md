@@ -27,6 +27,132 @@ CLI or azd; install and authenticate those separately for live work.
 Scaffolding creates files only. Its generated `DEPLOYMENT.md` describes the
 existing Foundry resources and azd settings needed for deployment.
 
+## New starter agent: do this, not an Agent Framework sample
+
+When creating a new Castia starter in a clean repo, keep the implementation
+Castia-native. Do not scaffold an Agent Framework sample and call it done. The
+starter app should import Castia directly, register a Responses handler, and
+load `.agent_configs` lazily inside the model provider.
+
+Minimum starter files:
+
+```text
+starter-castia-agent\
+  main.py
+  pyproject.toml
+  requirements.txt
+  .env.example
+  .gitignore
+  azure.yaml
+  .agent_configs\
+    baseline\
+      instructions.md
+      metadata.yaml
+```
+
+Use `pyproject.toml` as the local app contract and keep `requirements.txt` as
+the hosted code-deploy runtime mirror:
+
+```toml
+[project]
+name = "starter-castia-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "castia[optimize]==0.6.0",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.uv]
+package = false
+```
+
+`.env.example` for the user to copy to `.env`:
+
+```text
+FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>
+AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>
+```
+
+Add `.env` to `.gitignore`. The playground reads `.env` from the selected agent
+folder and uses those values for local start and hosted deploy guidance. The
+entrypoint should load `.env`, then fail before serving if either setting is
+missing, placeholder-shaped, or malformed.
+
+`main.py` for a no-tools starter:
+
+```python
+from pathlib import Path
+
+from castia import Agent, Depends, Model, configured_model, load_agent_config
+
+app = Agent(name="starter-castia-agent")
+
+
+def model_provider() -> Model:
+    config = load_agent_config(Path(__file__).parent / ".agent_configs")
+    if not (config.instructions or "").strip():
+        raise RuntimeError("No baseline instructions loaded from .agent_configs.")
+    return configured_model(config)()
+
+
+@app.responses()
+async def reply(text: str, model: Model = Depends(model_provider)) -> str:
+    return await model.respond(text)
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8088)
+```
+
+`azure.yaml` for Foundry code deploy:
+
+```yaml
+name: starter-castia-agent
+services:
+  starter-castia-agent:
+    project: .
+    host: azure.ai.agent
+    language: python
+    kind: hosted
+    name: starter-castia-agent
+    description: A Castia starter agent serving Foundry Responses.
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint: main.py
+      dependencyResolution: remote_build
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    env:
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
+```
+
+Baseline config:
+
+```yaml
+# .agent_configs/baseline/metadata.yaml
+model: gpt-4o
+instruction_file: instructions.md
+```
+
+Before live local testing, copy `.env.example` to `.env`, fill
+`FOUNDRY_PROJECT_ENDPOINT` and `AZURE_AI_MODEL_DEPLOYMENT_NAME`, then run from
+the app root so `.env` and `.agent_configs` resolve naturally:
+
+```powershell
+uv sync --project <agent-root>
+uv run --directory <agent-root> python main.py
+```
+
+Do not commit `.env`,
+endpoints, subscription IDs, tenant IDs, resource groups, tokens, `.azure`,
+`.venv`, `__pycache__`, `appPackage.zip`, or `TEAMS_APP_SETUP.md`.
+
 ## Write a complete Responses agent
 
 Replace the scaffold's `main.py` with this file. It keeps the generated baseline
@@ -158,17 +284,17 @@ be the deployment's name, not a request to create one.
 
 ```powershell
 az login --tenant "<your-tenant-id>"
-$env:FOUNDRY_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
-$env:AZURE_AI_MODEL_DEPLOYMENT_NAME = "gpt-4o"
 $env:TOOLBOX_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>/toolboxes/<toolbox>/mcp?api-version=v1"
-& $python main.py
+uv run --directory <agent-root> python main.py
 ```
 
 `Model` and `toolbox_token()` use `DefaultAzureCredential`. Locally that can use
 your Azure CLI login. In a hosted process it can use managed identity. The
 identity needs access to the selected project, deployment, and toolbox.
 Castia does not grant roles, deploy models, create toolboxes, or load `.env`
-files. Export settings in the process that runs the agent.
+files for arbitrary applications. The starter app deliberately loads `.env`
+with `python-dotenv`; other apps must load or export settings before
+constructing `Model`.
 
 `TOOLBOX_ENDPOINT` is optional. Other supported forms and their precedence are
 in [Consume a toolbox](README.md#consume-a-toolbox). Pass the chosen settings

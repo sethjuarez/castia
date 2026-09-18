@@ -1,31 +1,46 @@
 ---
-title: Castia framework map
-description: How the Castia Python package is organized.
+title: Castia SDK map
+description: What the Castia SDK gives a Python agent.
 ---
 
-Application imports stay short. Implementation code lives in capability packages so protocol behavior, local testing, optimization, and delivery do not blur together.
+Application code should stay small. Castia keeps the agent loop, protocols,
+local testing, evaluation, optimization, and deployment handoff on the same rail.
 
 ## Shape of an app
 
 ```python
-from castia import Agent, Depends, Model, Teams
+from pathlib import Path
+
+from castia import Agent, Depends, Model, Teams, configured_model, load_agent_config
 
 app = Agent(name="my-agent")
 
 def model() -> Model:
-    return Model()
+    config = load_agent_config(Path(__file__).parent / ".agent_configs")
+    if not (config.instructions or "").strip():
+        raise RuntimeError("No baseline instructions loaded from .agent_configs.")
+    return configured_model(config)()
 
 @app.activity(Teams.direct, Teams.group, Teams.channel_mention)
+@app.responses()
+@app.invocations()
 async def reply(text: str, model: Model = Depends(model)) -> str:
     return await model.respond(text)
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="127.0.0.1", port=8088)
 ```
 
-## Framework parts
+Use `127.0.0.1` for local unauthenticated demos. Hosted deployments can bind to
+`0.0.0.0`.
 
-| Package | Implementation |
+## SDK pieces
+
+The root package exposes the short public API (`Agent`, `Router`, `Depends`,
+`Model`, `Message`, `Teams`, and related helpers). The SDK is split by what you
+are trying to do.
+
+| Area | What it is for |
 | --- | --- |
 | `protocols` | Activity wire models and protocol accessors. |
 | `runtime` | Agent and router composition, dependency injection, turn context, and dispatch. |
@@ -40,3 +55,17 @@ if __name__ == "__main__":
 | `finetuning` | RFT preparation, submission, and existing job management. |
 | `lifecycle` | Snapshots, datasets, evidence, acceptance, and promotion records. |
 | `delivery` | Manifest generation and guarded azd deployment. |
+
+## What is shipped
+
+| Surface | Status |
+| --- | --- |
+| Python SDK | Shipped. |
+| Responses, Activity, and Invocations adapters | Shipped. |
+| FastAPI-style dependency injection and routers | Shipped. |
+| Local protocol test harness | Shipped. |
+| Baseline `.agent_configs` resolution | Shipped through `castia[optimize]`. |
+| Foundry toolbox MCP specs | Shipped for Responses API server-side MCP execution. |
+| Evaluation suites, observation, optimizer handoff, lifecycle evidence | Shipped as guarded workflows. |
+| Reinforcement fine-tuning helpers | Provisional wire acceptance; check before submit. |
+| Rust SDK, Typra generation, Prompty integration, managed agent memory | Not shipped. |

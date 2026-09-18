@@ -27,7 +27,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     report = scaffold_project(root, name="test-agent", model="gpt-4o")
     assert report.app_target == "main:app"
     assert report.to_dict()["provisioned"] is False
-    assert len(report.files) == 14
+    assert len(report.files) == 15
     for filename in root.rglob("*.py"):
         compile(filename.read_text(encoding="utf-8"), str(filename), "exec")
     module = load_main(root)
@@ -37,6 +37,14 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
         module.app, root / ".agent_configs", check=True
     ).changed
     assert json.loads((root / "eval-seed.jsonl").read_text())["ground_truth"] == "4"
+    pyproject = (root / "pyproject.toml").read_text()
+    assert 'name = "test-agent"' in pyproject
+    assert "python-dotenv>=1.0.1" in pyproject
+    assert "package = false" in pyproject
+    assert (root / ".env.example").read_text() == (
+        "FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>\n"
+        "AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>\n"
+    )
     assert "EXPOSE 8088" in (root / "Dockerfile").read_text()
     assert '"main.py"' in (root / "Dockerfile").read_text()
     assert "FROM python:3.13-slim" in (root / "Dockerfile").read_text()
@@ -66,6 +74,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "AZURE_AI_PROJECT_ID" in guide
     assert "azd resolves the tenant from the subscription" in guide
     assert "does not create a project" in guide
+    assert "uv run --directory" in guide
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-W", "error", str(root / "tests")],
         cwd=root, capture_output=True, text=True, check=False,

@@ -36,21 +36,76 @@ def _project_files(name: str, model: str) -> dict[str, str]:
         requirement = f"castia[optimize]=={version('castia')}"
     except PackageNotFoundError:
         requirement = "castia[optimize]"
-    main = f'''"""Responses, Invocations and Teams share one model-backed handler."""
+    requirements = requirement + "\npython-dotenv>=1.0.1\n"
+    main = f'''"""Minimal Castia starter for local and hosted Foundry agent demos."""
 
+import os
+import re
 from pathlib import Path
 
 from castia import Agent, Depends, Teams
 
 app = Agent(name={name!r})
+AGENT_ROOT = Path(__file__).parent
+CONFIG_ROOT = AGENT_ROOT / ".agent_configs"
+PROJECT_ENDPOINT = re.compile(r"^https://[^/\\s]+/api/projects/[^/\\s]+$")
+
+
+def load_local_env() -> None:
+    env_path = AGENT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key and not key.lstrip().startswith("#"):
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        return
+    load_dotenv(env_path, override=False)
+
+
+def resolved_agent_config():
+    from castia import load_agent_config
+
+    config = load_agent_config(CONFIG_ROOT)
+    if not (config.instructions or "").strip():
+        raise RuntimeError(
+            "No baseline instructions were loaded from .agent_configs/baseline. "
+            "Install castia[optimize] and keep metadata.yaml + instructions.md with the agent."
+        )
+    return config
+
+
+def validate_startup() -> None:
+    load_local_env()
+    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "").strip()
+    deployment = os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "").strip()
+    missing = []
+    if not endpoint or endpoint.startswith("<"):
+        missing.append("FOUNDRY_PROJECT_ENDPOINT")
+    if not deployment or deployment.startswith("<"):
+        missing.append("AZURE_AI_MODEL_DEPLOYMENT_NAME")
+    if missing:
+        raise RuntimeError(
+            "Fill .env from .env.example before starting the agent; missing "
+            + ", ".join(missing)
+            + "."
+        )
+    if not PROJECT_ENDPOINT.match(endpoint):
+        raise RuntimeError(
+            "FOUNDRY_PROJECT_ENDPOINT must look like "
+            "https://<account>.services.ai.azure.com/api/projects/<project>."
+        )
+    resolved_agent_config()
 
 
 def model_provider():
     # Resolve candidates only on first use, never during module registration.
-    from castia import configured_model, load_agent_config
+    from castia import configured_model
 
-    config = load_agent_config(Path(__file__).parent / ".agent_configs")
-    return configured_model(config)()
+    return configured_model(resolved_agent_config())()
 
 
 @app.activity(Teams.direct)
@@ -61,14 +116,15 @@ async def reply(text: str, model=Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    app.run()
+    validate_startup()
+    app.run(host="127.0.0.1", port=8088)
 '''
     smoke = '''"""Offline protocol contract; no model, identity, or Azure calls."""
 
 import asyncio
 
 from castia.building import AgentTestHarness
-from main import app, model_provider
+from main import app, model_provider, validate_startup
 
 
 class EchoModel:
@@ -96,6 +152,16 @@ def test_protocols():
             assert response.status_code == 200
             assert test.egress[-1].body["text"] == "Echo: hello"
     asyncio.run(check())
+
+
+def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT",
+        "https://example.services.ai.azure.com/api/projects/demo",
+    )
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-4o")
+    validate_startup()
 '''
     protocols = "".join(
         f"      - protocol: {protocol}\n        version: 2.0.0\n"
@@ -103,7 +169,24 @@ def test_protocols():
     )
     return {
         "main.py": main,
-        "requirements.txt": requirement + "\n",
+        "pyproject.toml": (
+            "[project]\n"
+            f"name = {json.dumps(name)}\n"
+            "version = \"0.1.0\"\n"
+            "description = \"A minimal Castia starter agent for Microsoft Foundry.\"\n"
+            "requires-python = \">=3.11\"\n"
+            "dependencies = [\n"
+            f"    {json.dumps(requirement)},\n"
+            "    \"python-dotenv>=1.0.1\",\n"
+            "]\n\n"
+            "[project.optional-dependencies]\n"
+            "test = [\n"
+            "    \"pytest>=8\",\n"
+            "]\n\n"
+            "[tool.uv]\n"
+            "package = false\n"
+        ),
+        "requirements.txt": requirements,
         "requirements-dev.txt": "-r requirements.txt\npytest>=8\n",
         "Dockerfile": (
             "# Optional container alternative; azure.yaml defaults to remote code build.\n"
@@ -117,19 +200,23 @@ def test_protocols():
         ".dockerignore": ".git\n.venv\n.env\n.env.*\n__pycache__\ntests\n",
         ".gitignore": ".venv/\n.env\n.env.*\n!.env.example\n__pycache__/\n.pytest_cache/\n",
         ".env.example": (
-            "# Set these in your shell; Castia does not auto-load this file.\n"
-            "FOUNDRY_PROJECT_ENDPOINT=\n"
-            f"AZURE_AI_MODEL_DEPLOYMENT_NAME={model}\n"
-            "OPTIMIZATION_LOCAL_DIR=.agent_configs\n"
-            "# Existing-project deployment context; also set in the selected azd environment.\n"
-            "AZURE_LOCATION=\nAZURE_AI_PROJECT_ID=\nAZURE_SUBSCRIPTION_ID=\n"
-            "# azd resolves the tenant from the authenticated subscription at deployment.\n"
-            "# See DEPLOYMENT.md; no resources are created by this scaffold.\n"
+            "FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>\n"
+            "AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>\n"
         ),
         "DEPLOYMENT.md": (
             "# Deploy to an existing Foundry project\n\n"
             "This scaffold creates local files only. It does not create a project, "
             "model deployment, registry, identity, or infrastructure.\n\n"
+            "## Run locally first\n\n"
+            "Copy `.env.example` to `.env`, fill `FOUNDRY_PROJECT_ENDPOINT` and "
+            "`AZURE_AI_MODEL_DEPLOYMENT_NAME`, then run the app from the agent root:\n\n"
+            "```powershell\n"
+            "uv sync --project .\n"
+            "uv run --directory . python main.py\n"
+            "```\n\n"
+            "The entrypoint validates `.env` and `.agent_configs/baseline` before "
+            "serving. Use the Foundry Agent Playground health check against "
+            "`http://localhost:8088` before sending a model prompt.\n\n"
             "Before code deployment, select your existing azd environment and populate "
             "its context with values verified against that existing project:\n\n"
             "| Setting | Meaning |\n| --- | --- |\n"

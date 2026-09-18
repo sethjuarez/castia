@@ -3,7 +3,7 @@
 import asyncio
 
 from castia.building import AgentTestHarness
-from main import app, model_provider
+from main import app, model_provider, validate_startup
 
 
 class EchoModel:
@@ -44,3 +44,13 @@ def test_protocols():
             assert response.status_code == 200
             assert test.egress[-1].body["text"] == "Echo: hello"
     asyncio.run(check())
+
+
+def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT",
+        "https://example.services.ai.azure.com/api/projects/demo",
+    )
+    monkeypatch.setenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-4o")
+    validate_startup()
