@@ -173,6 +173,58 @@ fn chat_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ChatRuntime> = Box::new(CompileOnlyChatRuntime);
 }
 
+struct CompileOnlyDeliveryAzdRuntime;
+
+#[async_trait::async_trait]
+impl DeliveryAzdRuntime for CompileOnlyDeliveryAzdRuntime {
+    fn command_error_message(
+        &self,
+        command: &Vec<String>,
+        return_code: &i32,
+        stdout: &String,
+        stderr: &String,
+    ) -> String {
+        panic!("DeliveryAzdRuntime.commandErrorMessage is a compile-only protocol scaffold.")
+    }
+    fn validate_deployment_input(
+        &self,
+        service: &String,
+        environment: &Option<String>,
+        project_endpoint: &String,
+        project_resource_id: &String,
+        timeout: &f64,
+    ) -> serde_json::Value {
+        panic!("DeliveryAzdRuntime.validateDeploymentInput is a compile-only protocol scaffold.")
+    }
+    fn validate_environment_values(
+        &self,
+        values: &serde_json::Value,
+        requested_environment: &Option<String>,
+        project_endpoint: &String,
+        project_resource_id: &String,
+        subscription_id: &String,
+    ) -> serde_json::Value {
+        panic!("DeliveryAzdRuntime.validateEnvironmentValues is a compile-only protocol scaffold.")
+    }
+    fn verify_payload(
+        &self,
+        payload: &serde_json::Value,
+        service: &String,
+        project_endpoint: &String,
+        project_resource_id: &String,
+        expected_model: &Option<String>,
+        expected_candidate: &Option<String>,
+        expected_version: &Option<String>,
+    ) -> serde_json::Value {
+        panic!("DeliveryAzdRuntime.verifyPayload is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn delivery_azd_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn DeliveryAzdRuntime> = Box::new(CompileOnlyDeliveryAzdRuntime);
+}
+
 struct CompileOnlyEntitiesRuntime;
 
 #[async_trait::async_trait]

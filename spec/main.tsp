@@ -14,6 +14,7 @@ import "./inference/tools.tsp";
 import "./building/preflight.tsp";
 import "./building/scaffold.tsp";
 import "./building/testing.tsp";
+import "./delivery/azd.tsp";
 import "./evaluation/suite.tsp";
 import "./lifecycle/records.tsp";
 import "./lifecycle/storage.tsp";

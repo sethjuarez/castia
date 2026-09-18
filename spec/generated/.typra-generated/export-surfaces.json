@@ -45,6 +45,7 @@
         "ChannelAccount",
         "ChatRuntime",
         "ConversationAccount",
+        "DeliveryAzdRuntime",
         "EntitiesRuntime",
         "EvaluationSuiteRuntime",
         "IdentityRuntime",
@@ -149,6 +150,13 @@
           "group": "",
           "source": "conversation_account",
           "protocol": false
+        },
+        {
+          "name": "DeliveryAzdRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "delivery_azd_runtime",
+          "protocol": true
         },
         {
           "name": "EntitiesRuntime",
@@ -574,6 +582,79 @@
               "returns": "string",
               "params": {
                 "messages": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "DeliveryAzdRuntime",
+          "group": "",
+          "symbol": "DeliveryAzdRuntime",
+          "source": "delivery_azd_runtime",
+          "methods": [
+            {
+              "name": "commandErrorMessage",
+              "returns": "string",
+              "params": {
+                "command": "string[]",
+                "returnCode": "int32",
+                "stderr": "string",
+                "stdout": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateDeploymentInput",
+              "returns": "unknown",
+              "params": {
+                "environment": "string?",
+                "projectEndpoint": "string",
+                "projectResourceId": "string",
+                "service": "string",
+                "timeout": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateEnvironmentValues",
+              "returns": "unknown",
+              "params": {
+                "projectEndpoint": "string",
+                "projectResourceId": "string",
+                "requestedEnvironment": "string?",
+                "subscriptionId": "string",
+                "values": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "verifyPayload",
+              "returns": "unknown",
+              "params": {
+                "expectedCandidate": "string?",
+                "expectedModel": "string?",
+                "expectedVersion": "string?",
+                "payload": "unknown",
+                "projectEndpoint": "string",
+                "projectResourceId": "string",
+                "service": "string"
               },
               "optional": false,
               "sync": true,
@@ -1557,6 +1638,7 @@
         "chat_runtime",
         "context",
         "conversation_account",
+        "delivery_azd_runtime",
         "entities_runtime",
         "evaluation_suite_runtime",
         "identity_runtime",

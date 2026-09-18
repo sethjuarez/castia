@@ -713,6 +713,60 @@ pub fn run_chat_runtime_conformance<S: crate::model::ChatRuntime + ?Sized>(seam:
     }
 }
 
+/// Typed @vector conformance for DeliveryAzdRuntime. Pass your real `impl DeliveryAzdRuntime`; the
+/// `S: DeliveryAzdRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_delivery_azd_runtime_conformance(&DeliveryAzdRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_delivery_azd_runtime_conformance<S: crate::model::DeliveryAzdRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: azd-command-error-redacts-output
+    {
+        let command: Vec<String> = serde_json::from_str(
+            r####"
+[
+  "deploy",
+  "smoke",
+  "--no-prompt",
+  "--secret",
+  "token"
+]
+"####,
+        )
+        .expect("command parses");
+        let return_code: i32 = serde_json::from_str(
+            r####"
+1
+"####,
+        )
+        .expect("returnCode parses");
+        let stdout: String = serde_json::from_str(
+            r####"
+"SECRET-STDOUT"
+"####,
+        )
+        .expect("stdout parses");
+        let stderr: String = serde_json::from_str(
+            r####"
+"SECRET-STDERR"
+"####,
+        )
+        .expect("stderr parses");
+        let actual = seam.command_error_message(&command, &return_code, &stdout, &stderr);
+        let actual_value =
+            serde_json::to_value(actual).expect("azd-command-error-redacts-output: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"azd deploy smoke --no-prompt exited 1; inspect deployment logs and verify remote state before retrying"
+"####,
+        )
+        .expect("azd-command-error-redacts-output: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "azd-command-error-redacts-output misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for IdentityRuntime. Pass your real `impl IdentityRuntime`; the
 /// `S: IdentityRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_identity_runtime_conformance(&IdentityRuntimeImpl).await;` (or without `.await` when sync).

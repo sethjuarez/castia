@@ -1,4 +1,5 @@
 pub mod building;
+pub mod delivery;
 pub mod evaluation;
 pub mod inference;
 pub mod lifecycle;

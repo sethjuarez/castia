@@ -1,4 +1,5 @@
 use castia::building::{CastiaBuildPreflightRuntime, CastiaBuildTestingRuntime};
+use castia::delivery::CastiaDeliveryAzdRuntime;
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
@@ -12,11 +13,12 @@ use castia::messaging::{
 };
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
-    CardsRuntime, ChatRuntime, EntitiesRuntime, EvaluationSuiteRuntime, IdentityRuntime,
-    InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
-    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
-    ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
-    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    CardsRuntime, ChatRuntime, DeliveryAzdRuntime, EntitiesRuntime, EvaluationSuiteRuntime,
+    IdentityRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
+    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
+    ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
+    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext,
+    ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -131,6 +133,22 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "CardsRuntime.suggestedActions",
             sync(cards_suggested_actions),
+        ),
+        (
+            "DeliveryAzdRuntime.validateDeploymentInput",
+            sync_with_normalize(delivery_validate_deployment_input, delivery_azd_to_camel),
+        ),
+        (
+            "DeliveryAzdRuntime.validateEnvironmentValues",
+            sync(delivery_validate_environment_values),
+        ),
+        (
+            "DeliveryAzdRuntime.verifyPayload",
+            sync_with_normalize(delivery_verify_payload, delivery_azd_to_camel),
+        ),
+        (
+            "DeliveryAzdRuntime.commandErrorMessage",
+            sync(delivery_command_error_message),
         ),
         (
             "ChatRuntime.body",
@@ -1368,6 +1386,103 @@ fn build_validate_test_timeout(input: &Value, _: &Context) -> Result<Value, Vect
     .map_err(vector_error)
 }
 
+fn delivery_validate_deployment_input(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    castia::delivery::validate_deployment_input(
+        input
+            .get("service")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input.get("environment").and_then(Value::as_str),
+        input
+            .get("projectEndpoint")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("projectResourceId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("timeout")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+    )
+    .map_err(vector_error)
+}
+
+fn delivery_validate_environment_values(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    castia::delivery::validate_environment_values(
+        input.get("values").unwrap_or(&Value::Null),
+        input.get("requestedEnvironment").and_then(Value::as_str),
+        input
+            .get("projectEndpoint")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("projectResourceId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("subscriptionId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    )
+    .map(Value::String)
+    .map_err(vector_error)
+}
+
+fn delivery_verify_payload(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let payload = delivery_azd_to_snake(input.get("payload").unwrap_or(&Value::Null));
+    castia::delivery::verify_payload(
+        &payload,
+        input
+            .get("service")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("projectEndpoint")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input
+            .get("projectResourceId")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        input.get("expectedModel").and_then(Value::as_str),
+        input.get("expectedCandidate").and_then(Value::as_str),
+        input.get("expectedVersion").and_then(Value::as_str),
+    )
+    .map_err(vector_error)
+}
+
+fn delivery_command_error_message(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let command = input
+        .get("command")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    Ok(Value::String(
+        CastiaDeliveryAzdRuntime.command_error_message(
+            &command,
+            &(input
+                .get("returnCode")
+                .and_then(Value::as_i64)
+                .unwrap_or_default() as i32),
+            &input
+                .get("stdout")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            &input
+                .get("stderr")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        ),
+    ))
+}
+
 fn responses_input_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(serde_json::json!(
         CastiaResponsesRuntime.input_text(input.get("value").unwrap_or(&Value::Null))
@@ -1489,6 +1604,63 @@ fn build_scaffold_to_camel(value: &Value, _: &Context) -> Value {
                         },
                     )
                 })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn delivery_azd_to_camel(value: &Value, _: &Context) -> Value {
+    observe_vector_numbers(&delivery_azd_keys(value, false))
+}
+
+fn delivery_azd_to_snake(value: &Value) -> Value {
+    delivery_azd_keys(value, true)
+}
+
+fn delivery_azd_keys(value: &Value, to_snake: bool) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match (to_snake, key.as_str()) {
+                        (true, "projectEndpoint") => "project_endpoint",
+                        (true, "projectResourceId") => "project_resource_id",
+                        (true, "subscriptionId") => "subscription_id",
+                        (true, "environmentVariables") => "environment_variables",
+                        (true, "codeConfiguration") => "code_configuration",
+                        (true, "contentHash") => "content_hash",
+                        (true, "expectedModel") => "expected_model",
+                        (true, "expectedCandidate") => "expected_candidate",
+                        (true, "expectedVersion") => "expected_version",
+                        (true, "agentName") => "agent_name",
+                        (true, "agentVersion") => "agent_version",
+                        (true, "candidateId") => "candidate_id",
+                        (true, "returnCode") => "return_code",
+                        (false, "project_endpoint") => "projectEndpoint",
+                        (false, "project_resource_id") => "projectResourceId",
+                        (false, "subscription_id") => "subscriptionId",
+                        (false, "environment_variables") => "environmentVariables",
+                        (false, "code_configuration") => "codeConfiguration",
+                        (false, "content_hash") => "contentHash",
+                        (false, "expected_model") => "expectedModel",
+                        (false, "expected_candidate") => "expectedCandidate",
+                        (false, "expected_version") => "expectedVersion",
+                        (false, "agent_name") => "agentName",
+                        (false, "agent_version") => "agentVersion",
+                        (false, "candidate_id") => "candidateId",
+                        (false, "return_code") => "returnCode",
+                        _ => key.as_str(),
+                    };
+                    (translated.to_string(), delivery_azd_keys(value, to_snake))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|value| delivery_azd_keys(value, to_snake))
                 .collect(),
         ),
         _ => value.clone(),

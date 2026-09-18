@@ -37,6 +37,9 @@ pub use cards_runtime::*;
 pub mod chat_runtime;
 pub use chat_runtime::*;
 
+pub mod delivery_azd_runtime;
+pub use delivery_azd_runtime::*;
+
 pub mod entities_runtime;
 pub use entities_runtime::*;
 

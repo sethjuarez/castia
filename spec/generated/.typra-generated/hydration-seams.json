@@ -61,6 +61,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "DeliveryAzdRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "DeliveryAzdRuntime",
+      "generatedSource": "delivery_azd_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "EntitiesRuntime",
       "target": "rust",
       "group": "",
