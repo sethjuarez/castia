@@ -1,20 +1,36 @@
 use anyhow::{anyhow, bail, Context, Result};
+use axum::{
+    extract::State,
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
+};
+use castia::hosting::readiness_body;
 use castia::inference::{instructions_param, try_reasoning_param};
 use castia::protocols::{responses_body, responses_input};
 use serde_json::{json, Value};
 use std::env;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio::process::Command;
 
 const DEFAULT_PROMPT: &str = "Say hello from the Rust minimal agent.";
 const AI_FOUNDRY_SCOPE: &str = "https://ai.azure.com/.default";
+const HOSTED_REPLY_PREFIX: &str = "Castia Rust hosted smoke OK";
 
 #[tokio::main]
 async fn main() -> Result<()> {
     load_dotenv(".env")?;
 
     let args = Args::parse(env::args().skip(1))?;
+    if args.serve {
+        serve().await?;
+        return Ok(());
+    }
+
     let prompt = args.prompt.unwrap_or_else(|| DEFAULT_PROMPT.to_string());
 
     let text = responses_input(&json!([
@@ -47,6 +63,7 @@ async fn main() -> Result<()> {
 #[derive(Debug, Default)]
 struct Args {
     live: bool,
+    serve: bool,
     prompt: Option<String>,
 }
 
@@ -57,14 +74,16 @@ impl Args {
             match arg.as_str() {
                 "--offline" => parsed.live = false,
                 "--live" => parsed.live = true,
+                "--serve" => parsed.serve = true,
                 "--prompt" => {
                     parsed.prompt = Some(args.next().ok_or_else(|| anyhow!("--prompt needs text"))?)
                 }
                 "-h" | "--help" => {
                     println!(
-                        "Usage: cargo run -- [--offline|--live] [--prompt <text>]\n\n\
+                        "Usage: cargo run -- [--offline|--live|--serve] [--prompt <text>]\n\n\
                          --offline  Run local contract smoke only (default)\n\
-                         --live     Call the configured Foundry model deployment"
+                         --live     Call the configured Foundry model deployment\n\
+                         --serve    Serve hosted-agent Responses protocol on /responses"
                     );
                     std::process::exit(0);
                 }
@@ -73,6 +92,46 @@ impl Args {
         }
         Ok(parsed)
     }
+}
+
+#[derive(Clone)]
+struct AppState {
+    prefix: Arc<str>,
+}
+
+async fn serve() -> Result<()> {
+    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = env::var("PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8088);
+    let addr: SocketAddr = format!("{host}:{port}")
+        .parse()
+        .with_context(|| format!("parsing listen address {host}:{port}"))?;
+    let state = AppState {
+        prefix: Arc::<str>::from(
+            env::var("CASTIA_RUST_HOSTED_REPLY_PREFIX")
+                .unwrap_or_else(|_| HOSTED_REPLY_PREFIX.to_string()),
+        ),
+    };
+    let app = Router::new()
+        .route("/readiness", get(readiness))
+        .route("/responses", post(responses))
+        .with_state(state);
+    let listener = TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("binding {addr}"))?;
+    println!("Serving Castia Rust minimal agent on http://{addr}");
+    axum::serve(listener, app).await.context("serving agent")
+}
+
+async fn readiness() -> String {
+    readiness_body()
+}
+
+async fn responses(State(state): State<AppState>, Json(body): Json<Value>) -> Response {
+    let text = responses_input(body.get("input").unwrap_or(&Value::Null));
+    Json(responses_body(&format!("{}: {text}", state.prefix))).into_response()
 }
 
 struct LiveConfig {

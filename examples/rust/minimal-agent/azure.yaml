@@ -1,0 +1,22 @@
+name: castia-rust-minimal-agent
+services:
+  castia-rust-minimal-agent:
+    project: .
+    host: azure.ai.agent
+    language: docker
+    kind: hosted
+    name: castia-rust-minimal-agent
+    description: A minimal Castia Rust hosted agent serving Foundry Responses.
+    docker:
+      path: Dockerfile
+      context: ../../..
+      remoteBuild: true
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    env:
+      CASTIA_RUST_HOSTED_REPLY_PREFIX: Castia Rust hosted smoke OK
+    container:
+      resources:
+        cpu: '0.5'
+        memory: 1Gi

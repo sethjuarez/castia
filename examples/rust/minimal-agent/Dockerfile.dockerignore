@@ -1,0 +1,17 @@
+**
+
+!packages/
+!packages/rust/
+!packages/rust/**
+!examples/
+!examples/rust/
+!examples/rust/minimal-agent/
+!examples/rust/minimal-agent/**
+
+**/.azure/
+**/.env
+**/.env.*
+**/.git/
+**/.venv/
+**/__pycache__/
+**/target/
