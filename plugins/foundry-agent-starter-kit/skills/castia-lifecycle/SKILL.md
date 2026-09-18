@@ -221,22 +221,6 @@ as a universal configuration.
   including controlled candidate fixtures. It does not prove a fresh
   optimizer-generated candidate, a new hosted deployment, or training.
 
-## Hosted invoke trace lookup
-
-When a hosted deploy or `azd ai agent invoke` behaves oddly, do not re-invent
-the App Insights query flow. Use the recipe in
-[TRACING.md#hosted-invoke-trace-lookup](https://github.com/sethjuarez/castia/blob/main/packages/python/TRACING.md#hosted-invoke-trace-lookup):
-
-- read hosted logs with `azd ai agent monitor <service> --tail 120`;
-- use the trace ID printed by `azd ai agent invoke` as App Insights
-  `operation_Id`;
-- query `requests`, `dependencies`, and `traces` with one-line
-  `az monitor app-insights query` strings to avoid PowerShell/CLI quote loss;
-- treat `POST /responses` 200 + `invoke_agent` success + `chat <model>` success
-  with completed `gen_ai.output.messages` as proof the Castia handler and model
-  returned; if azd printed no answer text after that, suspect CLI/platform
-  response rendering rather than the application.
-
 RFT wire acceptance remains provisional. Offline validators do not establish
 that Foundry accepts the submitted grader/hyperparameter shape. Do not start
 training merely to complete a lifecycle checklist.
