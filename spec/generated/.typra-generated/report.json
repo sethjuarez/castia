@@ -3,7 +3,7 @@
   "version": 1,
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "summary": {
-    "emittedFiles": 48,
+    "emittedFiles": 49,
     "skippedFiles": 0,
     "staleMarkerOwnedRemovals": 0,
     "preservedUnmarkedSkippedFiles": 0,
@@ -38,6 +38,11 @@
     {
       "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/agent_config_resolver.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/build_preflight_runtime.rs",
       "marker": true
     },
     {

@@ -1,4 +1,4 @@
-use castia::building::CastiaBuildTestingRuntime;
+use castia::building::{CastiaBuildPreflightRuntime, CastiaBuildTestingRuntime};
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
@@ -11,12 +11,12 @@ use castia::messaging::{
     CastiaInvokesRuntime, CastiaRoutingRuntime,
 };
 use castia::model::{
-    Activity, ActivityRuntime, AgentConfigResolver, BuildTestingRuntime, CardsRuntime, ChatRuntime,
-    EntitiesRuntime, EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
-    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
-    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
-    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
-    RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
+    CardsRuntime, ChatRuntime, EntitiesRuntime, EvaluationSuiteRuntime, IdentityRuntime,
+    InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
+    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
+    ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
+    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -95,6 +95,18 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "BuildScaffoldRuntime.scaffoldFiles",
             sync_with_normalize(build_scaffold_files, build_scaffold_to_camel),
+        ),
+        (
+            "BuildPreflightRuntime.preflightReport",
+            sync_with_normalize(build_preflight_report, build_scaffold_to_camel),
+        ),
+        (
+            "BuildPreflightRuntime.requiredEnvDiagnostics",
+            sync(build_required_env_diagnostics),
+        ),
+        (
+            "BuildPreflightRuntime.deploymentContextDiagnostics",
+            sync(build_deployment_context_diagnostics),
         ),
         (
             "BuildTestingRuntime.projectTestReport",
@@ -1264,6 +1276,56 @@ fn build_scaffold_files(input: &Value, _: &Context) -> Result<Value, VectorError
             .unwrap_or_default(),
     )
     .map_err(vector_error)
+}
+
+fn build_preflight_report(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let protocols = input
+        .get("protocols")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    Ok(CastiaBuildPreflightRuntime.preflight_report(
+        &input
+            .get("root")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        &input
+            .get("appTarget")
+            .and_then(Value::as_str)
+            .unwrap_or("main:app")
+            .to_string(),
+        &protocols,
+        input.get("diagnostics").unwrap_or(&Value::Null),
+    ))
+}
+
+fn build_required_env_diagnostics(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let required_env = input
+        .get("requiredEnv")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    Ok(CastiaBuildPreflightRuntime.required_env_diagnostics(
+        input.get("environment").unwrap_or(&Value::Null),
+        &required_env,
+    ))
+}
+
+fn build_deployment_context_diagnostics(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaBuildPreflightRuntime.deployment_context_diagnostics(
+        input.get("environment").unwrap_or(&Value::Null),
+        &input
+            .get("deployment")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    ))
 }
 
 fn build_project_test_report(input: &Value, _: &Context) -> Result<Value, VectorError> {

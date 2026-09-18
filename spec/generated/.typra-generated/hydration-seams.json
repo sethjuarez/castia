@@ -21,6 +21,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "BuildPreflightRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "BuildPreflightRuntime",
+      "generatedSource": "build_preflight_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "BuildScaffoldRuntime",
       "target": "rust",
       "group": "",

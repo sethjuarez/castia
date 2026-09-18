@@ -22,6 +22,9 @@ pub use activity_runtime::*;
 pub mod agent_config_resolver;
 pub use agent_config_resolver::*;
 
+pub mod build_preflight_runtime;
+pub use build_preflight_runtime::*;
+
 pub mod build_scaffold_runtime;
 pub use build_scaffold_runtime::*;
 

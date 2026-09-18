@@ -37,6 +37,7 @@
         "ActivityRuntime",
         "AgentConfigResolution",
         "AgentConfigResolver",
+        "BuildPreflightRuntime",
         "BuildScaffoldRuntime",
         "BuildTestingRuntime",
         "CardsRuntime",
@@ -91,6 +92,13 @@
           "kind": "type",
           "group": "",
           "source": "agent_config_resolver",
+          "protocol": true
+        },
+        {
+          "name": "BuildPreflightRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "build_preflight_runtime",
           "protocol": true
         },
         {
@@ -373,6 +381,55 @@
               "optional": false,
               "sync": false,
               "runtimeCancellable": true,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "BuildPreflightRuntime",
+          "group": "",
+          "symbol": "BuildPreflightRuntime",
+          "source": "build_preflight_runtime",
+          "methods": [
+            {
+              "name": "deploymentContextDiagnostics",
+              "returns": "unknown",
+              "params": {
+                "deployment": "boolean",
+                "environment": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "preflightReport",
+              "returns": "unknown",
+              "params": {
+                "appTarget": "string",
+                "diagnostics": "unknown",
+                "protocols": "string[]",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "requiredEnvDiagnostics",
+              "returns": "unknown",
+              "params": {
+                "environment": "unknown",
+                "requiredEnv": "string[]"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
               "atomic": false,
               "nonFatal": false
             }
@@ -1491,6 +1548,7 @@
         "activity_runtime",
         "agent_config_resolution",
         "agent_config_resolver",
+        "build_preflight_runtime",
         "build_scaffold_runtime",
         "build_testing_runtime",
         "cards_runtime",

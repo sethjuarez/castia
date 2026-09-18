@@ -53,6 +53,40 @@ fn agent_config_resolver_compile_only_conformance() {
     let _scaffold: Box<dyn AgentConfigResolver> = Box::new(CompileOnlyAgentConfigResolver);
 }
 
+struct CompileOnlyBuildPreflightRuntime;
+
+#[async_trait::async_trait]
+impl BuildPreflightRuntime for CompileOnlyBuildPreflightRuntime {
+    fn deployment_context_diagnostics(
+        &self,
+        environment: &serde_json::Value,
+        deployment: &bool,
+    ) -> serde_json::Value {
+        panic!("BuildPreflightRuntime.deploymentContextDiagnostics is a compile-only protocol scaffold.")
+    }
+    fn preflight_report(
+        &self,
+        root: &String,
+        app_target: &String,
+        protocols: &Vec<String>,
+        diagnostics: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("BuildPreflightRuntime.preflightReport is a compile-only protocol scaffold.")
+    }
+    fn required_env_diagnostics(
+        &self,
+        environment: &serde_json::Value,
+        required_env: &Vec<String>,
+    ) -> serde_json::Value {
+        panic!("BuildPreflightRuntime.requiredEnvDiagnostics is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn build_preflight_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn BuildPreflightRuntime> = Box::new(CompileOnlyBuildPreflightRuntime);
+}
+
 struct CompileOnlyBuildScaffoldRuntime;
 
 #[async_trait::async_trait]
