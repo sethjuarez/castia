@@ -50,8 +50,8 @@ starter-castia-agent\
       metadata.yaml
 ```
 
-Use `pyproject.toml` as the local app contract and keep `requirements.txt` as
-the hosted code-deploy runtime mirror:
+Use `pyproject.toml` as the canonical dependency source. Keep
+`requirements.txt` only as the Foundry remote-build shim:
 
 ```toml
 [project]
@@ -66,9 +66,25 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+
 [tool.uv]
 package = false
 ```
+
+```text
+# requirements.txt
+-e .
+```
+
+Foundry/pip remote build needs a requirements entrypoint. The editable install
+points pip back at this local project, so dependency pins stay in
+`pyproject.toml` instead of being duplicated in two files.
 
 `.env.example` for the user to copy to `.env`:
 
