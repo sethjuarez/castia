@@ -9,6 +9,10 @@ impl ResponsesRuntime for CastiaResponsesRuntime {
     fn input_text(&self, value: &Value) -> String {
         responses_input(value)
     }
+
+    fn output_body(&self, text: &String) -> Value {
+        responses_body(text)
+    }
 }
 
 pub fn responses_input(value: &Value) -> String {

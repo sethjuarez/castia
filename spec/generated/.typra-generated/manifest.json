@@ -20,7 +20,17 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/chat_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/context.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/invocations_runtime.rs",
       "marker": true
     },
     {

@@ -39,7 +39,9 @@
         "AgentConfigResolver",
         "CastiaContracts",
         "ChannelAccount",
+        "ChatRuntime",
         "ConversationAccount",
+        "InvocationsRuntime",
         "Mention",
         "ResponsesRuntime"
       ],
@@ -87,11 +89,25 @@
           "protocol": false
         },
         {
+          "name": "ChatRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "chat_runtime",
+          "protocol": true
+        },
+        {
           "name": "ConversationAccount",
           "kind": "value",
           "group": "",
           "source": "conversation_account",
           "protocol": false
+        },
+        {
+          "name": "InvocationsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "invocations_runtime",
+          "protocol": true
         },
         {
           "name": "Mention",
@@ -211,6 +227,70 @@
           ]
         },
         {
+          "name": "ChatRuntime",
+          "group": "",
+          "symbol": "ChatRuntime",
+          "source": "chat_runtime",
+          "methods": [
+            {
+              "name": "body",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "lastUserText",
+              "returns": "string",
+              "params": {
+                "messages": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "InvocationsRuntime",
+          "group": "",
+          "symbol": "InvocationsRuntime",
+          "source": "invocations_runtime",
+          "methods": [
+            {
+              "name": "body",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "inputText",
+              "returns": "string",
+              "params": {
+                "body": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -221,6 +301,18 @@
               "returns": "string",
               "params": {
                 "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "outputBody",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
               },
               "optional": false,
               "sync": true,
@@ -238,8 +330,10 @@
         "agent_config_resolver",
         "castia_contracts",
         "channel_account",
+        "chat_runtime",
         "context",
         "conversation_account",
+        "invocations_runtime",
         "mention",
         "responses_runtime"
       ]

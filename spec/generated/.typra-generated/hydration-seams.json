@@ -21,6 +21,22 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "ChatRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ChatRuntime",
+      "generatedSource": "chat_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "InvocationsRuntime",
+      "generatedSource": "invocations_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ResponsesRuntime",
       "target": "rust",
       "group": "",

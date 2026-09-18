@@ -537,6 +537,230 @@ null
     }
 }
 
+/// Typed @vector conformance for ChatRuntime. Pass your real `impl ChatRuntime`; the
+/// `S: ChatRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_chat_runtime_conformance(&ChatRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_chat_runtime_conformance<S: crate::model::ChatRuntime + ?Sized>(seam: &S) {
+    // vector: last-user-turn
+    {
+        let messages: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user",
+    "content": "first"
+  },
+  {
+    "role": "assistant",
+    "content": "reply"
+  },
+  {
+    "role": "user",
+    "content": "second"
+  }
+]
+"####,
+        )
+        .expect("messages parses");
+        let actual = seam.last_user_text(&messages);
+        let actual_value = serde_json::to_value(actual).expect("last-user-turn: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"second"
+"####,
+        )
+        .expect("last-user-turn: expected parses");
+        assert_eq!(actual_value, expected, "last-user-turn misrouted");
+    }
+    // vector: missing-content-is-empty
+    {
+        let messages: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user"
+  }
+]
+"####,
+        )
+        .expect("messages parses");
+        let actual = seam.last_user_text(&messages);
+        let actual_value = serde_json::to_value(actual).expect("missing-content-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("missing-content-is-empty: expected parses");
+        assert_eq!(actual_value, expected, "missing-content-is-empty misrouted");
+    }
+    // vector: missing-user-turn
+    {
+        let messages: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "assistant",
+    "content": "reply"
+  }
+]
+"####,
+        )
+        .expect("messages parses");
+        let actual = seam.last_user_text(&messages);
+        let actual_value = serde_json::to_value(actual).expect("missing-user-turn: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("missing-user-turn: expected parses");
+        assert_eq!(actual_value, expected, "missing-user-turn misrouted");
+    }
+    // vector: null-messages
+    {
+        let messages: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("messages parses");
+        let actual = seam.last_user_text(&messages);
+        let actual_value = serde_json::to_value(actual).expect("null-messages: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("null-messages: expected parses");
+        assert_eq!(actual_value, expected, "null-messages misrouted");
+    }
+}
+
+/// Typed @vector conformance for InvocationsRuntime. Pass your real `impl InvocationsRuntime`; the
+/// `S: InvocationsRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_invocations_runtime_conformance(&InvocationsRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_invocations_runtime_conformance<S: crate::model::InvocationsRuntime + ?Sized>(seam: &S) {
+    // vector: bare-string
+    {
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+"hello"
+"####,
+        )
+        .expect("body parses");
+        let actual = seam.input_text(&body);
+        let actual_value = serde_json::to_value(actual).expect("bare-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"hello"
+"####,
+        )
+        .expect("bare-string: expected parses");
+        assert_eq!(actual_value, expected, "bare-string misrouted");
+    }
+    // vector: input-field
+    {
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "input": "hello"
+}
+"####,
+        )
+        .expect("body parses");
+        let actual = seam.input_text(&body);
+        let actual_value = serde_json::to_value(actual).expect("input-field: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"hello"
+"####,
+        )
+        .expect("input-field: expected parses");
+        assert_eq!(actual_value, expected, "input-field misrouted");
+    }
+    // vector: message-field
+    {
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "message": "hello"
+}
+"####,
+        )
+        .expect("body parses");
+        let actual = seam.input_text(&body);
+        let actual_value = serde_json::to_value(actual).expect("message-field: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"hello"
+"####,
+        )
+        .expect("message-field: expected parses");
+        assert_eq!(actual_value, expected, "message-field misrouted");
+    }
+    // vector: message-wins-over-input
+    {
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "message": "message",
+  "input": "input"
+}
+"####,
+        )
+        .expect("body parses");
+        let actual = seam.input_text(&body);
+        let actual_value = serde_json::to_value(actual).expect("message-wins-over-input: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"message"
+"####,
+        )
+        .expect("message-wins-over-input: expected parses");
+        assert_eq!(actual_value, expected, "message-wins-over-input misrouted");
+    }
+    // vector: non-string-fields-are-empty
+    {
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "message": 42,
+  "input": true
+}
+"####,
+        )
+        .expect("body parses");
+        let actual = seam.input_text(&body);
+        let actual_value = serde_json::to_value(actual).expect("non-string-fields-are-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("non-string-fields-are-empty: expected parses");
+        assert_eq!(actual_value, expected, "non-string-fields-are-empty misrouted");
+    }
+    // vector: null-is-empty
+    {
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("body parses");
+        let actual = seam.input_text(&body);
+        let actual_value = serde_json::to_value(actual).expect("null-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("null-is-empty: expected parses");
+        assert_eq!(actual_value, expected, "null-is-empty misrouted");
+    }
+}
+
 /// Typed @vector conformance for ResponsesRuntime. Pass your real `impl ResponsesRuntime`; the
 /// `S: ResponsesRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_responses_runtime_conformance(&ResponsesRuntimeImpl).await;` (or without `.await` when sync).

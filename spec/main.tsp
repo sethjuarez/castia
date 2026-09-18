@@ -1,5 +1,7 @@
 import "@typra/emitter";
 import "./protocols/activity.tsp";
+import "./protocols/chat.tsp";
+import "./protocols/invocations.tsp";
 import "./protocols/responses.tsp";
 import "./optimizing/config.tsp";
 

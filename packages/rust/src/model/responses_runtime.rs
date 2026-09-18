@@ -9,4 +9,6 @@
 pub trait ResponsesRuntime: Send + Sync {
     /// Normalize the Responses API polymorphic input field to the text sent to a handler.
     fn input_text(&self, value: &serde_json::Value) -> String;
+    /// Wrap handler text in the minimal OpenAI Responses envelope; vector comparison normalizes the generated id.
+    fn output_body(&self, text: &String) -> serde_json::Value;
 }

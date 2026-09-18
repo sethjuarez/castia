@@ -49,12 +49,49 @@ fn agent_config_resolver_compile_only_conformance() {
     let _scaffold: Box<dyn AgentConfigResolver> = Box::new(CompileOnlyAgentConfigResolver);
 }
 
+struct CompileOnlyChatRuntime;
+
+#[async_trait::async_trait]
+impl ChatRuntime for CompileOnlyChatRuntime {
+    fn body(&self, text: &String) -> serde_json::Value {
+        panic!("ChatRuntime.body is a compile-only protocol scaffold.")
+    }
+    fn last_user_text(&self, messages: &serde_json::Value) -> String {
+        panic!("ChatRuntime.lastUserText is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn chat_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ChatRuntime> = Box::new(CompileOnlyChatRuntime);
+}
+
+struct CompileOnlyInvocationsRuntime;
+
+#[async_trait::async_trait]
+impl InvocationsRuntime for CompileOnlyInvocationsRuntime {
+    fn body(&self, text: &String) -> serde_json::Value {
+        panic!("InvocationsRuntime.body is a compile-only protocol scaffold.")
+    }
+    fn input_text(&self, body: &serde_json::Value) -> String {
+        panic!("InvocationsRuntime.inputText is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn invocations_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn InvocationsRuntime> = Box::new(CompileOnlyInvocationsRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]
 impl ResponsesRuntime for CompileOnlyResponsesRuntime {
     fn input_text(&self, value: &serde_json::Value) -> String {
         panic!("ResponsesRuntime.inputText is a compile-only protocol scaffold.")
+    }
+    fn output_body(&self, text: &String) -> serde_json::Value {
+        panic!("ResponsesRuntime.outputBody is a compile-only protocol scaffold.")
     }
 }
 

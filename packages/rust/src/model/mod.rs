@@ -15,6 +15,12 @@ pub use activity_runtime::*;
 pub mod agent_config_resolver;
 pub use agent_config_resolver::*;
 
+pub mod chat_runtime;
+pub use chat_runtime::*;
+
+pub mod invocations_runtime;
+pub use invocations_runtime::*;
+
 pub mod responses_runtime;
 pub use responses_runtime::*;
 

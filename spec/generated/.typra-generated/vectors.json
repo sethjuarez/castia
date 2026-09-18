@@ -520,6 +520,292 @@
       }
     },
     {
+      "contract": "ChatRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "body",
+      "params": {
+        "text": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "chat-body",
+        "stage": "callable",
+        "input": {
+          "text": "hello"
+        },
+        "expected": {
+          "object": "chat.completion",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "hello"
+              },
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        "operation": "body"
+      }
+    },
+    {
+      "contract": "ChatRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "lastUserText",
+      "params": {
+        "messages": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "last-user-turn",
+        "stage": "callable",
+        "input": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "first"
+            },
+            {
+              "role": "assistant",
+              "content": "reply"
+            },
+            {
+              "role": "user",
+              "content": "second"
+            }
+          ]
+        },
+        "expected": "second",
+        "operation": "lastUserText"
+      }
+    },
+    {
+      "contract": "ChatRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "lastUserText",
+      "params": {
+        "messages": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "missing-content-is-empty",
+        "stage": "callable",
+        "input": {
+          "messages": [
+            {
+              "role": "user"
+            }
+          ]
+        },
+        "expected": "",
+        "operation": "lastUserText"
+      }
+    },
+    {
+      "contract": "ChatRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "lastUserText",
+      "params": {
+        "messages": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "missing-user-turn",
+        "stage": "callable",
+        "input": {
+          "messages": [
+            {
+              "role": "assistant",
+              "content": "reply"
+            }
+          ]
+        },
+        "expected": "",
+        "operation": "lastUserText"
+      }
+    },
+    {
+      "contract": "ChatRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "lastUserText",
+      "params": {
+        "messages": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "null-messages",
+        "stage": "callable",
+        "input": {
+          "messages": null
+        },
+        "expected": "",
+        "operation": "lastUserText"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "body",
+      "params": {
+        "text": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "invocations-body",
+        "stage": "callable",
+        "input": {
+          "text": "hello"
+        },
+        "expected": {
+          "output": "hello"
+        },
+        "operation": "body"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "body": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "bare-string",
+        "stage": "callable",
+        "input": {
+          "body": "hello"
+        },
+        "expected": "hello",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "body": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "input-field",
+        "stage": "callable",
+        "input": {
+          "body": {
+            "input": "hello"
+          }
+        },
+        "expected": "hello",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "body": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "message-field",
+        "stage": "callable",
+        "input": {
+          "body": {
+            "message": "hello"
+          }
+        },
+        "expected": "hello",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "body": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "message-wins-over-input",
+        "stage": "callable",
+        "input": {
+          "body": {
+            "message": "message",
+            "input": "input"
+          }
+        },
+        "expected": "message",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "body": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "non-string-fields-are-empty",
+        "stage": "callable",
+        "input": {
+          "body": {
+            "message": 42,
+            "input": true
+          }
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "InvocationsRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "body": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "null-is-empty",
+        "stage": "callable",
+        "input": {
+          "body": null
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
       "contract": "ResponsesRuntime",
       "namespace": "Castia.Spec.Protocols",
       "group": "",
@@ -841,6 +1127,42 @@
         },
         "expected": "the question",
         "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "outputBody",
+      "params": {
+        "text": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "output-body",
+        "stage": "callable",
+        "input": {
+          "text": "hello"
+        },
+        "expected": {
+          "object": "response",
+          "status": "completed",
+          "output_text": "hello",
+          "output": [
+            {
+              "type": "message",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "hello"
+                }
+              ]
+            }
+          ]
+        },
+        "operation": "outputBody"
       }
     }
   ],

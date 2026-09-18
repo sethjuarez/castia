@@ -114,4 +114,25 @@ interface ResponsesRuntime {
   })
   @doc("Normalize the Responses API polymorphic input field to the text sent to a handler.")
   inputText(value: unknown): string;
+
+  @sync
+  @vector(#{
+    name: "output-body",
+    stage: "callable",
+    input: #{ text: "hello" },
+    expected: #{
+      object: "response",
+      status: "completed",
+      output_text: "hello",
+      output: #[
+        #{
+          type: "message",
+          role: "assistant",
+          content: #[#{ type: "output_text", text: "hello" }],
+        },
+      ],
+    },
+  })
+  @doc("Wrap handler text in the minimal OpenAI Responses envelope; vector comparison normalizes the generated id.")
+  outputBody(text: string): unknown;
 }
