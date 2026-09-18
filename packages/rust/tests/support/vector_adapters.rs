@@ -40,7 +40,8 @@ use castia::model::{
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
     LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
     ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
-    RoutingRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
+    RoutingRuntime, RuntimeContextRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime,
+    SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -51,10 +52,10 @@ use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
 };
 use castia::runtime::{
-    include_plan as build_include_plan,
-    responses_only_projection as build_responses_only_projection,
-    wire_dispatch_plan as build_wire_dispatch_plan, CastiaRuntimeDispatchRuntime,
-    CastiaRuntimeRouterRuntime,
+    decorate_message as build_decorate_message, include_plan as build_include_plan,
+    responses_only_projection as build_responses_only_projection, turn_cite as build_turn_cite,
+    wire_dispatch_plan as build_wire_dispatch_plan, CastiaRuntimeContextRuntime,
+    CastiaRuntimeDispatchRuntime, CastiaRuntimeRouterRuntime,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -479,6 +480,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "RuntimeRouterRuntime.responsesOnlyProjection",
             sync(runtime_responses_only_projection),
+        ),
+        (
+            "RuntimeContextRuntime.turnCite",
+            sync(runtime_context_turn_cite),
+        ),
+        (
+            "RuntimeContextRuntime.decorateMessage",
+            sync(runtime_context_decorate_message),
         ),
         (
             "RuntimeDispatchRuntime.activityDispatchPlan",
@@ -1459,6 +1468,32 @@ fn runtime_responses_only_projection(input: &Value, _: &Context) -> Result<Value
         &string_array_input(input, "toolNames")?,
     )
     .map_err(vector_error)
+}
+
+fn runtime_context_turn_cite(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(build_turn_cite(
+        input.get("citations").unwrap_or(&Value::Null),
+        &string_input(input, "name")?,
+        &string_input(input, "url")?,
+        &string_input(input, "abstractText")?,
+        input.get("keywords").unwrap_or(&Value::Null),
+        &string_input(input, "icon")?,
+    ))
+}
+
+fn runtime_context_decorate_message(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(build_decorate_message(
+        input.get("payload").unwrap_or(&Value::Null),
+        input.get("turn").unwrap_or(&Value::Null),
+        input
+            .get("aiGenerated")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        input.get("citations").unwrap_or(&Value::Null),
+        input.get("sensitivity").unwrap_or(&Value::Null),
+        input.get("feedback").and_then(Value::as_str),
+        input.get("importance").and_then(Value::as_str),
+    ))
 }
 
 fn runtime_activity_dispatch_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {

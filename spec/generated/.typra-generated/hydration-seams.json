@@ -245,6 +245,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "RuntimeContextRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeContextRuntime",
+      "generatedSource": "runtime_context_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "RuntimeDispatchRuntime",
       "target": "rust",
       "group": "",

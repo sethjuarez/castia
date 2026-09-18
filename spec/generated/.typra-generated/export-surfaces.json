@@ -69,6 +69,7 @@
         "ObserveTracingRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
+        "RuntimeContextRuntime",
         "RuntimeDispatchRuntime",
         "RuntimeRouterRuntime",
         "ToolCatalogRuntime"
@@ -324,6 +325,13 @@
           "kind": "type",
           "group": "",
           "source": "routing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeContextRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_context_runtime",
           "protocol": true
         },
         {
@@ -2182,6 +2190,49 @@
           ]
         },
         {
+          "name": "RuntimeContextRuntime",
+          "group": "",
+          "symbol": "RuntimeContextRuntime",
+          "source": "runtime_context_runtime",
+          "methods": [
+            {
+              "name": "decorateMessage",
+              "returns": "unknown",
+              "params": {
+                "aiGenerated": "boolean",
+                "citations": "unknown",
+                "feedback": "string?",
+                "importance": "string?",
+                "payload": "unknown",
+                "sensitivity": "unknown",
+                "turn": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "turnCite",
+              "returns": "unknown",
+              "params": {
+                "abstractText": "string",
+                "citations": "unknown",
+                "icon": "string",
+                "keywords": "unknown",
+                "name": "string",
+                "url": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "RuntimeDispatchRuntime",
           "group": "",
           "symbol": "RuntimeDispatchRuntime",
@@ -2418,6 +2469,7 @@
         "observe_tracing_runtime",
         "responses_runtime",
         "routing_runtime",
+        "runtime_context_runtime",
         "runtime_dispatch_runtime",
         "runtime_router_runtime",
         "tool_catalog_runtime"

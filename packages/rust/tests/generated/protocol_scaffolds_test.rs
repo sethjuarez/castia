@@ -958,6 +958,40 @@ fn routing_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RoutingRuntime> = Box::new(CompileOnlyRoutingRuntime);
 }
 
+struct CompileOnlyRuntimeContextRuntime;
+
+#[async_trait::async_trait]
+impl RuntimeContextRuntime for CompileOnlyRuntimeContextRuntime {
+    fn decorate_message(
+        &self,
+        payload: &serde_json::Value,
+        turn: &serde_json::Value,
+        ai_generated: &bool,
+        citations: &serde_json::Value,
+        sensitivity: &serde_json::Value,
+        feedback: &Option<String>,
+        importance: &Option<String>,
+    ) -> serde_json::Value {
+        panic!("RuntimeContextRuntime.decorateMessage is a compile-only protocol scaffold.")
+    }
+    fn turn_cite(
+        &self,
+        citations: &serde_json::Value,
+        name: &String,
+        url: &String,
+        abstract_text: &String,
+        keywords: &serde_json::Value,
+        icon: &String,
+    ) -> serde_json::Value {
+        panic!("RuntimeContextRuntime.turnCite is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn runtime_context_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn RuntimeContextRuntime> = Box::new(CompileOnlyRuntimeContextRuntime);
+}
+
 struct CompileOnlyRuntimeDispatchRuntime;
 
 #[async_trait::async_trait]
