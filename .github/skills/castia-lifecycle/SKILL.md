@@ -209,6 +209,15 @@ Lifecycle evidence has its own snapshot/dataset/run schemas.
 RFT accepts explicit JSONL splits and a grader; it does not consume `eval.yaml`
 as a universal configuration.
 
+## Hosted invoke trace lookup
+
+When a hosted `azd ai agent invoke` succeeds but the terminal output is missing,
+ambiguous, or does not show the answer text, use
+[hosted-invoke-traces.md](hosted-invoke-traces.md). Treat the printed trace ID as
+the App Insights `operation_Id`, then check hosted logs, `requests`,
+`dependencies`, `traces`, `exceptions`, and `customEvents` before blaming Castia
+or the app handler.
+
 ## References and evidence
 
 - [Python README](../../../packages/python/README.md) covers tool builders,
