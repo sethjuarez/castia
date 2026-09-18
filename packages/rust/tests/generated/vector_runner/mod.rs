@@ -29,7 +29,14 @@
 // (the default) accepts either variant.
 // See docs: reference/vector-conformance.
 
-#![allow(unused_imports, dead_code, non_camel_case_types, unused_variables, unexpected_cfgs, clippy::all)]
+#![allow(
+    unused_imports,
+    dead_code,
+    non_camel_case_types,
+    unused_variables,
+    unexpected_cfgs,
+    clippy::all
+)]
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -48,16 +55,18 @@ pub struct VectorSeam {
     pub adapters: HashMap<&'static str, vector_adapters::Adapter>,
     pub waivers: HashMap<&'static str, &'static str>,
     pub doubles: Value,
-    pub capabilities:
-        Option<HashMap<&'static str, fn(&vector_adapters::Context) -> bool>>,
+    pub capabilities: Option<HashMap<&'static str, fn(&vector_adapters::Context) -> bool>>,
     pub base_dir: String,
 }
 
 fn vc_resolve_refs(value: &Value, dir: &std::path::Path) -> Value {
     match value {
-        Value::Array(items) => {
-            Value::Array(items.iter().map(|item| vc_resolve_refs(item, dir)).collect())
-        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| vc_resolve_refs(item, dir))
+                .collect(),
+        ),
         Value::Object(map) => {
             if map.len() == 1 {
                 if let Some((key, Value::String(raw))) = map.iter().next() {
@@ -73,8 +82,7 @@ fn vc_resolve_refs(value: &Value, dir: &std::path::Path) -> Value {
                         "$json" => {
                             let text = std::fs::read_to_string(dir.join(raw))
                                 .expect("failed to read $json");
-                            return serde_json::from_str(&text)
-                                .expect("failed to parse $json");
+                            return serde_json::from_str(&text).expect("failed to parse $json");
                         }
                         _ => {}
                     }
@@ -141,7 +149,10 @@ pub async fn vc_run_vector_dispatched(
     dispatch_path: Option<&str>,
 ) {
     let operation_key = format!("{}.{}", contract, operation);
-    let vector_name = vector.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed");
+    let vector_name = vector
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unnamed");
     let vector_id = format!("{}:{}", operation_key, vector_name);
 
     let adapters = &seam.adapters;
@@ -164,7 +175,10 @@ on the vector input.",
             match dispatched {
                 Some(adapter) => adapter,
                 None => {
-                    println!("SKIP {} (requirement unavailable: {})", vector_id, dispatch_key);
+                    println!(
+                        "SKIP {} (requirement unavailable: {})",
+                        vector_id, dispatch_key
+                    );
                     return;
                 }
             }
@@ -216,8 +230,14 @@ A @sync operation must resolve synchronously — register it Invoke::Sync (drop 
         contract: contract.to_string(),
         operation: operation.to_string(),
         vector: vector.clone(),
-        provider: vector.get("provider").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        target_api: vector.get("targetApi").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        provider: vector
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        target_api: vector
+            .get("targetApi")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         doubles: seam.doubles.clone(),
         base_dir: seam.base_dir.clone(),
     };
@@ -269,7 +289,6 @@ conformance never skips silently.",
         }
     };
 
-
     // Per-vector waiver, consulted even when an adapter IS registered. Keyed by
     // the vector id ("Contract.operation:name") or "operation:name" so it never
     // collides with an operation-level waiver. xfail: a waived vector that fails
@@ -298,7 +317,10 @@ conformance never skips silently.",
                 let expected = vector.get("expectedError").cloned().unwrap_or(Value::Null);
                 let got = normalize(observed);
                 if got != expected {
-                    Some(format!("{} error mismatch: expected {:?} but got {:?}", vector_id, expected, got))
+                    Some(format!(
+                        "{} error mismatch: expected {:?} but got {:?}",
+                        vector_id, expected, got
+                    ))
                 } else {
                     None
                 }
@@ -310,7 +332,10 @@ conformance never skips silently.",
                 let expected = vector.get("expected").cloned().unwrap_or(Value::Null);
                 let got = normalize(observed);
                 if got != expected {
-                    Some(format!("{} mismatch: expected {:?} but got {:?}", vector_id, expected, got))
+                    Some(format!(
+                        "{} mismatch: expected {:?} but got {:?}",
+                        vector_id, expected, got
+                    ))
                 } else {
                     None
                 }

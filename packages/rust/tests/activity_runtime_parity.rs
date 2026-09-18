@@ -88,7 +88,10 @@ fn activity_runtime_helpers_match_python_activity_semantics() {
         }),
         ..Activity::default()
     };
-    assert_eq!(runtime.agentic_user(&empty_agentic_user).as_deref(), Some(""));
+    assert_eq!(
+        runtime.agentic_user(&empty_agentic_user).as_deref(),
+        Some("")
+    );
     assert_eq!(
         runtime.agentic_tenant_id(&activity).as_deref(),
         Some("tenant-from-conversation")
@@ -107,7 +110,9 @@ fn activity_runtime_helpers_match_python_activity_semantics() {
         ..Activity::default()
     };
     assert_eq!(
-        runtime.agentic_tenant_id(&blank_recipient_tenant).as_deref(),
+        runtime
+            .agentic_tenant_id(&blank_recipient_tenant)
+            .as_deref(),
         Some("tenant-from-conversation")
     );
 

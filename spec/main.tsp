@@ -4,6 +4,11 @@ import "./protocols/chat.tsp";
 import "./protocols/invocations.tsp";
 import "./protocols/responses.tsp";
 import "./optimizing/config.tsp";
+import "./messaging/cards.tsp";
+import "./messaging/entities.tsp";
+import "./messaging/identity.tsp";
+import "./messaging/invokes.tsp";
+import "./messaging/routing.tsp";
 
 namespace Castia.Spec;
 

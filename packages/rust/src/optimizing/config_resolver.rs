@@ -58,11 +58,10 @@ impl CastiaAgentConfigResolver {
             };
         }
 
-        self.resolve_local(config_dir)
-            .unwrap_or_else(|| {
-                eprintln!("no local optimizer config resolved; using env defaults");
-                self.default_resolution()
-            })
+        self.resolve_local(config_dir).unwrap_or_else(|| {
+            eprintln!("no local optimizer config resolved; using env defaults");
+            self.default_resolution()
+        })
     }
 
     fn resolve_inline(&self, raw: &str) -> Option<AgentConfigResolution> {
@@ -90,7 +89,8 @@ impl CastiaAgentConfigResolver {
         let root = local_config_root(config_dir)?;
         let candidate_dir = select_candidate_dir(&root)?;
         let metadata_path = candidate_dir.join("metadata.yaml");
-        let metadata: Value = serde_yaml::from_str(&fs::read_to_string(&metadata_path).ok()?).ok()?;
+        let metadata: Value =
+            serde_yaml::from_str(&fs::read_to_string(&metadata_path).ok()?).ok()?;
 
         let instructions = metadata_string(&metadata, "instruction_file")
             .and_then(|instruction_file| read_relative(&candidate_dir, &instruction_file))
@@ -153,9 +153,12 @@ fn local_config_root(config_dir: Option<&str>) -> Option<PathBuf> {
 fn select_candidate_dir(root: &Path) -> Option<PathBuf> {
     if let Ok(candidate_id) = env::var("OPTIMIZATION_CANDIDATE_ID") {
         if !candidate_id.trim().is_empty() {
-            return [root.join(&candidate_id), root.join(".agent_configs").join(&candidate_id)]
-                .into_iter()
-                .find(|candidate| candidate.join("metadata.yaml").is_file());
+            return [
+                root.join(&candidate_id),
+                root.join(".agent_configs").join(&candidate_id),
+            ]
+            .into_iter()
+            .find(|candidate| candidate.join("metadata.yaml").is_file());
         }
     }
     [
@@ -177,7 +180,11 @@ fn metadata_string(metadata: &Value, key: &str) -> Option<String> {
 
 fn read_relative(base: &Path, file: &str) -> Option<String> {
     let path = PathBuf::from(file);
-    let path = if path.is_absolute() { path } else { base.join(path) };
+    let path = if path.is_absolute() {
+        path
+    } else {
+        base.join(path)
+    };
     fs::read_to_string(path).ok()
 }
 

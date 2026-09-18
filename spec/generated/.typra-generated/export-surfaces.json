@@ -37,13 +37,18 @@
         "ActivityRuntime",
         "AgentConfigResolution",
         "AgentConfigResolver",
+        "CardsRuntime",
         "CastiaContracts",
         "ChannelAccount",
         "ChatRuntime",
         "ConversationAccount",
+        "EntitiesRuntime",
+        "IdentityRuntime",
         "InvocationsRuntime",
+        "InvokesRuntime",
         "Mention",
-        "ResponsesRuntime"
+        "ResponsesRuntime",
+        "RoutingRuntime"
       ],
       "exports": [
         {
@@ -75,6 +80,13 @@
           "protocol": true
         },
         {
+          "name": "CardsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "cards_runtime",
+          "protocol": true
+        },
+        {
           "name": "CastiaContracts",
           "kind": "value",
           "group": "",
@@ -103,10 +115,31 @@
           "protocol": false
         },
         {
+          "name": "EntitiesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "entities_runtime",
+          "protocol": true
+        },
+        {
+          "name": "IdentityRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "identity_runtime",
+          "protocol": true
+        },
+        {
           "name": "InvocationsRuntime",
           "kind": "type",
           "group": "",
           "source": "invocations_runtime",
+          "protocol": true
+        },
+        {
+          "name": "InvokesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "invokes_runtime",
           "protocol": true
         },
         {
@@ -121,6 +154,13 @@
           "kind": "type",
           "group": "",
           "source": "responses_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RoutingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "routing_runtime",
           "protocol": true
         }
       ],
@@ -227,6 +267,66 @@
           ]
         },
         {
+          "name": "CardsRuntime",
+          "group": "",
+          "symbol": "CardsRuntime",
+          "source": "cards_runtime",
+          "methods": [
+            {
+              "name": "actionChips",
+              "returns": "unknown",
+              "params": {
+                "actions": "unknown",
+                "prompt": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "adaptiveCard",
+              "returns": "unknown",
+              "params": {
+                "body": "unknown",
+                "card": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "decisionCard",
+              "returns": "unknown",
+              "params": {
+                "actions": "unknown",
+                "card": "unknown",
+                "prompt": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "suggestedActions",
+              "returns": "unknown",
+              "params": {
+                "actions": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ChatRuntime",
           "group": "",
           "symbol": "ChatRuntime",
@@ -249,6 +349,115 @@
               "returns": "string",
               "params": {
                 "messages": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "EntitiesRuntime",
+          "group": "",
+          "symbol": "EntitiesRuntime",
+          "source": "entities_runtime",
+          "methods": [
+            {
+              "name": "citation",
+              "returns": "unknown",
+              "params": {
+                "abstractText": "string",
+                "icon": "string",
+                "keywords": "unknown",
+                "name": "string",
+                "position": "int32",
+                "url": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "feedbackChannelData",
+              "returns": "unknown",
+              "params": {
+                "kind": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "mentionEntity",
+              "returns": "unknown",
+              "params": {
+                "accountId": "string",
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "messageEntity",
+              "returns": "unknown",
+              "params": {
+                "aiGenerated": "boolean",
+                "citations": "unknown",
+                "sensitivity": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "sensitivityLabel",
+              "returns": "unknown",
+              "params": {
+                "description": "string",
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "IdentityRuntime",
+          "group": "",
+          "symbol": "IdentityRuntime",
+          "source": "identity_runtime",
+          "methods": [
+            {
+              "name": "agenticUserId",
+              "returns": "string?",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "requireAgenticUser",
+              "returns": "string",
+              "params": {
+                "activity": "Activity"
               },
               "optional": false,
               "sync": true,
@@ -291,6 +500,62 @@
           ]
         },
         {
+          "name": "InvokesRuntime",
+          "group": "",
+          "symbol": "InvokesRuntime",
+          "source": "invokes_runtime",
+          "methods": [
+            {
+              "name": "cardAction",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "cardInvokeResponse",
+              "returns": "unknown",
+              "params": {
+                "card": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "feedbackPayload",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "messageInvokeResponse",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -321,6 +586,50 @@
               "nonFatal": false
             }
           ]
+        },
+        {
+          "name": "RoutingRuntime",
+          "group": "",
+          "symbol": "RoutingRuntime",
+          "source": "routing_runtime",
+          "methods": [
+            {
+              "name": "teamsDirectMessage",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "teamsGroupChatMessage",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "teamsTaggedChannelMessage",
+              "returns": "boolean",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
         }
       ],
       "modules": [
@@ -328,14 +637,19 @@
         "activity_runtime",
         "agent_config_resolution",
         "agent_config_resolver",
+        "cards_runtime",
         "castia_contracts",
         "channel_account",
         "chat_runtime",
         "context",
         "conversation_account",
+        "entities_runtime",
+        "identity_runtime",
         "invocations_runtime",
+        "invokes_runtime",
         "mention",
-        "responses_runtime"
+        "responses_runtime",
+        "routing_runtime"
       ]
     }
   ]

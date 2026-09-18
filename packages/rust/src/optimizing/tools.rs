@@ -65,7 +65,11 @@ fn function_payload(value: &Value) -> Option<&Map<String, Value>> {
     value
         .get("function")
         .and_then(Value::as_object)
-        .or_else(|| value.as_object().filter(|object| object.contains_key("name")))
+        .or_else(|| {
+            value
+                .as_object()
+                .filter(|object| object.contains_key("name"))
+        })
 }
 
 fn apply_function_tool(tool: &Value, lookup: &Map<String, Value>) -> Option<Value> {
@@ -157,7 +161,10 @@ fn apply_function_payload(
     changed.then_some(out)
 }
 
-fn merge_parameter_descriptions(current: Option<&Value>, optimized: Option<&Value>) -> Option<Value> {
+fn merge_parameter_descriptions(
+    current: Option<&Value>,
+    optimized: Option<&Value>,
+) -> Option<Value> {
     let current = current?.as_object()?;
     let optimized = optimized?.as_object()?;
     let current_props = current.get("properties")?.as_object()?;

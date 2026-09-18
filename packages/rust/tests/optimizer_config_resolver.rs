@@ -43,7 +43,12 @@ fn candidate_precedence_fixture_matches_rust_resolution_contract() {
         .collect();
     assert_eq!(
         ids,
-        vec!["inline_config", "resolver_api", "local_agent_configs", "none"]
+        vec![
+            "inline_config",
+            "resolver_api",
+            "local_agent_configs",
+            "none"
+        ]
     );
     let affected: Vec<_> = fixture["precedence"]
         .as_array()
@@ -67,13 +72,19 @@ async fn inline_config_wins_over_local_and_uses_env_source() {
     );
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
     assert_eq!(resolution.source, "env:OPTIMIZATION_CONFIG");
     assert_eq!(resolution.model.as_deref(), Some("gpt-inline"));
-    assert_eq!(resolution.instructions.as_deref(), Some("inline instructions"));
+    assert_eq!(
+        resolution.instructions.as_deref(),
+        Some("inline instructions")
+    );
     assert_eq!(resolution.tool_definitions[0]["function"]["name"], "web");
 }
 
@@ -84,10 +95,16 @@ async fn resolver_api_env_is_terminal_and_does_not_fall_through_to_local() {
     write_baseline(&temp, "gpt-local", "local instructions", None);
     env::set_var("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-env");
     env::set_var("OPTIMIZATION_CANDIDATE_ID", "candidate-1");
-    env::set_var("OPTIMIZATION_RESOLVE_ENDPOINT", "https://example.invalid/resolve");
+    env::set_var(
+        "OPTIMIZATION_RESOLVE_ENDPOINT",
+        "https://example.invalid/resolve",
+    );
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -118,7 +135,10 @@ async fn local_candidate_id_wins_over_baseline_with_tools_file_alias() {
     env::set_var("OPTIMIZATION_CANDIDATE_ID", "candidate-1");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -139,7 +159,10 @@ async fn local_baseline_uses_config_dir_and_defaults_missing_model() {
     env::set_var("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-env");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -181,7 +204,10 @@ async fn malformed_inline_config_is_terminal_and_degrades_to_defaults() {
     env::set_var("OPTIMIZATION_CONFIG", "{not-json");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -199,7 +225,10 @@ async fn missing_requested_local_candidate_does_not_fall_back_to_baseline() {
     env::set_var("OPTIMIZATION_CANDIDATE_ID", "missing-candidate");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -213,12 +242,14 @@ async fn malformed_local_metadata_degrades_to_defaults() {
     let _guard = env_guard();
     let temp = temp_root("malformed_local_metadata");
     fs::create_dir_all(temp.join("baseline")).expect("baseline dir created");
-    fs::write(temp.join("baseline").join("metadata.yaml"), "model: [")
-        .expect("metadata written");
+    fs::write(temp.join("baseline").join("metadata.yaml"), "model: [").expect("metadata written");
     env::set_var("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-env");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -232,16 +263,25 @@ async fn resolver_api_requires_both_env_vars_before_terminal_fallback() {
     let _guard = env_guard();
     let temp = temp_root("resolver_requires_both");
     write_baseline(&temp, "gpt-local", "local instructions", None);
-    env::set_var("OPTIMIZATION_RESOLVE_ENDPOINT", "https://example.invalid/resolve");
+    env::set_var(
+        "OPTIMIZATION_RESOLVE_ENDPOINT",
+        "https://example.invalid/resolve",
+    );
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
     assert!(resolution.source.ends_with("baseline"));
     assert_eq!(resolution.model.as_deref(), Some("gpt-local"));
-    assert_eq!(resolution.instructions.as_deref(), Some("local instructions"));
+    assert_eq!(
+        resolution.instructions.as_deref(),
+        Some("local instructions")
+    );
 }
 
 #[tokio::test]
@@ -296,7 +336,10 @@ async fn local_skills_are_composed_into_instructions() {
     .expect("skill written");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -324,7 +367,10 @@ async fn tools_file_alias_is_used_when_tool_file_is_invalid() {
     .expect("tools written");
 
     let resolution = CastiaAgentConfigResolver
-        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .resolve(
+            &Some(temp.path().to_string_lossy().to_string()),
+            &AtomicBool::new(false),
+        )
         .await
         .expect("resolution succeeds");
 
@@ -365,10 +411,7 @@ impl Drop for TestDir {
 }
 
 fn temp_root(name: &str) -> TestDir {
-    let root = env::temp_dir().join(format!(
-        "castia-rust-{name}-{}",
-        std::process::id()
-    ));
+    let root = env::temp_dir().join(format!("castia-rust-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).expect("temp root created");
     TestDir(root)

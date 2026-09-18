@@ -728,6 +728,216 @@
       }
     },
     {
+      "contract": "CardsRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "actionChips",
+      "params": {
+        "actions": "unknown",
+        "prompt": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "action-chips",
+        "stage": "callable",
+        "input": {
+          "actions": [
+            "Thanks",
+            {
+              "title": "More",
+              "value": "Tell me more"
+            }
+          ],
+          "prompt": "Anything else?"
+        },
+        "expected": {
+          "contentType": "application/vnd.microsoft.card.adaptive",
+          "content": {
+            "type": "AdaptiveCard",
+            "version": "1.5",
+            "body": [
+              {
+                "type": "TextBlock",
+                "text": "Anything else?",
+                "wrap": true
+              }
+            ],
+            "actions": [
+              {
+                "type": "Action.Submit",
+                "title": "Thanks",
+                "data": {
+                  "msteams": {
+                    "type": "imBack",
+                    "value": "Thanks"
+                  },
+                  "choice": "Thanks"
+                }
+              },
+              {
+                "type": "Action.Submit",
+                "title": "More",
+                "data": {
+                  "msteams": {
+                    "type": "imBack",
+                    "value": "Tell me more"
+                  },
+                  "choice": "Tell me more"
+                }
+              }
+            ]
+          }
+        },
+        "operation": "actionChips"
+      }
+    },
+    {
+      "contract": "CardsRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "adaptiveCard",
+      "params": {
+        "body": "unknown",
+        "card": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "adaptive-card-default-version",
+        "stage": "callable",
+        "input": {
+          "body": [
+            {
+              "type": "TextBlock",
+              "text": "Deployment complete",
+              "weight": "Bolder"
+            }
+          ],
+          "card": {}
+        },
+        "expected": {
+          "contentType": "application/vnd.microsoft.card.adaptive",
+          "content": {
+            "type": "AdaptiveCard",
+            "version": "1.5",
+            "body": [
+              {
+                "type": "TextBlock",
+                "text": "Deployment complete",
+                "weight": "Bolder"
+              }
+            ]
+          }
+        },
+        "operation": "adaptiveCard"
+      }
+    },
+    {
+      "contract": "CardsRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "decisionCard",
+      "params": {
+        "actions": "unknown",
+        "prompt": "string",
+        "card": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "decision-card",
+        "stage": "callable",
+        "input": {
+          "actions": [
+            {
+              "title": "Approve",
+              "verb": "approve",
+              "data": {
+                "id": "42"
+              }
+            },
+            "cancel"
+          ],
+          "prompt": "Deploy?",
+          "card": {}
+        },
+        "expected": {
+          "contentType": "application/vnd.microsoft.card.adaptive",
+          "content": {
+            "type": "AdaptiveCard",
+            "version": "1.5",
+            "body": [
+              {
+                "type": "TextBlock",
+                "text": "Deploy?",
+                "wrap": true,
+                "weight": "Bolder"
+              }
+            ],
+            "actions": [
+              {
+                "type": "Action.Execute",
+                "title": "Approve",
+                "verb": "approve",
+                "data": {
+                  "id": "42"
+                }
+              },
+              {
+                "type": "Action.Execute",
+                "title": "cancel",
+                "verb": "cancel",
+                "data": {}
+              }
+            ]
+          }
+        },
+        "operation": "decisionCard"
+      }
+    },
+    {
+      "contract": "CardsRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "suggestedActions",
+      "params": {
+        "actions": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "suggested-actions-string-and-dict",
+        "stage": "callable",
+        "input": {
+          "actions": [
+            "Yes",
+            {
+              "title": "Nope",
+              "value": "No",
+              "type": "postBack"
+            }
+          ]
+        },
+        "expected": {
+          "actions": [
+            {
+              "type": "imBack",
+              "title": "Yes",
+              "value": "Yes"
+            },
+            {
+              "type": "postBack",
+              "title": "Nope",
+              "value": "No"
+            }
+          ],
+          "to": []
+        },
+        "operation": "suggestedActions"
+      }
+    },
+    {
       "contract": "ChatRuntime",
       "namespace": "Castia.Spec.Protocols",
       "group": "",
@@ -859,6 +1069,306 @@
         },
         "expected": "",
         "operation": "lastUserText"
+      }
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "citation",
+      "params": {
+        "position": "int32",
+        "name": "string",
+        "url": "string",
+        "abstractText": "string",
+        "keywords": "unknown",
+        "icon": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "citation-caps-keywords",
+        "stage": "callable",
+        "input": {
+          "position": 2,
+          "name": "Quarterly Report",
+          "url": "https://example/report",
+          "abstractText": "Q3 numbers",
+          "keywords": [
+            "a",
+            "b",
+            "c",
+            "d"
+          ],
+          "icon": "PDF"
+        },
+        "expected": {
+          "position": 2,
+          "appearance": {
+            "name": "Quarterly Report",
+            "url": "https://example/report",
+            "abstract": "Q3 numbers",
+            "keywords": [
+              "a",
+              "b",
+              "c"
+            ],
+            "image": {
+              "name": "PDF"
+            }
+          }
+        },
+        "operation": "citation"
+      }
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "feedbackChannelData",
+      "params": {
+        "kind": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "feedback-default",
+        "stage": "callable",
+        "input": {
+          "kind": "default"
+        },
+        "expected": {
+          "feedbackLoop": {
+            "type": "default"
+          }
+        },
+        "operation": "feedbackChannelData"
+      }
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "mentionEntity",
+      "params": {
+        "accountId": "string",
+        "name": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "mention-entity",
+        "stage": "callable",
+        "input": {
+          "accountId": "8:orgid:aad-123",
+          "name": "Ada"
+        },
+        "expected": {
+          "type": "mention",
+          "mentioned": {
+            "id": "8:orgid:aad-123",
+            "name": "Ada"
+          },
+          "text": "<at>Ada</at>"
+        },
+        "operation": "mentionEntity"
+      }
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "messageEntity",
+      "params": {
+        "aiGenerated": "boolean",
+        "citations": "unknown",
+        "sensitivity": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "message-entity-combines-facets",
+        "stage": "callable",
+        "input": {
+          "aiGenerated": true,
+          "citations": [
+            {
+              "position": 1,
+              "appearance": {
+                "name": "Doc"
+              }
+            }
+          ],
+          "sensitivity": {
+            "name": "Confidential"
+          }
+        },
+        "expected": {
+          "type": "https://schema.org/Message",
+          "additionalType": [
+            "AIGeneratedContent"
+          ],
+          "citation": [
+            {
+              "position": 1,
+              "appearance": {
+                "name": "Doc"
+              }
+            }
+          ],
+          "usageInfo": {
+            "name": "Confidential"
+          }
+        },
+        "operation": "messageEntity"
+      }
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "messageEntity",
+      "params": {
+        "aiGenerated": "boolean",
+        "citations": "unknown",
+        "sensitivity": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "message-entity-none",
+        "stage": "callable",
+        "input": {
+          "aiGenerated": false,
+          "citations": null,
+          "sensitivity": null
+        },
+        "expected": null,
+        "operation": "messageEntity"
+      }
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "sensitivityLabel",
+      "params": {
+        "name": "string",
+        "description": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "sensitivity-with-description",
+        "stage": "callable",
+        "input": {
+          "name": "Confidential",
+          "description": "Internal only"
+        },
+        "expected": {
+          "name": "Confidential",
+          "description": "Internal only"
+        },
+        "operation": "sensitivityLabel"
+      }
+    },
+    {
+      "contract": "IdentityRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "agenticUserId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-user-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticUser",
+              "agenticUserId": "user-1"
+            }
+          }
+        },
+        "expected": "user-1",
+        "operation": "agenticUserId"
+      }
+    },
+    {
+      "contract": "IdentityRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "agenticUserId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "app-instance-has-no-mailbox",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance",
+              "agenticUserId": "user-1"
+            }
+          }
+        },
+        "expected": null,
+        "operation": "agenticUserId"
+      }
+    },
+    {
+      "contract": "IdentityRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "requireAgenticUser",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "require-agentic-user-fails",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "bot"
+            }
+          }
+        },
+        "expectedError": "this action requires the agent's Agentic-User identity (Frontier preview); recipient.role='bot' carries no mailbox",
+        "operation": "requireAgenticUser"
+      }
+    },
+    {
+      "contract": "IdentityRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "requireAgenticUser",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "require-agentic-user-pass",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticUser",
+              "agenticUserId": "user-1"
+            }
+          }
+        },
+        "expected": "user-1",
+        "operation": "requireAgenticUser"
       }
     },
     {
@@ -1011,6 +1521,153 @@
         },
         "expected": "",
         "operation": "inputText"
+      }
+    },
+    {
+      "contract": "InvokesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "cardAction",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "card-action",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "value": {
+              "action": {
+                "type": "Action.Execute",
+                "verb": "approve",
+                "data": {
+                  "choice": "approve"
+                }
+              },
+              "trigger": "manual"
+            }
+          }
+        },
+        "expected": {
+          "verb": "approve",
+          "data": {
+            "choice": "approve"
+          }
+        },
+        "operation": "cardAction"
+      }
+    },
+    {
+      "contract": "InvokesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "cardInvokeResponse",
+      "params": {
+        "card": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "card-response-unwraps-attachment",
+        "stage": "callable",
+        "input": {
+          "card": {
+            "contentType": "application/vnd.microsoft.card.adaptive",
+            "content": {
+              "type": "AdaptiveCard",
+              "body": []
+            }
+          }
+        },
+        "expected": {
+          "statusCode": 200,
+          "type": "application/vnd.microsoft.card.adaptive",
+          "value": {
+            "type": "AdaptiveCard",
+            "body": []
+          }
+        },
+        "operation": "cardInvokeResponse"
+      }
+    },
+    {
+      "contract": "InvokesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "feedbackPayload",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "feedback-empty",
+        "stage": "callable",
+        "input": {
+          "activity": {}
+        },
+        "expected": {
+          "reaction": null,
+          "feedback": null
+        },
+        "operation": "feedbackPayload"
+      }
+    },
+    {
+      "contract": "InvokesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "feedbackPayload",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "feedback-payload",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "value": {
+              "actionName": "feedback",
+              "actionValue": {
+                "reaction": "like",
+                "feedback": "{\"feedbackText\":\"nice\"}"
+              }
+            }
+          }
+        },
+        "expected": {
+          "reaction": "like",
+          "feedback": "{\"feedbackText\":\"nice\"}"
+        },
+        "operation": "feedbackPayload"
+      }
+    },
+    {
+      "contract": "InvokesRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "messageInvokeResponse",
+      "params": {
+        "text": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "message-response",
+        "stage": "callable",
+        "input": {
+          "text": "done"
+        },
+        "expected": {
+          "statusCode": 200,
+          "type": "application/vnd.microsoft.activity.message",
+          "value": "done"
+        },
+        "operation": "messageInvokeResponse"
       }
     },
     {
@@ -1371,6 +2028,186 @@
           ]
         },
         "operation": "outputBody"
+      }
+    },
+    {
+      "contract": "RoutingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "teamsDirectMessage",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "direct-rejects-non-teams",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "type": "message",
+            "channelId": "slack",
+            "conversation": {
+              "conversationType": "personal"
+            }
+          }
+        },
+        "expected": false,
+        "operation": "teamsDirectMessage"
+      }
+    },
+    {
+      "contract": "RoutingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "teamsDirectMessage",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "teams-direct",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "type": "message",
+            "channelId": "msteams",
+            "conversation": {
+              "conversationType": "personal"
+            }
+          }
+        },
+        "expected": true,
+        "operation": "teamsDirectMessage"
+      }
+    },
+    {
+      "contract": "RoutingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "teamsDirectMessage",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "teams-direct-channel-suffix",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "type": "message",
+            "channelId": "msteams:tenant",
+            "conversation": {
+              "conversationType": "personal"
+            }
+          }
+        },
+        "expected": true,
+        "operation": "teamsDirectMessage"
+      }
+    },
+    {
+      "contract": "RoutingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "teamsGroupChatMessage",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "teams-group",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "type": "message",
+            "channelId": "msteams",
+            "conversation": {
+              "conversationType": "groupChat"
+            }
+          }
+        },
+        "expected": true,
+        "operation": "teamsGroupChatMessage"
+      }
+    },
+    {
+      "contract": "RoutingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "teamsTaggedChannelMessage",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "teams-channel-mention",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "type": "message",
+            "channelId": "msteams",
+            "conversation": {
+              "conversationType": "channel"
+            },
+            "recipient": {
+              "id": "28:agent"
+            },
+            "entities": [
+              {
+                "type": "mention",
+                "mentioned": {
+                  "id": "28:agent"
+                },
+                "text": "<at>HAL</at>"
+              }
+            ]
+          }
+        },
+        "expected": true,
+        "operation": "teamsTaggedChannelMessage"
+      }
+    },
+    {
+      "contract": "RoutingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "teamsTaggedChannelMessage",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "teams-channel-without-mention",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "type": "message",
+            "channelId": "msteams",
+            "conversation": {
+              "conversationType": "channel"
+            },
+            "recipient": {
+              "id": "28:agent"
+            },
+            "entities": [
+              {
+                "type": "mention",
+                "mentioned": {
+                  "id": "29:user"
+                },
+                "text": "<at>User</at>"
+              }
+            ]
+          }
+        },
+        "expected": false,
+        "operation": "teamsTaggedChannelMessage"
       }
     }
   ],

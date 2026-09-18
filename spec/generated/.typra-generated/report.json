@@ -3,7 +3,7 @@
   "version": 1,
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "summary": {
-    "emittedFiles": 29,
+    "emittedFiles": 34,
     "skippedFiles": 0,
     "staleMarkerOwnedRemovals": 0,
     "preservedUnmarkedSkippedFiles": 0,
@@ -42,6 +42,11 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/cards_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/castia_contracts.rs",
       "marker": true
     },
@@ -57,7 +62,22 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/entities_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/identity_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/invocations_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/invokes_runtime.rs",
       "marker": true
     },
     {
@@ -103,6 +123,11 @@
     {
       "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/responses_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/routing_runtime.rs",
       "marker": true
     },
     {

@@ -39,7 +39,11 @@ struct CompileOnlyAgentConfigResolver;
 
 #[async_trait::async_trait]
 impl AgentConfigResolver for CompileOnlyAgentConfigResolver {
-    async fn resolve(&self, config_dir: &Option<String>, cancellation: &CancellationToken) -> Result<AgentConfigResolution, Box<dyn std::error::Error + Send + Sync>> {
+    async fn resolve(
+        &self,
+        config_dir: &Option<String>,
+        cancellation: &CancellationToken,
+    ) -> Result<AgentConfigResolution, Box<dyn std::error::Error + Send + Sync>> {
         Err("AgentConfigResolver.resolve is a compile-only protocol scaffold.".into())
     }
 }
@@ -47,6 +51,38 @@ impl AgentConfigResolver for CompileOnlyAgentConfigResolver {
 #[test]
 fn agent_config_resolver_compile_only_conformance() {
     let _scaffold: Box<dyn AgentConfigResolver> = Box::new(CompileOnlyAgentConfigResolver);
+}
+
+struct CompileOnlyCardsRuntime;
+
+#[async_trait::async_trait]
+impl CardsRuntime for CompileOnlyCardsRuntime {
+    fn action_chips(&self, actions: &serde_json::Value, prompt: &String) -> serde_json::Value {
+        panic!("CardsRuntime.actionChips is a compile-only protocol scaffold.")
+    }
+    fn adaptive_card(
+        &self,
+        body: &serde_json::Value,
+        card: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("CardsRuntime.adaptiveCard is a compile-only protocol scaffold.")
+    }
+    fn decision_card(
+        &self,
+        actions: &serde_json::Value,
+        prompt: &String,
+        card: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("CardsRuntime.decisionCard is a compile-only protocol scaffold.")
+    }
+    fn suggested_actions(&self, actions: &serde_json::Value) -> serde_json::Value {
+        panic!("CardsRuntime.suggestedActions is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn cards_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn CardsRuntime> = Box::new(CompileOnlyCardsRuntime);
 }
 
 struct CompileOnlyChatRuntime;
@@ -66,6 +102,62 @@ fn chat_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ChatRuntime> = Box::new(CompileOnlyChatRuntime);
 }
 
+struct CompileOnlyEntitiesRuntime;
+
+#[async_trait::async_trait]
+impl EntitiesRuntime for CompileOnlyEntitiesRuntime {
+    fn citation(
+        &self,
+        position: &i32,
+        name: &String,
+        url: &String,
+        abstract_text: &String,
+        keywords: &serde_json::Value,
+        icon: &String,
+    ) -> serde_json::Value {
+        panic!("EntitiesRuntime.citation is a compile-only protocol scaffold.")
+    }
+    fn feedback_channel_data(&self, kind: &String) -> serde_json::Value {
+        panic!("EntitiesRuntime.feedbackChannelData is a compile-only protocol scaffold.")
+    }
+    fn mention_entity(&self, account_id: &String, name: &String) -> serde_json::Value {
+        panic!("EntitiesRuntime.mentionEntity is a compile-only protocol scaffold.")
+    }
+    fn message_entity(
+        &self,
+        ai_generated: &bool,
+        citations: &serde_json::Value,
+        sensitivity: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("EntitiesRuntime.messageEntity is a compile-only protocol scaffold.")
+    }
+    fn sensitivity_label(&self, name: &String, description: &String) -> serde_json::Value {
+        panic!("EntitiesRuntime.sensitivityLabel is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn entities_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn EntitiesRuntime> = Box::new(CompileOnlyEntitiesRuntime);
+}
+
+struct CompileOnlyIdentityRuntime;
+
+#[async_trait::async_trait]
+impl IdentityRuntime for CompileOnlyIdentityRuntime {
+    fn agentic_user_id(&self, activity: &Activity) -> Option<String> {
+        panic!("IdentityRuntime.agenticUserId is a compile-only protocol scaffold.")
+    }
+    fn require_agentic_user(&self, activity: &Activity) -> String {
+        panic!("IdentityRuntime.requireAgenticUser is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn identity_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn IdentityRuntime> = Box::new(CompileOnlyIdentityRuntime);
+}
+
 struct CompileOnlyInvocationsRuntime;
 
 #[async_trait::async_trait]
@@ -83,6 +175,29 @@ fn invocations_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn InvocationsRuntime> = Box::new(CompileOnlyInvocationsRuntime);
 }
 
+struct CompileOnlyInvokesRuntime;
+
+#[async_trait::async_trait]
+impl InvokesRuntime for CompileOnlyInvokesRuntime {
+    fn card_action(&self, activity: &Activity) -> serde_json::Value {
+        panic!("InvokesRuntime.cardAction is a compile-only protocol scaffold.")
+    }
+    fn card_invoke_response(&self, card: &serde_json::Value) -> serde_json::Value {
+        panic!("InvokesRuntime.cardInvokeResponse is a compile-only protocol scaffold.")
+    }
+    fn feedback_payload(&self, activity: &Activity) -> serde_json::Value {
+        panic!("InvokesRuntime.feedbackPayload is a compile-only protocol scaffold.")
+    }
+    fn message_invoke_response(&self, text: &String) -> serde_json::Value {
+        panic!("InvokesRuntime.messageInvokeResponse is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn invokes_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn InvokesRuntime> = Box::new(CompileOnlyInvokesRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]
@@ -98,4 +213,24 @@ impl ResponsesRuntime for CompileOnlyResponsesRuntime {
 #[test]
 fn responses_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ResponsesRuntime> = Box::new(CompileOnlyResponsesRuntime);
+}
+
+struct CompileOnlyRoutingRuntime;
+
+#[async_trait::async_trait]
+impl RoutingRuntime for CompileOnlyRoutingRuntime {
+    fn teams_direct_message(&self, activity: &Activity) -> bool {
+        panic!("RoutingRuntime.teamsDirectMessage is a compile-only protocol scaffold.")
+    }
+    fn teams_group_chat_message(&self, activity: &Activity) -> bool {
+        panic!("RoutingRuntime.teamsGroupChatMessage is a compile-only protocol scaffold.")
+    }
+    fn teams_tagged_channel_message(&self, activity: &Activity) -> bool {
+        panic!("RoutingRuntime.teamsTaggedChannelMessage is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn routing_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn RoutingRuntime> = Box::new(CompileOnlyRoutingRuntime);
 }

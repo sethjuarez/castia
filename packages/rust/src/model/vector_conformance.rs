@@ -11,7 +11,14 @@
 // no cycle); emitted additively beside the stringly runner.
 // See docs: reference/vector-conformance.
 
-#![allow(unused_imports, dead_code, non_camel_case_types, unused_variables, unexpected_cfgs, clippy::all)]
+#![allow(
+    unused_imports,
+    dead_code,
+    non_camel_case_types,
+    unused_variables,
+    unexpected_cfgs,
+    clippy::all
+)]
 
 use serde_json::Value;
 
@@ -59,14 +66,18 @@ pub fn run_activity_runtime_conformance<S: crate::model::ActivityRuntime + ?Size
         )
         .expect("activity parses");
         let actual = seam.agentic_instance_id(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-instance-id-empty-string: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("agentic-instance-id-empty-string: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 ""
 "####,
         )
         .expect("agentic-instance-id-empty-string: expected parses");
-        assert_eq!(actual_value, expected, "agentic-instance-id-empty-string misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-instance-id-empty-string misrouted"
+        );
     }
     // vector: agentic-recipient-role
     {
@@ -108,14 +119,18 @@ true
         )
         .expect("activity parses");
         let actual = seam.agentic_tenant_id(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-tenant-falls-back-to-conversation: serialize");
+        let actual_value = serde_json::to_value(actual)
+            .expect("agentic-tenant-falls-back-to-conversation: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "tenant-conversation"
 "####,
         )
         .expect("agentic-tenant-falls-back-to-conversation: expected parses");
-        assert_eq!(actual_value, expected, "agentic-tenant-falls-back-to-conversation misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-tenant-falls-back-to-conversation misrouted"
+        );
     }
     // vector: agentic-tenant-prefers-recipient
     {
@@ -135,14 +150,18 @@ true
         )
         .expect("activity parses");
         let actual = seam.agentic_tenant_id(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-tenant-prefers-recipient: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("agentic-tenant-prefers-recipient: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "tenant-recipient"
 "####,
         )
         .expect("agentic-tenant-prefers-recipient: expected parses");
-        assert_eq!(actual_value, expected, "agentic-tenant-prefers-recipient misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-tenant-prefers-recipient misrouted"
+        );
     }
     // vector: agentic-tenant-skips-empty-conversation
     {
@@ -161,14 +180,18 @@ true
         )
         .expect("activity parses");
         let actual = seam.agentic_tenant_id(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-tenant-skips-empty-conversation: serialize");
+        let actual_value = serde_json::to_value(actual)
+            .expect("agentic-tenant-skips-empty-conversation: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 null
 "####,
         )
         .expect("agentic-tenant-skips-empty-conversation: expected parses");
-        assert_eq!(actual_value, expected, "agentic-tenant-skips-empty-conversation misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-tenant-skips-empty-conversation misrouted"
+        );
     }
     // vector: agentic-tenant-skips-empty-recipient
     {
@@ -188,14 +211,18 @@ null
         )
         .expect("activity parses");
         let actual = seam.agentic_tenant_id(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-tenant-skips-empty-recipient: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("agentic-tenant-skips-empty-recipient: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "tenant-conversation"
 "####,
         )
         .expect("agentic-tenant-skips-empty-recipient: expected parses");
-        assert_eq!(actual_value, expected, "agentic-tenant-skips-empty-recipient misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-tenant-skips-empty-recipient misrouted"
+        );
     }
     // vector: agentic-user-id
     {
@@ -236,14 +263,18 @@ null
         )
         .expect("activity parses");
         let actual = seam.agentic_user(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-user-id-empty-string: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("agentic-user-id-empty-string: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 ""
 "####,
         )
         .expect("agentic-user-id-empty-string: expected parses");
-        assert_eq!(actual_value, expected, "agentic-user-id-empty-string misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-user-id-empty-string misrouted"
+        );
     }
     // vector: agentic-user-recipient-role
     {
@@ -259,14 +290,18 @@ null
         )
         .expect("activity parses");
         let actual = seam.is_agentic_request(&activity);
-        let actual_value = serde_json::to_value(actual).expect("agentic-user-recipient-role: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("agentic-user-recipient-role: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 true
 "####,
         )
         .expect("agentic-user-recipient-role: expected parses");
-        assert_eq!(actual_value, expected, "agentic-user-recipient-role misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "agentic-user-recipient-role misrouted"
+        );
     }
     // vector: bot-recipient-role
     {
@@ -303,7 +338,8 @@ false
         )
         .expect("activity parses");
         let actual = seam.channel(&activity);
-        let actual_value = serde_json::to_value(actual).expect("channel-empty-after-trim: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("channel-empty-after-trim: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 null
@@ -373,8 +409,10 @@ null
             .expect("mention-absent-entities: expected parses");
             items
                 .iter()
-                .map(|item| crate::model::Mention::from_json(&item.to_string(), &ctx)
-                    .expect("mention-absent-entities: expected element parses"))
+                .map(|item| {
+                    crate::model::Mention::from_json(&item.to_string(), &ctx)
+                        .expect("mention-absent-entities: expected element parses")
+                })
                 .collect()
         };
         assert_eq!(actual, expected, "mention-absent-entities misrouted");
@@ -419,8 +457,10 @@ null
             .expect("mention-entities-only: expected parses");
             items
                 .iter()
-                .map(|item| crate::model::Mention::from_json(&item.to_string(), &ctx)
-                    .expect("mention-entities-only: expected element parses"))
+                .map(|item| {
+                    crate::model::Mention::from_json(&item.to_string(), &ctx)
+                        .expect("mention-entities-only: expected element parses")
+                })
                 .collect()
         };
         assert_eq!(actual, expected, "mention-entities-only misrouted");
@@ -462,8 +502,10 @@ null
             .expect("mention-lowercase-entity: expected parses");
             items
                 .iter()
-                .map(|item| crate::model::Mention::from_json(&item.to_string(), &ctx)
-                    .expect("mention-lowercase-entity: expected element parses"))
+                .map(|item| {
+                    crate::model::Mention::from_json(&item.to_string(), &ctx)
+                        .expect("mention-lowercase-entity: expected element parses")
+                })
                 .collect()
         };
         assert_eq!(actual, expected, "mention-lowercase-entity misrouted");
@@ -502,7 +544,8 @@ false
         )
         .expect("activity parses");
         let actual = seam.agentic_instance_id(&activity);
-        let actual_value = serde_json::to_value(actual).expect("non-agentic-instance-id: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("non-agentic-instance-id: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 null
@@ -585,7 +628,8 @@ pub fn run_chat_runtime_conformance<S: crate::model::ChatRuntime + ?Sized>(seam:
         )
         .expect("messages parses");
         let actual = seam.last_user_text(&messages);
-        let actual_value = serde_json::to_value(actual).expect("missing-content-is-empty: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("missing-content-is-empty: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 ""
@@ -634,6 +678,94 @@ pub fn run_chat_runtime_conformance<S: crate::model::ChatRuntime + ?Sized>(seam:
         )
         .expect("null-messages: expected parses");
         assert_eq!(actual_value, expected, "null-messages misrouted");
+    }
+}
+
+/// Typed @vector conformance for IdentityRuntime. Pass your real `impl IdentityRuntime`; the
+/// `S: IdentityRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_identity_runtime_conformance(&IdentityRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_identity_runtime_conformance<S: crate::model::IdentityRuntime + ?Sized>(seam: &S) {
+    let ctx = crate::model::context::LoadContext::default();
+    // vector: agentic-user-id
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "recipient": {
+    "role": "agenticUser",
+    "agenticUserId": "user-1"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.agentic_user_id(&activity);
+        let actual_value = serde_json::to_value(actual).expect("agentic-user-id: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"user-1"
+"####,
+        )
+        .expect("agentic-user-id: expected parses");
+        assert_eq!(actual_value, expected, "agentic-user-id misrouted");
+    }
+    // vector: app-instance-has-no-mailbox
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "recipient": {
+    "role": "agenticAppInstance",
+    "agenticUserId": "user-1"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.agentic_user_id(&activity);
+        let actual_value =
+            serde_json::to_value(actual).expect("app-instance-has-no-mailbox: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+null
+"####,
+        )
+        .expect("app-instance-has-no-mailbox: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "app-instance-has-no-mailbox misrouted"
+        );
+    }
+    // skipped: require-agentic-user-fails — expectedError on a @sync op has no typed error channel
+    // vector: require-agentic-user-pass
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "recipient": {
+    "role": "agenticUser",
+    "agenticUserId": "user-1"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.require_agentic_user(&activity);
+        let actual_value =
+            serde_json::to_value(actual).expect("require-agentic-user-pass: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"user-1"
+"####,
+        )
+        .expect("require-agentic-user-pass: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "require-agentic-user-pass misrouted"
+        );
     }
 }
 
@@ -711,7 +843,8 @@ pub fn run_invocations_runtime_conformance<S: crate::model::InvocationsRuntime +
         )
         .expect("body parses");
         let actual = seam.input_text(&body);
-        let actual_value = serde_json::to_value(actual).expect("message-wins-over-input: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("message-wins-over-input: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "message"
@@ -732,14 +865,18 @@ pub fn run_invocations_runtime_conformance<S: crate::model::InvocationsRuntime +
         )
         .expect("body parses");
         let actual = seam.input_text(&body);
-        let actual_value = serde_json::to_value(actual).expect("non-string-fields-are-empty: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("non-string-fields-are-empty: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 ""
 "####,
         )
         .expect("non-string-fields-are-empty: expected parses");
-        assert_eq!(actual_value, expected, "non-string-fields-are-empty misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "non-string-fields-are-empty misrouted"
+        );
     }
     // vector: null-is-empty
     {
@@ -777,14 +914,18 @@ pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Si
         )
         .expect("value parses");
         let actual = seam.input_text(&value);
-        let actual_value = serde_json::to_value(actual).expect("bare-string-items-fall-back-to-last: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("bare-string-items-fall-back-to-last: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "second"
 "####,
         )
         .expect("bare-string-items-fall-back-to-last: expected parses");
-        assert_eq!(actual_value, expected, "bare-string-items-fall-back-to-last misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "bare-string-items-fall-back-to-last misrouted"
+        );
     }
     // vector: empty-list-is-empty
     {
@@ -868,7 +1009,8 @@ pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Si
         )
         .expect("value parses");
         let actual = seam.input_text(&value);
-        let actual_value = serde_json::to_value(actual).expect("list-role-string-content: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("list-role-string-content: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "say hi"
@@ -888,14 +1030,18 @@ pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Si
         )
         .expect("value parses");
         let actual = seam.input_text(&value);
-        let actual_value = serde_json::to_value(actual).expect("non-list-non-string-is-empty: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("non-list-non-string-is-empty: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 ""
 "####,
         )
         .expect("non-list-non-string-is-empty: expected parses");
-        assert_eq!(actual_value, expected, "non-list-non-string-is-empty misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "non-list-non-string-is-empty misrouted"
+        );
     }
     // vector: null-is-empty
     {
@@ -956,14 +1102,18 @@ pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Si
         )
         .expect("value parses");
         let actual = seam.input_text(&value);
-        let actual_value = serde_json::to_value(actual).expect("output-text-and-text-part-types: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("output-text-and-text-part-types: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "ab"
 "####,
         )
         .expect("output-text-and-text-part-types: expected parses");
-        assert_eq!(actual_value, expected, "output-text-and-text-part-types misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "output-text-and-text-part-types misrouted"
+        );
     }
     // vector: plain-string
     {
@@ -1027,7 +1177,8 @@ pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Si
         )
         .expect("value parses");
         let actual = seam.input_text(&value);
-        let actual_value = serde_json::to_value(actual).expect("roleless-item-falls-back: serialize");
+        let actual_value =
+            serde_json::to_value(actual).expect("roleless-item-falls-back: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "no role here"
@@ -1054,13 +1205,207 @@ pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Si
         )
         .expect("value parses");
         let actual = seam.input_text(&value);
-        let actual_value = serde_json::to_value(actual).expect("user-turn-wins-over-later-roleless-without-text: serialize");
+        let actual_value = serde_json::to_value(actual)
+            .expect("user-turn-wins-over-later-roleless-without-text: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "the question"
 "####,
         )
         .expect("user-turn-wins-over-later-roleless-without-text: expected parses");
-        assert_eq!(actual_value, expected, "user-turn-wins-over-later-roleless-without-text misrouted");
+        assert_eq!(
+            actual_value, expected,
+            "user-turn-wins-over-later-roleless-without-text misrouted"
+        );
+    }
+}
+
+/// Typed @vector conformance for RoutingRuntime. Pass your real `impl RoutingRuntime`; the
+/// `S: RoutingRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_routing_runtime_conformance(&RoutingRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_routing_runtime_conformance<S: crate::model::RoutingRuntime + ?Sized>(seam: &S) {
+    let ctx = crate::model::context::LoadContext::default();
+    // vector: direct-rejects-non-teams
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "type": "message",
+  "channelId": "slack",
+  "conversation": {
+    "conversationType": "personal"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.teams_direct_message(&activity);
+        let actual_value =
+            serde_json::to_value(actual).expect("direct-rejects-non-teams: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("direct-rejects-non-teams: expected parses");
+        assert_eq!(actual_value, expected, "direct-rejects-non-teams misrouted");
+    }
+    // vector: teams-channel-mention
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "type": "message",
+  "channelId": "msteams",
+  "conversation": {
+    "conversationType": "channel"
+  },
+  "recipient": {
+    "id": "28:agent"
+  },
+  "entities": [
+    {
+      "type": "mention",
+      "mentioned": {
+        "id": "28:agent"
+      },
+      "text": "<at>HAL</at>"
+    }
+  ]
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.teams_tagged_channel_message(&activity);
+        let actual_value = serde_json::to_value(actual).expect("teams-channel-mention: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("teams-channel-mention: expected parses");
+        assert_eq!(actual_value, expected, "teams-channel-mention misrouted");
+    }
+    // vector: teams-channel-without-mention
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "type": "message",
+  "channelId": "msteams",
+  "conversation": {
+    "conversationType": "channel"
+  },
+  "recipient": {
+    "id": "28:agent"
+  },
+  "entities": [
+    {
+      "type": "mention",
+      "mentioned": {
+        "id": "29:user"
+      },
+      "text": "<at>User</at>"
+    }
+  ]
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.teams_tagged_channel_message(&activity);
+        let actual_value =
+            serde_json::to_value(actual).expect("teams-channel-without-mention: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("teams-channel-without-mention: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "teams-channel-without-mention misrouted"
+        );
+    }
+    // vector: teams-direct
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "type": "message",
+  "channelId": "msteams",
+  "conversation": {
+    "conversationType": "personal"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.teams_direct_message(&activity);
+        let actual_value = serde_json::to_value(actual).expect("teams-direct: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("teams-direct: expected parses");
+        assert_eq!(actual_value, expected, "teams-direct misrouted");
+    }
+    // vector: teams-direct-channel-suffix
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "type": "message",
+  "channelId": "msteams:tenant",
+  "conversation": {
+    "conversationType": "personal"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.teams_direct_message(&activity);
+        let actual_value =
+            serde_json::to_value(actual).expect("teams-direct-channel-suffix: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("teams-direct-channel-suffix: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "teams-direct-channel-suffix misrouted"
+        );
+    }
+    // vector: teams-group
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "type": "message",
+  "channelId": "msteams",
+  "conversation": {
+    "conversationType": "groupChat"
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.teams_group_chat_message(&activity);
+        let actual_value = serde_json::to_value(actual).expect("teams-group: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("teams-group: expected parses");
+        assert_eq!(actual_value, expected, "teams-group misrouted");
     }
 }

@@ -21,11 +21,35 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "CardsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "CardsRuntime",
+      "generatedSource": "cards_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ChatRuntime",
       "target": "rust",
       "group": "",
       "symbol": "ChatRuntime",
       "generatedSource": "chat_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "EntitiesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "EntitiesRuntime",
+      "generatedSource": "entities_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "IdentityRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "IdentityRuntime",
+      "generatedSource": "identity_runtime",
       "seamKind": "protocol-adapter"
     },
     {
@@ -37,11 +61,27 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "InvokesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "InvokesRuntime",
+      "generatedSource": "invokes_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ResponsesRuntime",
       "target": "rust",
       "group": "",
       "symbol": "ResponsesRuntime",
       "generatedSource": "responses_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RoutingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RoutingRuntime",
+      "generatedSource": "routing_runtime",
       "seamKind": "protocol-adapter"
     }
   ]

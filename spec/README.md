@@ -11,6 +11,7 @@ they evolve independently.
 spec/
 ├─ main.tsp       # aggregate TypeSpec generation root
 ├─ protocols/     # protocol contracts each SDK speaks
+├─ messaging/     # portable Teams message builders, invokes, identity and routing seams
 ├─ optimizing/    # optimizer configuration contracts and seams
 └─ conformance/   # language-neutral fixtures / golden cases the SDKs test against
 ```
@@ -32,6 +33,7 @@ into capability namespaces that mirror the Python package map:
 | TypeSpec namespace | Source file | Python reference package |
 | --- | --- | --- |
 | `Castia.Spec.Protocols` | `protocols/activity.tsp` | `castia.protocols`, `castia.messaging` |
+| `Castia.Spec.Messaging` | `messaging/*.tsp` | `castia.messaging`, `castia.hosting.identity` |
 | `Castia.Spec.Optimizing` | `optimizing/config.tsp` | `castia.optimizing` |
 
 Typra currently emits Rust models and compile-only interface scaffolds into the
@@ -56,6 +58,12 @@ The optimizer config source is modeled as a string for now. Typra's Rust target
 currently emits mismatched enum variant names/tests for snake_case string-union
 wire values such as `inline_config`; the portable source-precedence behavior is
 still pinned by `conformance/optimization/candidate_precedence.json`.
+
+Some Teams schema.org payload keys such as `@type`, `@context`, `@id`, and
+Adaptive Card `$schema` cannot be represented directly in the current inline
+TypeSpec vector literals. Generated vectors cover the portable callable seam and
+the Rust handwritten parity tests assert the exact Teams wire shape until Typra
+adds a first-class escape hatch for those JSON keys.
 
 ## Protocols
 
