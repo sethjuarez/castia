@@ -13,10 +13,10 @@ use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
-    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveRecordsRuntime, ResponsesRuntime,
-    RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
+    ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
-use castia::observe::CastiaObserveRecordsRuntime;
+use castia::observe::{CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime};
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
@@ -240,6 +240,19 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             "ObserveRecordsRuntime.summarize",
             sync_with_normalize(observe_summarize, observe_record_to_camel),
         ),
+        (
+            "ObserveSuiteRuntime.featureCatalog",
+            sync(observe_feature_catalog),
+        ),
+        (
+            "ObserveSuiteRuntime.validateSuite",
+            sync_with_normalize(observe_validate_suite, observe_suite_to_camel),
+        ),
+        (
+            "ObserveSuiteRuntime.compareReports",
+            sync_with_normalize(observe_compare_reports, observe_suite_to_camel),
+        ),
+        ("ObserveSuiteRuntime.runSuite", sync(observe_run_suite)),
         ("ModelRuntime.publicToolSpec", sync(model_public_tool_spec)),
         ("ModelRuntime.reasoningParam", sync(model_reasoning_param)),
         ("InvocationsRuntime.body", sync(invocations_body)),
@@ -830,6 +843,93 @@ fn observe_summarize(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaObserveRecordsRuntime.summarize(&records))
 }
 
+fn observe_feature_catalog(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    let catalog = CastiaObserveSuiteRuntime.feature_catalog();
+    let empty = Vec::new();
+    let surfaces = catalog["features"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|feature| feature["id"].as_str())
+        .map(|id| id.split('.').next().unwrap_or_default())
+        .collect::<std::collections::HashSet<_>>();
+    let mut surfaces = surfaces.into_iter().collect::<Vec<_>>();
+    surfaces.sort_unstable();
+    Ok(Value::Array(
+        surfaces
+            .into_iter()
+            .map(|surface| Value::String(surface.to_string()))
+            .collect(),
+    ))
+}
+
+fn observe_validate_suite(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    castia::observe::validate_suite(&observe_suite_to_snake(
+        input.get("suite").unwrap_or(&Value::Null),
+    ))
+    .map_err(vector_error)
+}
+
+fn observe_compare_reports(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    castia::observe::compare_reports(
+        &observe_suite_to_snake(input.get("current").unwrap_or(&Value::Null)),
+        &observe_suite_to_snake(input.get("baseline").unwrap_or(&Value::Null)),
+    )
+    .map_err(vector_error)
+}
+
+fn observe_run_suite(input: &Value, context: &Context) -> Result<Value, VectorError> {
+    let baseline = observe_suite_to_snake(input.get("baseline").unwrap_or(&Value::Null));
+    let report = CastiaObserveSuiteRuntime.run_suite(
+        &observe_suite_to_snake(input.get("suite").unwrap_or(&Value::Null)),
+        &observe_suite_to_snake(input.get("probes").unwrap_or(&Value::Null)),
+        &observe_suite_to_snake(input.get("prerequisites").unwrap_or(&Value::Null)),
+        &baseline,
+        &input
+            .get("generatedAt")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    );
+    let expected = context
+        .vector
+        .get("expected")
+        .cloned()
+        .unwrap_or(Value::Null);
+    if expected.is_null() {
+        return Ok(observe_suite_to_camel(&report, context));
+    }
+    let mut actual = serde_json::Map::new();
+    if let Some(expected_object) = expected.as_object() {
+        for key in expected_object.keys() {
+            match key.as_str() {
+                "passed" => {
+                    actual.insert(key.clone(), report["passed"].clone());
+                }
+                "lostCoverage" => {
+                    actual.insert(key.clone(), report["comparison"]["lost_coverage"].clone());
+                }
+                "regressions" => {
+                    actual.insert(key.clone(), report["comparison"]["regressions"].clone());
+                }
+                feature => {
+                    let feature_id = suite_feature_key(feature);
+                    let empty = Vec::new();
+                    let status = report["results"]
+                        .as_array()
+                        .unwrap_or(&empty)
+                        .iter()
+                        .find(|row| row["feature_id"].as_str() == Some(feature_id.as_str()))
+                        .map(|row| row["status"].clone())
+                        .unwrap_or(Value::Null);
+                    actual.insert(key.clone(), status);
+                }
+            }
+        }
+    }
+    Ok(Value::Object(actual))
+}
+
 fn model_instructions_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaModelRuntime.instructions_param(
         &input
@@ -1027,6 +1127,113 @@ fn observe_record_to_camel(value: &Value, _: &Context) -> Value {
 
 fn observe_record_to_snake(value: &Value) -> Value {
     observe_keys(value, true)
+}
+
+fn observe_suite_to_camel(value: &Value, _: &Context) -> Value {
+    observe_suite_keys(value, false)
+}
+
+fn observe_suite_to_snake(value: &Value) -> Value {
+    observe_suite_keys(value, true)
+}
+
+fn observe_suite_keys(value: &Value, to_snake: bool) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = if to_snake {
+                        suite_key_to_snake(key).unwrap_or_else(|| key.clone())
+                    } else {
+                        suite_key_to_camel(key)
+                    };
+                    (translated.to_string(), observe_suite_keys(value, to_snake))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|value| observe_suite_keys(value, to_snake))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn suite_feature_key(key: &str) -> String {
+    suite_key_to_snake(key)
+        .filter(|value| value.contains('.'))
+        .unwrap_or_else(|| key.to_string())
+}
+
+fn suite_key_to_snake(key: &str) -> Option<String> {
+    let mapped = match key {
+        "schemaVersion" => "schema_version",
+        "generatedAt" => "generated_at",
+        "featureId" => "feature_id",
+        "durationSeconds" => "duration_seconds",
+        "costStatus" => "cost_status",
+        "lostCoverage" => "lost_coverage",
+        "newCoverage" => "new_coverage",
+        _ => "",
+    };
+    if !mapped.is_empty() {
+        return Some(mapped.to_string());
+    }
+    let catalog = CastiaObserveSuiteRuntime.feature_catalog();
+    let empty_features = Vec::new();
+    for feature in catalog["features"].as_array().unwrap_or(&empty_features) {
+        if let Some(id) = feature["id"].as_str() {
+            if key == snake_like_to_camel(id, '.') {
+                return Some(id.to_string());
+            }
+        }
+        let empty_prerequisites = Vec::new();
+        for prerequisite in feature["prerequisites"]
+            .as_array()
+            .unwrap_or(&empty_prerequisites)
+        {
+            if let Some(prerequisite) = prerequisite.as_str() {
+                if key == snake_like_to_camel(prerequisite, '_') {
+                    return Some(prerequisite.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn suite_key_to_camel(key: &str) -> String {
+    match key {
+        "schema_version" => "schemaVersion".to_string(),
+        "generated_at" => "generatedAt".to_string(),
+        "feature_id" => "featureId".to_string(),
+        "duration_seconds" => "durationSeconds".to_string(),
+        "cost_status" => "costStatus".to_string(),
+        "lost_coverage" => "lostCoverage".to_string(),
+        "new_coverage" => "newCoverage".to_string(),
+        other if other.contains('.') => snake_like_to_camel(other, '.'),
+        other if other.contains('_') => snake_like_to_camel(other, '_'),
+        other => other.to_string(),
+    }
+}
+
+fn snake_like_to_camel(value: &str, separator: char) -> String {
+    let mut parts = value.split(separator);
+    let Some(first) = parts.next() else {
+        return String::new();
+    };
+    let mut output = first.to_string();
+    for part in parts {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            output.extend(first.to_uppercase());
+            output.extend(chars);
+        }
+    }
+    output
 }
 
 fn observe_keys(value: &Value, to_snake: bool) -> Value {

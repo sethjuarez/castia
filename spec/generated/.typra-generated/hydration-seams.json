@@ -125,6 +125,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "ObserveSuiteRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveSuiteRuntime",
+      "generatedSource": "observe_suite_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ResponsesRuntime",
       "target": "rust",
       "group": "",

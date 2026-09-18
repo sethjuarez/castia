@@ -54,6 +54,7 @@
         "Mention",
         "ModelRuntime",
         "ObserveRecordsRuntime",
+        "ObserveSuiteRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
         "ToolCatalogRuntime"
@@ -204,6 +205,13 @@
           "kind": "type",
           "group": "",
           "source": "observe_records_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveSuiteRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_suite_runtime",
           "protocol": true
         },
         {
@@ -1031,6 +1039,65 @@
           ]
         },
         {
+          "name": "ObserveSuiteRuntime",
+          "group": "",
+          "symbol": "ObserveSuiteRuntime",
+          "source": "observe_suite_runtime",
+          "methods": [
+            {
+              "name": "compareReports",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "current": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "featureCatalog",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "runSuite",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "generatedAt": "string",
+                "prerequisites": "unknown",
+                "probes": "unknown",
+                "suite": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateSuite",
+              "returns": "unknown",
+              "params": {
+                "suite": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -1180,6 +1247,7 @@
         "mention",
         "model_runtime",
         "observe_records_runtime",
+        "observe_suite_runtime",
         "responses_runtime",
         "routing_runtime",
         "tool_catalog_runtime"

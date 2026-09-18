@@ -403,6 +403,40 @@ fn observe_records_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ObserveRecordsRuntime> = Box::new(CompileOnlyObserveRecordsRuntime);
 }
 
+struct CompileOnlyObserveSuiteRuntime;
+
+#[async_trait::async_trait]
+impl ObserveSuiteRuntime for CompileOnlyObserveSuiteRuntime {
+    fn compare_reports(
+        &self,
+        current: &serde_json::Value,
+        baseline: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("ObserveSuiteRuntime.compareReports is a compile-only protocol scaffold.")
+    }
+    fn feature_catalog(&self) -> serde_json::Value {
+        panic!("ObserveSuiteRuntime.featureCatalog is a compile-only protocol scaffold.")
+    }
+    fn run_suite(
+        &self,
+        suite: &serde_json::Value,
+        probes: &serde_json::Value,
+        prerequisites: &serde_json::Value,
+        baseline: &serde_json::Value,
+        generated_at: &String,
+    ) -> serde_json::Value {
+        panic!("ObserveSuiteRuntime.runSuite is a compile-only protocol scaffold.")
+    }
+    fn validate_suite(&self, suite: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveSuiteRuntime.validateSuite is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn observe_suite_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ObserveSuiteRuntime> = Box::new(CompileOnlyObserveSuiteRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]
