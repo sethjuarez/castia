@@ -2,8 +2,8 @@ use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
     canonical_json, check_public, compare_runs, content_hash, curate_dataset, dataset_jsonl,
-    default_gate, evaluate_outcomes, example_id, get_artifact, normalize_record, put_artifact,
-    record_id, safe_path,
+    default_gate, diff_candidates, evaluate_outcomes, example_id, get_artifact, normalize_record,
+    put_artifact, record_id, safe_path, stage_candidate,
 };
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -214,6 +214,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleOperationsRuntime.evaluateOutcomes",
             asynchronous(lifecycle_evaluate_outcomes),
+        ),
+        (
+            "LifecycleOperationsRuntime.stageCandidate",
+            sync_with_normalize(lifecycle_stage_candidate, lifecycle_record_to_camel),
+        ),
+        (
+            "LifecycleOperationsRuntime.diffCandidates",
+            sync(lifecycle_diff_candidates),
         ),
         (
             "ModelRuntime.instructionsParam",
@@ -689,6 +697,43 @@ fn lifecycle_dataset_jsonl(input: &Value, _: &Context) -> Result<Value, VectorEr
     dataset_jsonl(&dataset, split)
         .map(Value::String)
         .map_err(vector_error)
+}
+
+fn lifecycle_stage_candidate(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let temp = temp_dir(&vector_temp_label(ctx));
+    let result = (|| {
+        write_vector_files(&temp, &ctx.vector)?;
+        let root = vector_path(input, "root", &temp)?;
+        let files = input
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or_else(|| VectorError {
+                message: "files must be an array".to_string(),
+                payload: None,
+            })?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| VectorError {
+                        message: "file path must be nonempty text".to_string(),
+                        payload: None,
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let baseline = lifecycle_record_to_snake(input.get("baseline").unwrap_or(&Value::Null));
+        let agent = lifecycle_record_to_snake(input.get("agent").unwrap_or(&Value::Null));
+        stage_candidate(root, &files, &baseline, &agent).map_err(vector_error)
+    })();
+    let _ = fs::remove_dir_all(temp);
+    result
+}
+
+fn lifecycle_diff_candidates(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let baseline = lifecycle_record_to_snake(input.get("baseline").unwrap_or(&Value::Null));
+    let candidate = lifecycle_record_to_snake(input.get("candidate").unwrap_or(&Value::Null));
+    diff_candidates(&baseline, &candidate).map_err(vector_error)
 }
 
 async fn lifecycle_evaluate_outcomes(input: Value, _: Context) -> Result<Value, VectorError> {

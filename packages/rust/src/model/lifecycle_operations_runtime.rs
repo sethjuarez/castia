@@ -21,6 +21,11 @@ pub trait LifecycleOperationsRuntime: Send + Sync {
         seed: &String,
     ) -> serde_json::Value;
     fn dataset_jsonl(&self, dataset: &serde_json::Value, split: &String) -> String;
+    fn diff_candidates(
+        &self,
+        baseline: &serde_json::Value,
+        candidate: &serde_json::Value,
+    ) -> serde_json::Value;
     async fn evaluate_outcomes(
         &self,
         agent: &serde_json::Value,
@@ -32,4 +37,11 @@ pub trait LifecycleOperationsRuntime: Send + Sync {
         concurrency: &i32,
         timeout_seconds: &f64,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>>;
+    fn stage_candidate(
+        &self,
+        root: &String,
+        files: &serde_json::Value,
+        baseline: &serde_json::Value,
+        agent: &serde_json::Value,
+    ) -> serde_json::Value;
 }

@@ -266,6 +266,13 @@ impl LifecycleOperationsRuntime for CompileOnlyLifecycleOperationsRuntime {
     fn dataset_jsonl(&self, dataset: &serde_json::Value, split: &String) -> String {
         panic!("LifecycleOperationsRuntime.datasetJsonl is a compile-only protocol scaffold.")
     }
+    fn diff_candidates(
+        &self,
+        baseline: &serde_json::Value,
+        candidate: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("LifecycleOperationsRuntime.diffCandidates is a compile-only protocol scaffold.")
+    }
     async fn evaluate_outcomes(
         &self,
         agent: &serde_json::Value,
@@ -281,6 +288,15 @@ impl LifecycleOperationsRuntime for CompileOnlyLifecycleOperationsRuntime {
             "LifecycleOperationsRuntime.evaluateOutcomes is a compile-only protocol scaffold."
                 .into(),
         )
+    }
+    fn stage_candidate(
+        &self,
+        root: &String,
+        files: &serde_json::Value,
+        baseline: &serde_json::Value,
+        agent: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("LifecycleOperationsRuntime.stageCandidate is a compile-only protocol scaffold.")
     }
 }
 

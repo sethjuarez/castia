@@ -3245,6 +3245,179 @@
       "contract": "LifecycleOperationsRuntime",
       "namespace": "Castia.Spec.Lifecycle",
       "group": "",
+      "operation": "diffCandidates",
+      "params": {
+        "baseline": "unknown",
+        "candidate": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "diff-candidates-identical-is-empty",
+        "stage": "callable",
+        "input": {
+          "baseline": {
+            "schemaVersion": 1,
+            "kind": "candidate",
+            "baselineId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "agentId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "files": [
+              {
+                "path": "instructions.md",
+                "content": "baseline",
+                "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24"
+              }
+            ],
+            "agentSnapshot": {
+              "schemaVersion": 1,
+              "kind": "agent",
+              "sourceFiles": [
+                {
+                  "path": "instructions.md",
+                  "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24",
+                  "size": 8
+                }
+              ],
+              "dependencies": {
+                "castia": "0.6.0"
+              },
+              "model": {
+                "deployment": "gpt-4o"
+              },
+              "instructions": "baseline",
+              "tools": []
+            }
+          },
+          "candidate": {
+            "schemaVersion": 1,
+            "kind": "candidate",
+            "baselineId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "agentId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "files": [
+              {
+                "path": "instructions.md",
+                "content": "baseline",
+                "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24"
+              }
+            ],
+            "agentSnapshot": {
+              "schemaVersion": 1,
+              "kind": "agent",
+              "sourceFiles": [
+                {
+                  "path": "instructions.md",
+                  "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24",
+                  "size": 8
+                }
+              ],
+              "dependencies": {
+                "castia": "0.6.0"
+              },
+              "model": {
+                "deployment": "gpt-4o"
+              },
+              "instructions": "baseline",
+              "tools": []
+            }
+          }
+        },
+        "expected": {},
+        "operation": "diffCandidates"
+      }
+    },
+    {
+      "contract": "LifecycleOperationsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "diffCandidates",
+      "params": {
+        "baseline": "unknown",
+        "candidate": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "diff-candidates-reports-sorted-digest-changes",
+        "stage": "callable",
+        "input": {
+          "baseline": {
+            "schemaVersion": 1,
+            "kind": "candidate",
+            "baselineId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "agentId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "files": [
+              {
+                "path": "instructions.md",
+                "content": "baseline",
+                "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24"
+              }
+            ],
+            "agentSnapshot": {
+              "schemaVersion": 1,
+              "kind": "agent",
+              "sourceFiles": [
+                {
+                  "path": "instructions.md",
+                  "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24",
+                  "size": 8
+                }
+              ],
+              "dependencies": {
+                "castia": "0.6.0"
+              },
+              "model": {
+                "deployment": "gpt-4o"
+              },
+              "instructions": "baseline",
+              "tools": []
+            }
+          },
+          "candidate": {
+            "schemaVersion": 1,
+            "kind": "candidate",
+            "baselineId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+            "agentId": "67a0f623857a118d4dd9342ee9d6fc4078c3bd6c202d9c44e805fba4261ba182",
+            "files": [
+              {
+                "path": "instructions.md",
+                "content": "candidate\r\n",
+                "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f"
+              }
+            ],
+            "agentSnapshot": {
+              "schemaVersion": 1,
+              "kind": "agent",
+              "sourceFiles": [
+                {
+                  "path": "instructions.md",
+                  "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f",
+                  "size": 11
+                }
+              ],
+              "dependencies": {
+                "castia": "0.6.0"
+              },
+              "model": {
+                "deployment": "gpt-4o"
+              },
+              "instructions": "candidate\r\n",
+              "tools": []
+            }
+          }
+        },
+        "expected": {
+          "instructions.md": {
+            "before": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24",
+            "after": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f"
+          }
+        },
+        "operation": "diffCandidates"
+      }
+    },
+    {
+      "contract": "LifecycleOperationsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
       "operation": "evaluateOutcomes",
       "params": {
         "agent": "unknown",
@@ -3765,6 +3938,179 @@
           ]
         },
         "operation": "evaluateOutcomes"
+      }
+    },
+    {
+      "contract": "LifecycleOperationsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "stageCandidate",
+      "params": {
+        "root": "string",
+        "files": "unknown",
+        "baseline": "unknown",
+        "agent": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "stage-candidate-captures-bound-config-bytes",
+        "stage": "callable",
+        "files": [
+          {
+            "path": "instructions.md",
+            "content": "candidate\r\n"
+          }
+        ],
+        "input": {
+          "root": "$temp",
+          "files": [
+            "instructions.md"
+          ],
+          "baseline": {
+            "schemaVersion": 1,
+            "kind": "agent",
+            "sourceFiles": [
+              {
+                "path": "instructions.md",
+                "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24",
+                "size": 8
+              }
+            ],
+            "dependencies": {
+              "castia": "0.6.0"
+            },
+            "model": {
+              "deployment": "gpt-4o"
+            },
+            "instructions": "baseline",
+            "tools": []
+          },
+          "agent": {
+            "schemaVersion": 1,
+            "kind": "agent",
+            "sourceFiles": [
+              {
+                "path": "instructions.md",
+                "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f",
+                "size": 11
+              }
+            ],
+            "dependencies": {
+              "castia": "0.6.0"
+            },
+            "model": {
+              "deployment": "gpt-4o"
+            },
+            "instructions": "candidate\r\n",
+            "tools": []
+          }
+        },
+        "expected": {
+          "schemaVersion": 1,
+          "kind": "candidate",
+          "baselineId": "eaf66e976e4ee48342af034dd86af0350b3ce3eed93ce53efcce293e1700bd24",
+          "agentId": "67a0f623857a118d4dd9342ee9d6fc4078c3bd6c202d9c44e805fba4261ba182",
+          "files": [
+            {
+              "path": "instructions.md",
+              "content": "candidate\r\n",
+              "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f"
+            }
+          ],
+          "agentSnapshot": {
+            "schemaVersion": 1,
+            "kind": "agent",
+            "sourceFiles": [
+              {
+                "path": "instructions.md",
+                "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f",
+                "size": 11
+              }
+            ],
+            "dependencies": {
+              "castia": "0.6.0"
+            },
+            "model": {
+              "deployment": "gpt-4o"
+            },
+            "instructions": "candidate\r\n",
+            "tools": []
+          }
+        },
+        "operation": "stageCandidate"
+      }
+    },
+    {
+      "contract": "LifecycleOperationsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "stageCandidate",
+      "params": {
+        "root": "string",
+        "files": "unknown",
+        "baseline": "unknown",
+        "agent": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "stage-candidate-rejects-unbound-staged-file",
+        "stage": "callable",
+        "files": [
+          {
+            "path": "instructions.md",
+            "content": "changed after evaluation"
+          }
+        ],
+        "input": {
+          "root": "$temp",
+          "files": [
+            "instructions.md"
+          ],
+          "baseline": {
+            "schemaVersion": 1,
+            "kind": "agent",
+            "sourceFiles": [
+              {
+                "path": "instructions.md",
+                "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24",
+                "size": 8
+              }
+            ],
+            "dependencies": {
+              "castia": "0.6.0"
+            },
+            "model": {
+              "deployment": "gpt-4o"
+            },
+            "instructions": "baseline",
+            "tools": []
+          },
+          "agent": {
+            "schemaVersion": 1,
+            "kind": "agent",
+            "sourceFiles": [
+              {
+                "path": "instructions.md",
+                "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f",
+                "size": 11
+              }
+            ],
+            "dependencies": {
+              "castia": "0.6.0"
+            },
+            "model": {
+              "deployment": "gpt-4o"
+            },
+            "instructions": "candidate\r\n",
+            "tools": []
+          }
+        },
+        "expectedError": {
+          "message": "staged payload is not bound to the evaluated snapshot; capture files before evaluation"
+        },
+        "operation": "stageCandidate"
       }
     },
     {

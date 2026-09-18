@@ -1,15 +1,18 @@
 use crate::model::LifecycleOperationsRuntime;
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
 use super::records::{
-    canonical_json, content_hash, example_id, normalize_record, record_id, REFERENCE_ORIGINS,
-    SCHEMA_VERSION,
+    canonical_json, content_hash, example_id, normalize_record, record_id, safe_path,
+    REFERENCE_ORIGINS, SCHEMA_VERSION,
 };
 
 const REVIEW_APPROVAL: &str =
@@ -61,6 +64,31 @@ impl LifecycleOperationsRuntime for CastiaLifecycleOperationsRuntime {
         )
         .await
         .map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)?)
+    }
+
+    fn stage_candidate(
+        &self,
+        root: &String,
+        files: &Value,
+        baseline: &Value,
+        agent: &Value,
+    ) -> Value {
+        let files = files
+            .as_array()
+            .unwrap_or_else(|| panic!("files must be an array"))
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| panic!("file path must be nonempty text"))
+            })
+            .collect::<Vec<_>>();
+        stage_candidate(root, &files, baseline, agent).unwrap_or_else(|error| panic!("{}", error.0))
+    }
+
+    fn diff_candidates(&self, baseline: &Value, candidate: &Value) -> Value {
+        diff_candidates(baseline, candidate).unwrap_or_else(|error| panic!("{}", error.0))
     }
 }
 
@@ -539,6 +567,153 @@ pub async fn evaluate_outcomes(
     .await
 }
 
+pub fn stage_candidate(
+    root: impl AsRef<Path>,
+    files: &[String],
+    baseline: &Value,
+    agent: &Value,
+) -> Result<Value, LifecycleOperationsError> {
+    let baseline = normalize_record(baseline).map_err(record_error)?;
+    let agent = normalize_record(agent).map_err(record_error)?;
+    if baseline.get("kind").and_then(Value::as_str) != Some("agent")
+        || agent.get("kind").and_then(Value::as_str) != Some("agent")
+    {
+        return Err(LifecycleOperationsError(
+            "candidate staging needs agent snapshots".to_string(),
+        ));
+    }
+    let base = root.as_ref();
+    let configs = files
+        .iter()
+        .map(|file| {
+            let path = safe_path(file).map_err(record_error)?;
+            let full_path = evidence_file(base, &path)?;
+            let bytes = fs::read(full_path).map_err(|_| {
+                LifecycleOperationsError("explicit evidence file does not exist".to_string())
+            })?;
+            let sha256 = sha256_hex(&bytes);
+            let content = String::from_utf8(bytes).map_err(|_| {
+                LifecycleOperationsError("config content must be UTF-8 text".to_string())
+            })?;
+            Ok(json!({
+                "path": path,
+                "content": content,
+                "sha256": sha256,
+            }))
+        })
+        .collect::<Result<Vec<_>, LifecycleOperationsError>>()?;
+    normalize_record(&json!({
+        "schema_version": SCHEMA_VERSION,
+        "kind": "candidate",
+        "baseline_id": record_id(&baseline).map_err(record_error)?,
+        "agent_id": record_id(&agent).map_err(record_error)?,
+        "files": configs,
+        "agent_snapshot": agent,
+    }))
+    .map_err(record_error)
+}
+
+fn evidence_file(root: &Path, relative: &str) -> Result<PathBuf, LifecycleOperationsError> {
+    let normalized = safe_path(relative).map_err(record_error)?;
+    let root = root.canonicalize().map_err(|_| {
+        LifecycleOperationsError("explicit evidence file does not exist".to_string())
+    })?;
+    let path = normalized
+        .split('/')
+        .fold(root.clone(), |current, part| current.join(part));
+    let mut current = path.as_path();
+    while current != root {
+        if fs::symlink_metadata(current)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(LifecycleOperationsError(
+                "symlinked evidence paths are not allowed".to_string(),
+            ));
+        }
+        current = current.parent().ok_or_else(|| {
+            LifecycleOperationsError("explicit evidence file does not exist".to_string())
+        })?;
+    }
+    let name = normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if name.starts_with(".env")
+        || [".pem", ".key", ".pfx"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+    {
+        return Err(LifecycleOperationsError(
+            "credential files are not evidence".to_string(),
+        ));
+    }
+    if let Ok(resolved) = path.canonicalize() {
+        if !resolved.starts_with(&root) {
+            return Err(LifecycleOperationsError(
+                "symlinked evidence paths are not allowed".to_string(),
+            ));
+        }
+    }
+    if !path.is_file() {
+        return Err(LifecycleOperationsError(
+            "explicit evidence file does not exist".to_string(),
+        ));
+    }
+    Ok(path)
+}
+
+pub fn diff_candidates(
+    baseline: &Value,
+    candidate: &Value,
+) -> Result<Value, LifecycleOperationsError> {
+    let baseline = normalize_record(baseline).map_err(record_error)?;
+    let candidate = normalize_record(candidate).map_err(record_error)?;
+    if baseline.get("kind").and_then(Value::as_str) != Some("candidate")
+        || candidate.get("kind").and_then(Value::as_str) != Some("candidate")
+    {
+        return Err(LifecycleOperationsError(
+            "candidate records are required".to_string(),
+        ));
+    }
+    let left = candidate_files(&baseline)?;
+    let right = candidate_files(&candidate)?;
+    let mut paths = left
+        .keys()
+        .chain(right.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut out = Map::new();
+    for path in std::mem::take(&mut paths) {
+        if left.get(&path) != right.get(&path) {
+            out.insert(
+                path.clone(),
+                json!({"before": left.get(&path), "after": right.get(&path)}),
+            );
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+fn candidate_files(value: &Value) -> Result<HashMap<String, String>, LifecycleOperationsError> {
+    value
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or_else(|| LifecycleOperationsError("malformed evidence record".to_string()))?
+        .iter()
+        .map(|file| {
+            let object = file
+                .as_object()
+                .ok_or_else(|| LifecycleOperationsError("malformed evidence record".to_string()))?;
+            Ok((
+                string_field(object, "path", "path")?,
+                string_field(object, "sha256", "sha256")?,
+            ))
+        })
+        .collect()
+}
+
 fn normalize_evaluator(value: &Value) -> Result<Value, LifecycleOperationsError> {
     let object = value.as_object().ok_or_else(|| {
         LifecycleOperationsError("evaluation needs a versioned evaluator".to_string())
@@ -747,6 +922,12 @@ fn finite_json(value: f64) -> Result<Value, LifecycleOperationsError> {
     serde_json::Number::from_f64(value)
         .map(Value::Number)
         .ok_or_else(|| LifecycleOperationsError("metric must be a finite number".to_string()))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
 }
 
 fn record_error(error: impl std::fmt::Display) -> LifecycleOperationsError {

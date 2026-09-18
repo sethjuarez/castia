@@ -1,6 +1,6 @@
 use castia::lifecycle::{
     canonical_json, compare_runs, curate_dataset, curate_dataset_with_redactor, dataset_jsonl,
-    evaluate_outcomes, evaluate_with_callback,
+    diff_candidates, evaluate_outcomes, evaluate_with_callback, stage_candidate,
 };
 use serde_json::{json, Value};
 use std::sync::{
@@ -298,6 +298,193 @@ async fn evaluation_cancellation_aborts_owned_workers() {
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled());
     assert_eq!(active.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn candidate_stage_hash_diff_and_no_baseline_mutation() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("instructions.md");
+    std::fs::write(&path, b"baseline").unwrap();
+    let baseline_agent = json!({
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [{"path": "instructions.md", "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24", "size": 8}],
+        "dependencies": {"castia": "0.6.0"},
+        "model": {"deployment": "gpt-4o"},
+        "instructions": "baseline",
+        "tools": []
+    });
+    let baseline = stage_candidate(
+        temp.path(),
+        &["instructions.md".to_string()],
+        &baseline_agent,
+        &baseline_agent,
+    )
+    .unwrap();
+    std::fs::write(&path, b"candidate\r\n").unwrap();
+    let changed = json!({
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [{"path": "instructions.md", "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f", "size": 11}],
+        "dependencies": {"castia": "0.6.0"},
+        "model": {"deployment": "gpt-4o"},
+        "instructions": "candidate\r\n",
+        "tools": []
+    });
+    let candidate = stage_candidate(
+        temp.path(),
+        &["instructions.md".to_string()],
+        &baseline_agent,
+        &changed,
+    )
+    .unwrap();
+    assert_eq!(baseline["files"][0]["content"], json!("baseline"));
+    assert_eq!(
+        candidate["files"][0]["sha256"],
+        json!("42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f")
+    );
+    assert_eq!(
+        diff_candidates(&baseline, &candidate).unwrap(),
+        json!({"instructions.md": {"before": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24", "after": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f"}})
+    );
+    assert_eq!(diff_candidates(&candidate, &candidate).unwrap(), json!({}));
+    assert_eq!(std::fs::read(&path).unwrap(), b"candidate\r\n");
+}
+
+#[test]
+fn staged_bytes_must_match_evaluated_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("instructions.md"),
+        b"changed after evaluation",
+    )
+    .unwrap();
+    let baseline_agent = json!({
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [{"path": "instructions.md", "sha256": "8ba8496a2525ae171ffd104d632dede6ef418d9b95962a9d88e2fcdbc8d48d24", "size": 8}],
+        "dependencies": {"castia": "0.6.0"},
+        "model": {"deployment": "gpt-4o"},
+        "instructions": "baseline",
+        "tools": []
+    });
+    let changed = json!({
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [{"path": "instructions.md", "sha256": "42e48c1b0ec8a690433dd65c846d4f8376d469082385efe7594b713bec7bd30f", "size": 11}],
+        "dependencies": {"castia": "0.6.0"},
+        "model": {"deployment": "gpt-4o"},
+        "instructions": "candidate\r\n",
+        "tools": []
+    });
+    assert_eq!(
+        stage_candidate(
+            temp.path(),
+            &["instructions.md".to_string()],
+            &baseline_agent,
+            &changed
+        )
+        .unwrap_err()
+        .to_string(),
+        "staged payload is not bound to the evaluated snapshot; capture files before evaluation"
+    );
+}
+
+#[test]
+fn candidate_staging_rejects_missing_and_credential_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let candidate_agent = agent();
+    for (path, message) in [
+        ("missing.md", "explicit evidence file does not exist"),
+        (".env", "credential files are not evidence"),
+        ("private.pem", "credential files are not evidence"),
+    ] {
+        if path != "missing.md" {
+            std::fs::write(temp.path().join(path), b"placeholder").unwrap();
+        }
+        assert_eq!(
+            stage_candidate(
+                temp.path(),
+                &[path.to_string()],
+                &candidate_agent,
+                &candidate_agent
+            )
+            .unwrap_err()
+            .to_string(),
+            message
+        );
+    }
+}
+
+#[test]
+fn candidate_staging_rejects_symlinked_files_when_supported() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(outside.path(), b"Be helpful.").unwrap();
+    let link = temp.path().join("instructions.md");
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_file(outside.path(), &link);
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(outside.path(), &link);
+    if linked.is_err() {
+        return;
+    }
+    assert_eq!(
+        stage_candidate(
+            temp.path(),
+            &["instructions.md".to_string()],
+            &agent(),
+            &agent()
+        )
+        .unwrap_err()
+        .to_string(),
+        "symlinked evidence paths are not allowed"
+    );
+}
+
+#[test]
+fn candidate_diff_reports_added_and_removed_paths() {
+    let baseline_agent = json!({
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [{"path": "a.md", "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", "size": 1}],
+        "dependencies": {"castia": "0.6.0"},
+        "model": {"deployment": "gpt-4o"},
+        "instructions": "a",
+        "tools": []
+    });
+    let candidate_agent = json!({
+        "schema_version": 1,
+        "kind": "agent",
+        "source_files": [{"path": "b.md", "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d", "size": 1}],
+        "dependencies": {"castia": "0.6.0"},
+        "model": {"deployment": "gpt-4o"},
+        "instructions": "b",
+        "tools": []
+    });
+    let baseline = json!({
+        "schema_version": 1,
+        "kind": "candidate",
+        "baseline_id": castia::lifecycle::record_id(&baseline_agent).unwrap(),
+        "agent_id": castia::lifecycle::record_id(&baseline_agent).unwrap(),
+        "files": [{"path": "a.md", "content": "a", "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"}],
+        "agent_snapshot": baseline_agent
+    });
+    let candidate = json!({
+        "schema_version": 1,
+        "kind": "candidate",
+        "baseline_id": castia::lifecycle::record_id(&baseline["agent_snapshot"]).unwrap(),
+        "agent_id": castia::lifecycle::record_id(&candidate_agent).unwrap(),
+        "files": [{"path": "b.md", "content": "b", "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"}],
+        "agent_snapshot": candidate_agent
+    });
+    assert_eq!(
+        diff_candidates(&baseline, &candidate).unwrap(),
+        json!({
+            "a.md": {"before": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb", "after": null},
+            "b.md": {"before": null, "after": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"}
+        })
+    );
 }
 
 #[test]

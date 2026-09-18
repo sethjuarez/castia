@@ -758,6 +758,19 @@
               "nonFatal": false
             },
             {
+              "name": "diffCandidates",
+              "returns": "unknown",
+              "params": {
+                "baseline": "unknown",
+                "candidate": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
               "name": "evaluateOutcomes",
               "returns": "unknown",
               "params": {
@@ -772,6 +785,21 @@
               },
               "optional": false,
               "sync": false,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "stageCandidate",
+              "returns": "unknown",
+              "params": {
+                "agent": "unknown",
+                "baseline": "unknown",
+                "files": "unknown",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
               "runtimeCancellable": false,
               "atomic": false,
               "nonFatal": false
