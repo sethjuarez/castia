@@ -7,7 +7,7 @@ Castia requires Python 3.11 or later. Use the package in the scenario repo, not 
 
 ## New project
 
-These commands use PowerShell. `$python` keeps every command on the same interpreter after changing directories.
+These commands use PowerShell. `$python` keeps every command on the same interpreter while you create the starter.
 
 ```powershell
 uv venv --python 3.13
@@ -19,6 +19,40 @@ Set-Location .\my-agent
 ```
 
 The `deploy` extra supplies YAML tooling. `optimize` includes candidate resolution. `test` installs local test support. Castia does not install Azure CLI or azd.
+
+The scaffold creates a Castia-native starter: `main.py`, `pyproject.toml`,
+`requirements.txt` for hosted code deploy, `.env.example`, `azure.yaml`, tests,
+and `.agent_configs/baseline`.
+
+## Fill `.env`
+
+Copy `.env.example` to `.env` and fill the existing Foundry project endpoint and
+model deployment name:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+```text
+FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>
+AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>
+```
+
+Do not commit `.env`. The starter validates these values and baseline
+instructions before it starts serving.
+
+## Run locally
+
+Run entrypoints with `uv run --directory` so `.env` and `.agent_configs` resolve
+from the agent root:
+
+```powershell
+uv sync --project .
+uv run --directory . python main.py
+```
+
+Then use the Foundry Agent Playground health check against
+`http://localhost:8088` before sending a model prompt.
 
 ## Check before live calls
 
@@ -38,10 +72,8 @@ Use an existing Foundry project and an existing model deployment. The deployment
 
 ```powershell
 az login --tenant "<your-tenant-id>"
-$env:FOUNDRY_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
-$env:AZURE_AI_MODEL_DEPLOYMENT_NAME = "<your-model-deployment-name>"
 $env:TOOLBOX_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>/toolboxes/<toolbox>/mcp?api-version=v1"
-& $python main.py
+uv run --directory . python main.py
 ```
 
 Get approval before sending live inference calls, executing tools, deploying, granting permissions, or spending money.

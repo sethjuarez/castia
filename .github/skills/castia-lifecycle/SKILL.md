@@ -15,6 +15,127 @@ from the application's root, where `main.py`, `azure.yaml`, `eval.yaml`, and
 `.agent_configs/` live. Running from the SDK source directory targets the wrong
 project unless an explicit path is supplied.
 
+## New agent golden path
+
+When the user asks to make, scaffold, bake, demo, or story-flow a new Python
+Foundry hosted agent with Castia, do **not** start from an Agent Framework sample
+and do not leave generated non-Castia app code in place. Build a Castia app
+directly, or use `python -m castia build scaffold` and then keep the generated
+Castia shape.
+
+Create this minimum file set under the agent root:
+
+```text
+<agent-root>\
+  main.py
+  pyproject.toml
+  requirements.txt
+  .env.example
+  .gitignore
+  azure.yaml
+  .agent_configs\
+    baseline\
+      instructions.md
+      metadata.yaml
+```
+
+Use this `main.py` shape unless the user requested tools or Teams-specific code:
+
+```python
+from pathlib import Path
+
+from castia import Agent, Depends, Model, configured_model, load_agent_config
+
+app = Agent(name="starter-castia-agent")
+
+
+def model_provider() -> Model:
+    config = load_agent_config(Path(__file__).parent / ".agent_configs")
+    if not (config.instructions or "").strip():
+        raise RuntimeError("No baseline instructions loaded from .agent_configs.")
+    return configured_model(config)()
+
+
+@app.responses()
+async def reply(text: str, model: Model = Depends(model_provider)) -> str:
+    return await model.respond(text)
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8088)
+```
+
+Use `pyproject.toml` as the local app contract and keep `requirements.txt` as
+the hosted code-deploy runtime mirror:
+
+```toml
+[project]
+name = "starter-castia-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "castia[optimize]==0.6.0",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.uv]
+package = false
+```
+
+Use this `.env.example`:
+
+```text
+FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>
+AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>
+```
+
+Add `.env` to `.gitignore` and tell the user to copy `.env.example` to `.env`
+and fill those two values before opening the playground or starting local. The
+entrypoint should load `.env`, then fail before serving if either setting is
+missing, placeholder-shaped, or malformed.
+
+Use this `azure.yaml` service shape for code deploy:
+
+```yaml
+name: starter-castia-agent
+services:
+  starter-castia-agent:
+    project: .
+    host: azure.ai.agent
+    language: python
+    kind: hosted
+    name: starter-castia-agent
+    description: A Castia starter agent serving Foundry Responses.
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint: main.py
+      dependencyResolution: remote_build
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    env:
+      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
+```
+
+Use this baseline metadata shape:
+
+```yaml
+model: gpt-4o
+instruction_file: instructions.md
+```
+
+Replace `model` with the actual deployment name before local or hosted testing.
+Run app entrypoints with `uv run --directory <agent-root> python main.py`, not
+`uv run --project <agent-root> python main.py`; `--project` resolves the uv
+project but does not change the app cwd.
+Do not commit `.env`, project endpoints, subscription IDs, tenant IDs, resource
+groups, tokens, `.venv`, `__pycache__`, `.azure`, generated app packages, or
+local Teams setup artifacts.
+
 ## Install and import
 
 ```powershell
@@ -49,7 +170,8 @@ The guide binds to loopback; hosted processes need `0.0.0.0`.
 `AZURE_AI_MODEL_DEPLOYMENT_NAME`. Its `DefaultAzureCredential` can use a local
 Azure CLI login or hosted managed identity. Neither Castia nor setting an
 environment variable grants access to the project or model.
-Castia does not load `.env` automatically.
+Castia does not load `.env` automatically; starter apps may deliberately load
+it with `python-dotenv` before constructing `Model`.
 
 For candidate resolution, anchor `load_agent_config` to the app's
 `.agent_configs` directory, pass the result to `configured_model`, and inspect

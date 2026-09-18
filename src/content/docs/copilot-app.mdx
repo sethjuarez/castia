@@ -10,6 +10,8 @@ The demo belongs in another repository with a specific use case and the data to 
 | Path | Purpose |
 | --- | --- |
 | `.github/copilot-instructions.md` | Durable repo rules, including model, cloud, and approval boundaries. |
+| `.github/skills/castia-lifecycle` | Teaches Copilot the Castia build, test, evaluate, optimize, and deployment boundaries. |
+| `.github/skills/foundry-story-flow` | Keeps the local -> Foundry -> Teams demo path on the Castia rails. |
 | `.github/prompts/build-castia-agent.prompt.md` | A one click prompt for building the first agent. |
 | `.github/prompts/test-castia-agent.prompt.md` | A one click prompt for trying the local agent and reporting evidence. |
 | `README.md` | The human story, quickstart, and expected demo path. |
@@ -32,9 +34,10 @@ The default path is:
 
 1. Build or update the local agent.
 2. Run the local tests or evals.
-3. Try the agent locally through the Castia canvas if it is available.
-4. Ask before provisioning, deploying, granting permissions, publishing to Teams, or spending money.
-5. After deployment, record the endpoint, model deployment, and Teams handoff steps in the repo.
+3. Copy `.env.example` to `.env`, fill the Foundry endpoint and model deployment, and run `uv run --directory <agent-root> python main.py`.
+4. Try the agent locally through Foundry Agent Playground if it is available.
+5. Ask before provisioning, deploying, granting permissions, publishing to Teams, or spending money.
+6. After deployment, record the endpoint, model deployment, and Teams handoff steps in the repo.
 
 Do not assume a model deployment name. Discover it or ask.
 

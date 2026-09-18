@@ -2,6 +2,20 @@
 
 This scaffold creates local files only. It does not create a project, model deployment, registry, identity, or infrastructure.
 
+## Run locally first
+
+Copy `.env.example` to `.env`, fill `FOUNDRY_PROJECT_ENDPOINT` and
+`AZURE_AI_MODEL_DEPLOYMENT_NAME`, then run the app from the agent root:
+
+```powershell
+uv sync --project .
+uv run --directory . python main.py
+```
+
+The entrypoint validates `.env` and `.agent_configs/baseline` before serving.
+Use the Foundry Agent Playground health check against `http://localhost:8088`
+before sending a model prompt.
+
 Before code deployment, select your existing azd environment and populate its context with values verified against that existing project:
 
 | Setting | Meaning |

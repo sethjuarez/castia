@@ -10,6 +10,9 @@ export default defineConfig({
       title: "Castia",
       favicon: "/castia/assets/castia-mark.svg",
       customCss: ["./src/styles/starlight.css"],
+      components: {
+        SiteTitle: "./src/components/CastiaSiteTitle.astro",
+      },
       social: [
         {
           icon: "github",
@@ -29,9 +32,7 @@ export default defineConfig({
         {
           label: "Reference",
           items: [
-            { label: "Framework map", slug: "framework" },
-            { label: "Customize additions", slug: "customize" },
-            { label: "Color tokens", slug: "color-tokens" },
+            { label: "SDK map", slug: "framework" },
           ],
         },
       ],
