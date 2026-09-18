@@ -53,6 +53,7 @@
         "LifecycleStorageRuntime",
         "Mention",
         "ModelRuntime",
+        "ObserveRecordsRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
         "ToolCatalogRuntime"
@@ -196,6 +197,13 @@
           "kind": "type",
           "group": "",
           "source": "model_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveRecordsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_records_runtime",
           "protocol": true
         },
         {
@@ -990,6 +998,39 @@
           ]
         },
         {
+          "name": "ObserveRecordsRuntime",
+          "group": "",
+          "symbol": "ObserveRecordsRuntime",
+          "source": "observe_records_runtime",
+          "methods": [
+            {
+              "name": "normalizeRecord",
+              "returns": "unknown",
+              "params": {
+                "includeContent": "boolean",
+                "row": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "summarize",
+              "returns": "unknown",
+              "params": {
+                "records": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -1138,6 +1179,7 @@
         "lifecycle_storage_runtime",
         "mention",
         "model_runtime",
+        "observe_records_runtime",
         "responses_runtime",
         "routing_runtime",
         "tool_catalog_runtime"

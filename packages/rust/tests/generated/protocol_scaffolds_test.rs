@@ -382,6 +382,27 @@ fn model_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ModelRuntime> = Box::new(CompileOnlyModelRuntime);
 }
 
+struct CompileOnlyObserveRecordsRuntime;
+
+#[async_trait::async_trait]
+impl ObserveRecordsRuntime for CompileOnlyObserveRecordsRuntime {
+    fn normalize_record(
+        &self,
+        row: &serde_json::Value,
+        include_content: &bool,
+    ) -> serde_json::Value {
+        panic!("ObserveRecordsRuntime.normalizeRecord is a compile-only protocol scaffold.")
+    }
+    fn summarize(&self, records: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveRecordsRuntime.summarize is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn observe_records_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ObserveRecordsRuntime> = Box::new(CompileOnlyObserveRecordsRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]

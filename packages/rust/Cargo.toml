@@ -19,6 +19,7 @@ toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

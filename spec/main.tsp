@@ -16,6 +16,7 @@ import "./lifecycle/records.tsp";
 import "./lifecycle/storage.tsp";
 import "./lifecycle/operations.tsp";
 import "./lifecycle/acceptance.tsp";
+import "./observe/records.tsp";
 
 namespace Castia.Spec;
 

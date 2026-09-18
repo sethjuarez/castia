@@ -13,14 +13,15 @@ use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
-    LifecycleStorageRuntime, LoadContext, ModelRuntime, ResponsesRuntime, RoutingRuntime,
-    SaveContext, ToolCatalogRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveRecordsRuntime, ResponsesRuntime,
+    RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
+use castia::observe::CastiaObserveRecordsRuntime;
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -230,6 +231,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "ModelRuntime.instructionsParam",
             sync(model_instructions_param),
+        ),
+        (
+            "ObserveRecordsRuntime.normalizeRecord",
+            sync_with_normalize(observe_normalize_record, observe_record_to_camel),
+        ),
+        (
+            "ObserveRecordsRuntime.summarize",
+            sync_with_normalize(observe_summarize, observe_record_to_camel),
         ),
         ("ModelRuntime.publicToolSpec", sync(model_public_tool_spec)),
         ("ModelRuntime.reasoningParam", sync(model_reasoning_param)),
@@ -806,6 +815,21 @@ fn vector_error(error: impl std::fmt::Display) -> VectorError {
     }
 }
 
+fn observe_normalize_record(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaObserveRecordsRuntime.normalize_record(
+        input.get("row").unwrap_or(&Value::Null),
+        &input
+            .get("includeContent")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    ))
+}
+
+fn observe_summarize(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let records = observe_record_to_snake(input.get("records").unwrap_or(&Value::Null));
+    Ok(CastiaObserveRecordsRuntime.summarize(&records))
+}
+
 fn model_instructions_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaModelRuntime.instructions_param(
         &input
@@ -995,6 +1019,114 @@ fn lifecycle_record_to_camel(value: &Value, _: &Context) -> Value {
 
 fn lifecycle_record_to_snake(value: &Value) -> Value {
     lifecycle_keys(value, true)
+}
+
+fn observe_record_to_camel(value: &Value, _: &Context) -> Value {
+    observe_vector_numbers(&observe_keys(value, false))
+}
+
+fn observe_record_to_snake(value: &Value) -> Value {
+    observe_keys(value, true)
+}
+
+fn observe_keys(value: &Value, to_snake: bool) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match (to_snake, key.as_str()) {
+                        (true, "agentName") => "agent_name",
+                        (true, "agentVersion") => "agent_version",
+                        (true, "traceId") => "trace_id",
+                        (true, "spanId") => "span_id",
+                        (true, "parentId") => "parent_id",
+                        (true, "latencyMs") => "latency_ms",
+                        (true, "inputTokens") => "input_tokens",
+                        (true, "outputTokens") => "output_tokens",
+                        (true, "totalTokens") => "total_tokens",
+                        (true, "toolName") => "tool_name",
+                        (true, "probeTag") => "probe_tag",
+                        (true, "recordCount") => "record_count",
+                        (true, "errorCount") => "error_count",
+                        (true, "observedErrorCount") => "observed_error_count",
+                        (true, "knownStatusCount") => "known_status_count",
+                        (true, "unknownStatusCount") => "unknown_status_count",
+                        (true, "errorRate") => "error_rate",
+                        (true, "errorRateDenominator") => "error_rate_denominator",
+                        (true, "toolErrors") => "tool_errors",
+                        (true, "toolStatusCounts") => "tool_status_counts",
+                        (true, "knownRecords") => "known_records",
+                        (true, "unknownRecords") => "unknown_records",
+                        (true, "observedSum") => "observed_sum",
+                        (true, "costStatus") => "cost_status",
+                        (true, "unknownCount") => "unknown_count",
+                        (false, "agent_name") => "agentName",
+                        (false, "agent_version") => "agentVersion",
+                        (false, "trace_id") => "traceId",
+                        (false, "span_id") => "spanId",
+                        (false, "parent_id") => "parentId",
+                        (false, "latency_ms") => "latencyMs",
+                        (false, "input_tokens") => "inputTokens",
+                        (false, "output_tokens") => "outputTokens",
+                        (false, "total_tokens") => "totalTokens",
+                        (false, "tool_name") => "toolName",
+                        (false, "probe_tag") => "probeTag",
+                        (false, "record_count") => "recordCount",
+                        (false, "error_count") => "errorCount",
+                        (false, "observed_error_count") => "observedErrorCount",
+                        (false, "known_status_count") => "knownStatusCount",
+                        (false, "unknown_status_count") => "unknownStatusCount",
+                        (false, "error_rate") => "errorRate",
+                        (false, "error_rate_denominator") => "errorRateDenominator",
+                        (false, "tool_errors") => "toolErrors",
+                        (false, "tool_status_counts") => "toolStatusCounts",
+                        (false, "known_records") => "knownRecords",
+                        (false, "unknown_records") => "unknownRecords",
+                        (false, "observed_sum") => "observedSum",
+                        (false, "cost_status") => "costStatus",
+                        (false, "unknown_count") => "unknownCount",
+                        _ => key.as_str(),
+                    };
+                    let translated_value = if matches!(
+                        translated,
+                        "toolErrors"
+                            | "toolStatusCounts"
+                            | "content"
+                            | "tool_errors"
+                            | "tool_status_counts"
+                    ) {
+                        value.clone()
+                    } else {
+                        observe_keys(value, to_snake)
+                    };
+                    (translated.to_string(), translated_value)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|v| observe_keys(v, to_snake)).collect())
+        }
+        _ => value.clone(),
+    }
+}
+
+fn observe_vector_numbers(value: &Value) -> Value {
+    match value {
+        Value::Number(number) => number
+            .as_f64()
+            .filter(|number| number.is_finite() && number.fract() == 0.0)
+            .map(|number| json!(number as i64))
+            .unwrap_or_else(|| value.clone()),
+        Value::Array(items) => Value::Array(items.iter().map(observe_vector_numbers).collect()),
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), observe_vector_numbers(value)))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
