@@ -29,6 +29,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "BuildTestingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "BuildTestingRuntime",
+      "generatedSource": "build_testing_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "CardsRuntime",
       "target": "rust",
       "group": "",

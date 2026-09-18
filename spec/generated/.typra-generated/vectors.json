@@ -826,6 +826,202 @@
       }
     },
     {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "projectTestReport",
+      "params": {
+        "root": "string",
+        "exitCode": "int32",
+        "output": "string",
+        "timedOut": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "project-test-report-error",
+        "stage": "callable",
+        "input": {
+          "root": "/tmp/agent",
+          "exitCode": 2,
+          "output": "collection error",
+          "timedOut": false
+        },
+        "expected": {
+          "root": "/tmp/agent",
+          "status": "error",
+          "exitCode": 2,
+          "output": "collection error",
+          "ok": false,
+          "scope": "offline"
+        },
+        "operation": "projectTestReport"
+      }
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "projectTestReport",
+      "params": {
+        "root": "string",
+        "exitCode": "int32",
+        "output": "string",
+        "timedOut": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "project-test-report-fail",
+        "stage": "callable",
+        "input": {
+          "root": "/tmp/agent",
+          "exitCode": 1,
+          "output": "actual test failure",
+          "timedOut": false
+        },
+        "expected": {
+          "root": "/tmp/agent",
+          "status": "fail",
+          "exitCode": 1,
+          "output": "actual test failure",
+          "ok": false,
+          "scope": "offline"
+        },
+        "operation": "projectTestReport"
+      }
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "projectTestReport",
+      "params": {
+        "root": "string",
+        "exitCode": "int32",
+        "output": "string",
+        "timedOut": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "project-test-report-pass",
+        "stage": "callable",
+        "input": {
+          "root": "/tmp/agent",
+          "exitCode": 0,
+          "output": "2 passed",
+          "timedOut": false
+        },
+        "expected": {
+          "root": "/tmp/agent",
+          "status": "pass",
+          "exitCode": 0,
+          "output": "2 passed",
+          "ok": true,
+          "scope": "offline"
+        },
+        "operation": "projectTestReport"
+      }
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "projectTestReport",
+      "params": {
+        "root": "string",
+        "exitCode": "int32",
+        "output": "string",
+        "timedOut": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "project-test-report-timeout",
+        "stage": "callable",
+        "input": {
+          "root": "/tmp/agent",
+          "exitCode": 99,
+          "output": "ignored",
+          "timedOut": true
+        },
+        "expected": {
+          "root": "/tmp/agent",
+          "status": "timeout",
+          "exitCode": 124,
+          "output": "Local tests exceeded the timeout.",
+          "ok": false,
+          "scope": "offline"
+        },
+        "operation": "projectTestReport"
+      }
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "validateTestTimeout",
+      "params": {
+        "timeout": "float64"
+      },
+      "returns": "float64",
+      "sync": true,
+      "vector": {
+        "name": "test-timeout-accepts-positive-finite",
+        "stage": "callable",
+        "input": {
+          "timeout": 60
+        },
+        "expected": 60,
+        "operation": "validateTestTimeout"
+      }
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "validateTestTimeout",
+      "params": {
+        "timeout": "float64"
+      },
+      "returns": "float64",
+      "sync": true,
+      "vector": {
+        "name": "test-timeout-rejects-negative",
+        "stage": "callable",
+        "input": {
+          "timeout": -1
+        },
+        "expectedError": {
+          "message": "timeout must be a finite positive number of seconds"
+        },
+        "operation": "validateTestTimeout"
+      }
+    },
+    {
+      "contract": "BuildTestingRuntime",
+      "namespace": "Castia.Spec.Building",
+      "group": "",
+      "operation": "validateTestTimeout",
+      "params": {
+        "timeout": "float64"
+      },
+      "returns": "float64",
+      "sync": true,
+      "vector": {
+        "name": "test-timeout-rejects-zero",
+        "stage": "callable",
+        "input": {
+          "timeout": 0
+        },
+        "expectedError": {
+          "message": "timeout must be a finite positive number of seconds"
+        },
+        "operation": "validateTestTimeout"
+      }
+    },
+    {
       "contract": "CardsRuntime",
       "namespace": "Castia.Spec.Messaging",
       "group": "",

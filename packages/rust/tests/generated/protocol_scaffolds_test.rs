@@ -67,6 +67,29 @@ fn build_scaffold_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn BuildScaffoldRuntime> = Box::new(CompileOnlyBuildScaffoldRuntime);
 }
 
+struct CompileOnlyBuildTestingRuntime;
+
+#[async_trait::async_trait]
+impl BuildTestingRuntime for CompileOnlyBuildTestingRuntime {
+    fn project_test_report(
+        &self,
+        root: &String,
+        exit_code: &i32,
+        output: &String,
+        timed_out: &bool,
+    ) -> serde_json::Value {
+        panic!("BuildTestingRuntime.projectTestReport is a compile-only protocol scaffold.")
+    }
+    fn validate_test_timeout(&self, timeout: &f64) -> f64 {
+        panic!("BuildTestingRuntime.validateTestTimeout is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn build_testing_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn BuildTestingRuntime> = Box::new(CompileOnlyBuildTestingRuntime);
+}
+
 struct CompileOnlyCardsRuntime;
 
 #[async_trait::async_trait]

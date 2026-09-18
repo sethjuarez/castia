@@ -12,6 +12,7 @@ import "./messaging/routing.tsp";
 import "./inference/model.tsp";
 import "./inference/tools.tsp";
 import "./building/scaffold.tsp";
+import "./building/testing.tsp";
 import "./evaluation/suite.tsp";
 import "./lifecycle/records.tsp";
 import "./lifecycle/storage.tsp";

@@ -1,3 +1,4 @@
+use castia::building::CastiaBuildTestingRuntime;
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
@@ -10,8 +11,8 @@ use castia::messaging::{
     CastiaInvokesRuntime, CastiaRoutingRuntime,
 };
 use castia::model::{
-    Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
+    Activity, ActivityRuntime, AgentConfigResolver, BuildTestingRuntime, CardsRuntime, ChatRuntime,
+    EntitiesRuntime, EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
     LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
     ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
@@ -94,6 +95,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "BuildScaffoldRuntime.scaffoldFiles",
             sync_with_normalize(build_scaffold_files, build_scaffold_to_camel),
+        ),
+        (
+            "BuildTestingRuntime.projectTestReport",
+            sync_with_normalize(build_project_test_report, build_scaffold_to_camel),
+        ),
+        (
+            "BuildTestingRuntime.validateTestTimeout",
+            sync(build_validate_test_timeout),
         ),
         (
             "CardsRuntime.actionChips",
@@ -1257,6 +1266,46 @@ fn build_scaffold_files(input: &Value, _: &Context) -> Result<Value, VectorError
     .map_err(vector_error)
 }
 
+fn build_project_test_report(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaBuildTestingRuntime.project_test_report(
+        &input
+            .get("root")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        &(input
+            .get("exitCode")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &input
+            .get("output")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        &input
+            .get("timedOut")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    ))
+}
+
+fn build_validate_test_timeout(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    castia::building::validate_test_timeout(
+        input
+            .get("timeout")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+    )
+    .map(|value| {
+        if value.fract() == 0.0 {
+            Value::from(value as i64)
+        } else {
+            Value::from(value)
+        }
+    })
+    .map_err(vector_error)
+}
+
 fn responses_input_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(serde_json::json!(
         CastiaResponsesRuntime.input_text(input.get("value").unwrap_or(&Value::Null))
@@ -1339,6 +1388,8 @@ fn build_scaffold_to_camel(value: &Value, _: &Context) -> Value {
                         "app_target" => "appTarget",
                         "file_count" => "fileCount",
                         "content_digest" => "contentDigest",
+                        "exit_code" => "exitCode",
+                        "timed_out" => "timedOut",
                         _ => key,
                     };
                     (

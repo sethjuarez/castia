@@ -38,6 +38,7 @@
         "AgentConfigResolution",
         "AgentConfigResolver",
         "BuildScaffoldRuntime",
+        "BuildTestingRuntime",
         "CardsRuntime",
         "CastiaContracts",
         "ChannelAccount",
@@ -97,6 +98,13 @@
           "kind": "type",
           "group": "",
           "source": "build_scaffold_runtime",
+          "protocol": true
+        },
+        {
+          "name": "BuildTestingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "build_testing_runtime",
           "protocol": true
         },
         {
@@ -382,6 +390,41 @@
               "params": {
                 "model": "string",
                 "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "BuildTestingRuntime",
+          "group": "",
+          "symbol": "BuildTestingRuntime",
+          "source": "build_testing_runtime",
+          "methods": [
+            {
+              "name": "projectTestReport",
+              "returns": "unknown",
+              "params": {
+                "exitCode": "int32",
+                "output": "string",
+                "root": "string",
+                "timedOut": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateTestTimeout",
+              "returns": "float64",
+              "params": {
+                "timeout": "float64"
               },
               "optional": false,
               "sync": true,
@@ -1449,6 +1492,7 @@
         "agent_config_resolution",
         "agent_config_resolver",
         "build_scaffold_runtime",
+        "build_testing_runtime",
         "cards_runtime",
         "castia_contracts",
         "channel_account",

@@ -25,6 +25,9 @@ pub use agent_config_resolver::*;
 pub mod build_scaffold_runtime;
 pub use build_scaffold_runtime::*;
 
+pub mod build_testing_runtime;
+pub use build_testing_runtime::*;
+
 pub mod cards_runtime;
 pub use cards_runtime::*;
 
