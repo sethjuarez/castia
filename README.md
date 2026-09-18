@@ -27,7 +27,8 @@ reusable SDK, specs, and Copilot extras.
 ```
 castia/
 ├─ examples/
-│  └─ python/         # checked-in lifecycle examples for agent/plugin validation
+│  ├─ python/         # checked-in lifecycle examples for agent/plugin validation
+│  └─ rust/           # checked-in smoke examples for Rust parity work
 ├─ spec/              # source of truth: protocol contracts + conformance fixtures
 └─ packages/
    ├─ python/         # the Python SDK (PyPI: castia)
