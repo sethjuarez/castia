@@ -72,7 +72,14 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
         print(f"error: could not load app {args.app!r}: {exc}", file=sys.stderr)
         return 2
 
-    plan = generate_manifest(app, args.manifest, check=args.check)
+    try:
+        plan = generate_manifest(app, args.manifest, check=args.check)
+    except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
+        print(
+            f"error: could not validate manifest {args.manifest!r}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
     _print_plan(plan, check=args.check)
 
     # --check is a CI gate: non-zero when the manifest would change.

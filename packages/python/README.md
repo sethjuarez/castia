@@ -187,6 +187,10 @@ Use names from your server's `tools/list` result. For the verified web toolbox,
 the tool is `web` and its parameter is `search_query`, not `query`. Castia emits
 the selected tool name to `tools.json`; it accepts `toolbox___web` only as an
 older override-key spelling. Unknown or ambiguous tool names raise immediately.
+If two allowed tools share the same bare name after a `___` federated prefix,
+use the fully qualified toolbox tool name in `descriptions` and
+`param_guidance`, for example
+`contracts-kb-mcp___knowledge_base_retrieve`.
 Guidance is folded into `server_description` and an optimizer sidecar. It does
 not replace the upstream tool schema or turn MCP into local function execution.
 Private sidecars are stripped before the Responses API call.
@@ -382,7 +386,7 @@ OIDC Azure login secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
 
 | Variable | Purpose |
 |---|---|
-| `FOUNDRY_PROJECT_ENDPOINT` | Target Foundry project endpoint. |
+| `FOUNDRY_PROJECT_ENDPOINT` | Target Foundry project endpoint for local/process checks; do not put this under hosted `azure.yaml` env. |
 | `FOUNDRY_OPTIMIZER_AGENT_NAME` | Pre-deployed smoke agent name. |
 | `FOUNDRY_OPTIMIZER_AGENT_VERSION` | Optional pinned hosted-agent version. |
 | `FOUNDRY_EVAL_MODEL` | Optional evaluator model, defaults to `gpt-4o`. |

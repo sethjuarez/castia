@@ -229,7 +229,7 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "| `AZURE_LOCATION` | The existing project's Azure region; required for code deploy. |\n"
             "| `AZURE_AI_PROJECT_ID` | Full project ARM resource ID, not an endpoint URL. |\n"
             "| `AZURE_SUBSCRIPTION_ID` | Subscription containing the project. |\n"
-            "| `FOUNDRY_PROJECT_ENDPOINT` | Existing project's data-plane endpoint. |\n"
+            "| `FOUNDRY_PROJECT_ENDPOINT` | Existing project's data-plane endpoint for local/process checks; do not put it in hosted `azure.yaml` env. |\n"
             "| `AZURE_AI_MODEL_DEPLOYMENT_NAME` | Existing model deployment name. |\n\n"
             "The ARM ID has the shape "
             "`/subscriptions/<subscription>/resourceGroups/<group>/providers/"
@@ -242,6 +242,10 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "azd's persisted environment, and does not load `.env.example`. Without "
             "`--deployment`, missing deployment context is advisory so offline protocol "
             "development can continue. Passing this gate is not a live deployment guarantee.\n\n"
+            "Foundry hosted agents reserve all `FOUNDRY_*` and `AGENT_*` container "
+            "variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local dev or "
+            "in host-side process/azd context for Castia checks; do not declare it "
+            "under `services.<agent>.env` in `azure.yaml`.\n\n"
             "The default manifest uses Python 3.13 with remote dependency build; no "
             "local Docker/ACR setup is needed for this mode. The included Dockerfile is "
             "an explicit alternative; see the commented manifest instructions.\n"
@@ -259,7 +263,6 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "    protocols:\n" + protocols +
             "    env:\n"
             "      AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}\n"
-            "      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}\n"
             "    container:\n      resources:\n        cpu: '0.5'\n        memory: 1Gi\n"
         ),
         ".agent_configs/baseline/metadata.yaml": (

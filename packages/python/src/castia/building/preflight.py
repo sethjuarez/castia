@@ -185,7 +185,11 @@ def preflight(
 
         code_mode = False
         try:
-            from castia.delivery.manifest import generate_manifest
+            from castia.delivery.manifest import (
+                generate_manifest,
+                reserved_hosted_env_keys,
+                reserved_hosted_env_message,
+            )
 
             manifest = _local_file(root, "azure.yaml")
             doc = yaml.load(manifest.read_text(encoding="utf-8"))
@@ -195,8 +199,30 @@ def preflight(
             if app is None:
                 add("manifest", "skipped", "Cannot compare deployment protocols without a valid Agent.")
             else:
-                plan = generate_manifest(app, manifest, check=True)
-                service = services[plan.service]
+                service_name = (
+                    app.name
+                    if app.name in services
+                    else next(iter(services))
+                    if len(services) == 1
+                    else None
+                )
+                if service_name is None:
+                    raise ValueError("Cannot pick service.")
+                service = services[service_name]
+                if not isinstance(service, dict):
+                    raise ValueError("Service must be a mapping.")
+                reserved_env = reserved_hosted_env_keys(service)
+                if reserved_env:
+                    add(
+                        "manifest.env",
+                        "fail",
+                        reserved_hosted_env_message(service_name, reserved_env),
+                    )
+                    add("manifest", "fail", "Hosted agent manifest declares Foundry-managed env vars.")
+                    plan = None
+                else:
+                    plan = generate_manifest(app, manifest, check=True)
+                    service = services[plan.service]
                 code_mode = "codeConfiguration" in service
                 if code_mode:
                     code = service["codeConfiguration"]
@@ -242,7 +268,9 @@ def preflight(
                 versions_ok = all(
                     item.get("version") == "2.0.0" for item in service.get("protocols", [])
                 )
-                if plan.changed or not versions_ok:
+                if plan is None:
+                    pass
+                elif plan.changed or not versions_ok:
                     add("manifest", "fail", "Manifest protocols/version differ from Agent registration.")
                 elif service.get("host") != "azure.ai.agent":
                     add("manifest", "fail", "Service is not configured as an azure.ai.agent host.")
@@ -256,7 +284,7 @@ def preflight(
                     add("manifest", "fail", "Inline hosted agent name differs from Agent registration.")
                 else:
                     add("manifest", "pass", "Inline hosted definition and protocols match Agent registration.")
-                if plan.skipped:
+                if plan is not None and plan.skipped:
                     add("manifest.local_only", "warning", "Local-only protocols are not published.")
         except Exception as exc:  # noqa: BLE001 - YAML errors must be redacted diagnostics
             add("manifest", "fail", f"Invalid or missing azure.yaml ({type(exc).__name__}).")

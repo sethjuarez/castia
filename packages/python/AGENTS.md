@@ -129,7 +129,6 @@ services:
         version: 2.0.0
     env:
       AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
-      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
 ```
 
 Baseline config:
@@ -212,6 +211,11 @@ if __name__ == "__main__":
 
 Set `HOST=127.0.0.1` for local-only runs. Hosted deployments need `0.0.0.0`
 so platform ingress can reach the process.
+
+Foundry hosted agents reserve all `FOUNDRY_*` and `AGENT_*` container
+variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local development or
+process/azd host-side context for Castia checks; do not declare it under a
+hosted service's `env:` block in `azure.yaml`.
 
 `app.tools(...)` declares a pure provider for baseline generation. It must not
 fetch tokens or make network calls. The handler adds a fresh toolbox bearer

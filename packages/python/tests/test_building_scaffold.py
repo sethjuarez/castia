@@ -68,7 +68,6 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "docker" not in service
     assert service["env"] == {
         "AZURE_AI_MODEL_DEPLOYMENT_NAME": "${AZURE_AI_MODEL_DEPLOYMENT_NAME}",
-        "FOUNDRY_PROJECT_ENDPOINT": "${FOUNDRY_PROJECT_ENDPOINT}",
     }
     assert service["container"] == {"resources": {"cpu": "0.5", "memory": "1Gi"}}
     assert [item["protocol"] for item in service["protocols"]] == module.app.registered_protocols()
@@ -79,6 +78,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "azd resolves the tenant from the subscription" in guide
     assert "does not create a project" in guide
     assert "uv run --directory" in guide
+    assert "do not declare it under `services.<agent>.env`" in guide
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-W", "error", str(root / "tests")],
         cwd=root, capture_output=True, text=True, check=False,

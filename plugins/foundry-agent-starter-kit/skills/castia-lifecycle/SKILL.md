@@ -118,8 +118,12 @@ services:
         version: 2.0.0
     env:
       AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
-      FOUNDRY_PROJECT_ENDPOINT: ${FOUNDRY_PROJECT_ENDPOINT}
 ```
+
+Foundry hosted agents reserve all `FOUNDRY_*` and `AGENT_*` container
+variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local development or
+process/azd host-side context for Castia checks; do not declare it under a
+hosted service's `env:` block in `azure.yaml`.
 
 Use this baseline metadata shape:
 
@@ -204,6 +208,15 @@ Evaluation suites use `eval.yaml`; optimizer baselines use `.agent_configs`.
 Lifecycle evidence has its own snapshot/dataset/run schemas.
 RFT accepts explicit JSONL splits and a grader; it does not consume `eval.yaml`
 as a universal configuration.
+
+## Hosted invoke trace lookup
+
+When a hosted `azd ai agent invoke` succeeds but the terminal output is missing,
+ambiguous, or does not show the answer text, use
+[hosted-invoke-traces.md](hosted-invoke-traces.md). Treat the printed trace ID as
+the App Insights `operation_Id`, then check hosted logs, `requests`,
+`dependencies`, `traces`, `exceptions`, and `customEvents` before blaming Castia
+or the app handler.
 
 ## References and evidence
 

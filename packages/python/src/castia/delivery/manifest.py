@@ -17,9 +17,10 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from castia.runtime.application import PUBLISHABLE_PROTOCOLS, Agent
 
@@ -28,6 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 DEFAULT_MANIFEST = "azure.yaml"
 DEFAULT_APP = "main:app"
+RESERVED_HOSTED_ENV_PREFIXES = ("FOUNDRY_", "AGENT_")
 
 # Every publishable protocol currently pins to contract version 2.0.0. Kept as a
 # table so a future protocol can diverge without touching the emit logic.
@@ -40,6 +42,47 @@ _PROTOCOL_VERSIONS = {
 
 def _protocol_version(protocol: str) -> str:
     return _PROTOCOL_VERSIONS.get(protocol, "2.0.0")
+
+
+def reserved_env_var_keys(env_vars: Mapping[str, Any] | None) -> list[str]:
+    """Reserved Foundry-hosted env names from an authored env-var mapping."""
+    if env_vars is None:
+        return []
+    if not isinstance(env_vars, Mapping):
+        raise TypeError("hosted agent service env vars must be a mapping")
+    return sorted(
+        key
+        for key in env_vars
+        if isinstance(key, str) and key.startswith(RESERVED_HOSTED_ENV_PREFIXES)
+    )
+
+
+def reserved_hosted_env_keys(service: dict[str, Any]) -> list[str]:
+    """Reserved hosted-agent env names authored on a service."""
+    if service.get("host") != "azure.ai.agent" or service.get("kind") != "hosted":
+        return []
+    keys: set[str] = set()
+    for env_field in ("env", "env_vars", "environment_variables"):
+        keys.update(reserved_env_var_keys(service.get(env_field)))
+    return sorted(keys)
+
+
+def reserved_hosted_env_message(service_name: str, keys: list[str]) -> str:
+    names = ", ".join(keys)
+    return (
+        f"hosted agent service {service_name!r} declares reserved container env "
+        f"variable(s): {names}. Foundry manages FOUNDRY_* and AGENT_* variables "
+        "for hosted agents; remove them from authored hosted env vars. Keep "
+        "FOUNDRY_PROJECT_ENDPOINT in .env or process/azd host-side context for "
+        "local development and Castia checks."
+    )
+
+
+def validate_hosted_service_env(service_name: str, service: dict[str, Any]) -> None:
+    """Fail early when a hosted manifest submits Foundry-reserved env vars."""
+    keys = reserved_hosted_env_keys(service)
+    if keys:
+        raise ValueError(reserved_hosted_env_message(service_name, keys))
 
 
 def load_app(target: str = DEFAULT_APP) -> Agent:
@@ -150,6 +193,7 @@ def generate_manifest(
     services = doc.get("services") or {}
     service_name = _pick_service(services, app)
     service = services[service_name]
+    validate_hosted_service_env(service_name, service)
 
     desired = publishable_protocols(app)
     skipped = skipped_protocols(app)
