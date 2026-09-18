@@ -70,6 +70,11 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/integrations_graph_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/integrations_toolbox_runtime.rs",
       "marker": true
     },

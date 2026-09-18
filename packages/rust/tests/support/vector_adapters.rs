@@ -4,7 +4,8 @@ use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::integrations::{
     knowledge_base_mcp_tool as build_knowledge_base_mcp_tool,
-    toolbox_mcp_tool as build_toolbox_mcp_tool, CastiaIntegrationsToolboxRuntime,
+    toolbox_mcp_tool as build_toolbox_mcp_tool, CastiaIntegrationsGraphRuntime,
+    CastiaIntegrationsToolboxRuntime,
 };
 use castia::lifecycle::{
     canonical_json, check_public, compare_runs, content_hash, curate_dataset, dataset_jsonl,
@@ -18,11 +19,11 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, DeliveryAzdRuntime, EntitiesRuntime, EvaluationSuiteRuntime,
-    IdentityRuntime, IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime,
-    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
-    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
-    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
-    RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    IdentityRuntime, IntegrationsGraphRuntime, IntegrationsToolboxRuntime, InvocationsRuntime,
+    InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
+    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
+    ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
+    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -242,6 +243,46 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
                 integrations_knowledge_base_mcp_tool,
                 integrations_toolbox_to_camel,
             ),
+        ),
+        (
+            "IntegrationsGraphRuntime.mailboxMessagesUrl",
+            sync(graph_mailbox_messages_url),
+        ),
+        (
+            "IntegrationsGraphRuntime.summarizeMailboxMessage",
+            sync(graph_summarize_mailbox_message),
+        ),
+        (
+            "IntegrationsGraphRuntime.sendMailPayload",
+            sync(graph_send_mail_payload),
+        ),
+        (
+            "IntegrationsGraphRuntime.sendMailResult",
+            sync(graph_send_mail_result),
+        ),
+        (
+            "IntegrationsGraphRuntime.replyMailRequest",
+            sync(graph_reply_mail_request),
+        ),
+        (
+            "IntegrationsGraphRuntime.replyMailResult",
+            sync(graph_reply_mail_result),
+        ),
+        (
+            "IntegrationsGraphRuntime.driveUploadUrl",
+            sync(graph_drive_upload_url),
+        ),
+        (
+            "IntegrationsGraphRuntime.driveShareInvitePayload",
+            sync(graph_drive_share_invite_payload),
+        ),
+        (
+            "IntegrationsGraphRuntime.driveUploadResult",
+            sync(graph_drive_upload_result),
+        ),
+        (
+            "IntegrationsGraphRuntime.driveShareResult",
+            sync(graph_drive_share_result),
         ),
         (
             "LifecycleRecordsRuntime.canonicalJson",
@@ -757,6 +798,96 @@ fn integrations_toolbox_mcp_tool(input: &Value, _: &Context) -> Result<Value, Ve
 fn integrations_knowledge_base_mcp_tool(input: &Value, _: &Context) -> Result<Value, VectorError> {
     let config = required(input, "config")?;
     build_knowledge_base_mcp_tool(config).map_err(vector_error)
+}
+
+fn graph_mailbox_messages_url(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(
+        CastiaIntegrationsGraphRuntime.mailbox_messages_url(
+            &(input.get("top").and_then(Value::as_i64).unwrap_or_default() as i32),
+            &input
+                .get("unreadOnly")
+                .and_then(Value::as_bool)
+                .unwrap_or_default(),
+        ),
+    ))
+}
+
+fn graph_summarize_mailbox_message(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime
+        .summarize_mailbox_message(input.get("message").unwrap_or(&Value::Null)))
+}
+
+fn graph_send_mail_payload(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime.send_mail_payload(
+        &string_input(input, "to")?,
+        &string_input(input, "subject")?,
+        &string_input(input, "body")?,
+    ))
+}
+
+fn graph_send_mail_result(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime.send_mail_result(
+        &(input
+            .get("status")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &string_input(input, "grantedScopes")?,
+        &string_input(input, "detail")?,
+    ))
+}
+
+fn graph_reply_mail_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime.reply_mail_request(
+        &string_input(input, "messageId")?,
+        &string_input(input, "body")?,
+    ))
+}
+
+fn graph_reply_mail_result(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime.reply_mail_result(
+        &(input
+            .get("status")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &string_input(input, "grantedScopes")?,
+        &string_input(input, "detail")?,
+    ))
+}
+
+fn graph_drive_upload_url(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(
+        CastiaIntegrationsGraphRuntime.drive_upload_url(&string_input(input, "path")?),
+    ))
+}
+
+fn graph_drive_share_invite_payload(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime
+        .drive_share_invite_payload(&string_input(input, "requesterObjectId")?))
+}
+
+fn graph_drive_upload_result(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime.drive_upload_result(
+        &(input
+            .get("status")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &string_input(input, "grantedScopes")?,
+        &string_input(input, "webUrl")?,
+        input.get("shared").unwrap_or(&Value::Null),
+        &string_input(input, "detail")?,
+    ))
+}
+
+fn graph_drive_share_result(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaIntegrationsGraphRuntime.drive_share_result(
+        &string_input(input, "itemId")?,
+        &string_input(input, "requesterObjectId")?,
+        &(input
+            .get("status")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &string_input(input, "detail")?,
+    ))
 }
 
 fn lifecycle_canonical_json(input: &Value, _: &Context) -> Result<Value, VectorError> {
@@ -2444,6 +2575,16 @@ fn required<'a>(input: &'a Value, key: &str) -> Result<&'a Value, VectorError> {
         message: format!("missing {key} input"),
         payload: None,
     })
+}
+
+fn string_input(input: &Value, key: &str) -> Result<String, VectorError> {
+    required(input, key)?
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| VectorError {
+            message: format!("{key} must be a string"),
+            payload: None,
+        })
 }
 
 fn vector_temp_label(ctx: &Context) -> String {

@@ -310,6 +310,75 @@ fn identity_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn IdentityRuntime> = Box::new(CompileOnlyIdentityRuntime);
 }
 
+struct CompileOnlyIntegrationsGraphRuntime;
+
+#[async_trait::async_trait]
+impl IntegrationsGraphRuntime for CompileOnlyIntegrationsGraphRuntime {
+    fn drive_share_invite_payload(&self, requester_object_id: &String) -> serde_json::Value {
+        panic!(
+            "IntegrationsGraphRuntime.driveShareInvitePayload is a compile-only protocol scaffold."
+        )
+    }
+    fn drive_share_result(
+        &self,
+        item_id: &String,
+        requester_object_id: &String,
+        status: &i32,
+        detail: &String,
+    ) -> serde_json::Value {
+        panic!("IntegrationsGraphRuntime.driveShareResult is a compile-only protocol scaffold.")
+    }
+    fn drive_upload_result(
+        &self,
+        status: &i32,
+        granted_scopes: &String,
+        web_url: &String,
+        shared: &serde_json::Value,
+        detail: &String,
+    ) -> serde_json::Value {
+        panic!("IntegrationsGraphRuntime.driveUploadResult is a compile-only protocol scaffold.")
+    }
+    fn drive_upload_url(&self, path: &String) -> String {
+        panic!("IntegrationsGraphRuntime.driveUploadUrl is a compile-only protocol scaffold.")
+    }
+    fn mailbox_messages_url(&self, top: &i32, unread_only: &bool) -> String {
+        panic!("IntegrationsGraphRuntime.mailboxMessagesUrl is a compile-only protocol scaffold.")
+    }
+    fn reply_mail_request(&self, message_id: &String, body: &String) -> serde_json::Value {
+        panic!("IntegrationsGraphRuntime.replyMailRequest is a compile-only protocol scaffold.")
+    }
+    fn reply_mail_result(
+        &self,
+        status: &i32,
+        granted_scopes: &String,
+        detail: &String,
+    ) -> serde_json::Value {
+        panic!("IntegrationsGraphRuntime.replyMailResult is a compile-only protocol scaffold.")
+    }
+    fn send_mail_payload(&self, to: &String, subject: &String, body: &String) -> serde_json::Value {
+        panic!("IntegrationsGraphRuntime.sendMailPayload is a compile-only protocol scaffold.")
+    }
+    fn send_mail_result(
+        &self,
+        status: &i32,
+        granted_scopes: &String,
+        detail: &String,
+    ) -> serde_json::Value {
+        panic!("IntegrationsGraphRuntime.sendMailResult is a compile-only protocol scaffold.")
+    }
+    fn summarize_mailbox_message(&self, message: &serde_json::Value) -> serde_json::Value {
+        panic!(
+            "IntegrationsGraphRuntime.summarizeMailboxMessage is a compile-only protocol scaffold."
+        )
+    }
+}
+
+#[test]
+fn integrations_graph_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn IntegrationsGraphRuntime> =
+        Box::new(CompileOnlyIntegrationsGraphRuntime);
+}
+
 struct CompileOnlyIntegrationsToolboxRuntime;
 
 #[async_trait::async_trait]

@@ -93,6 +93,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "IntegrationsGraphRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "IntegrationsGraphRuntime",
+      "generatedSource": "integrations_graph_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "IntegrationsToolboxRuntime",
       "target": "rust",
       "group": "",

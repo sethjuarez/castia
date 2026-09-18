@@ -855,6 +855,116 @@ null
     }
 }
 
+/// Typed @vector conformance for IntegrationsGraphRuntime. Pass your real `impl IntegrationsGraphRuntime`; the
+/// `S: IntegrationsGraphRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_integrations_graph_runtime_conformance(&IntegrationsGraphRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_integrations_graph_runtime_conformance<
+    S: crate::model::IntegrationsGraphRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: drive-upload-url-encodes-path-segments
+    {
+        let path: String = serde_json::from_str(
+            r####"
+"/Reports/Q1 Plan #1.md"
+"####,
+        )
+        .expect("path parses");
+        let actual = seam.drive_upload_url(&path);
+        let actual_value = serde_json::to_value(actual)
+            .expect("drive-upload-url-encodes-path-segments: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://graph.microsoft.com/v1.0/me/drive/root:/Reports/Q1%20Plan%20%231.md:/content"
+"####,
+        )
+        .expect("drive-upload-url-encodes-path-segments: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "drive-upload-url-encodes-path-segments misrouted"
+        );
+    }
+    // vector: drive-upload-url-encodes-python-quote-reserved-chars
+    {
+        let path: String = serde_json::from_str(
+            r####"
+"/Reports/100% done: Sales & Marketing (final).md"
+"####,
+        )
+        .expect("path parses");
+        let actual = seam.drive_upload_url(&path);
+        let actual_value = serde_json::to_value(actual)
+            .expect("drive-upload-url-encodes-python-quote-reserved-chars: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://graph.microsoft.com/v1.0/me/drive/root:/Reports/100%25%20done%3A%20Sales%20%26%20Marketing%20%28final%29.md:/content"
+"####,
+        )
+        .expect("drive-upload-url-encodes-python-quote-reserved-chars: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "drive-upload-url-encodes-python-quote-reserved-chars misrouted"
+        );
+    }
+    // vector: mailbox-url-adds-unread-filter
+    {
+        let top: i32 = serde_json::from_str(
+            r####"
+0
+"####,
+        )
+        .expect("top parses");
+        let unread_only: bool = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("unreadOnly parses");
+        let actual = seam.mailbox_messages_url(&top, &unread_only);
+        let actual_value =
+            serde_json::to_value(actual).expect("mailbox-url-adds-unread-filter: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://graph.microsoft.com/v1.0/me/messages?%24top=1&%24select=id%2Cfrom%2Csubject%2CreceivedDateTime%2CisRead%2CbodyPreview&%24orderby=receivedDateTime+desc&%24filter=isRead+eq+false"
+"####,
+        )
+        .expect("mailbox-url-adds-unread-filter: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "mailbox-url-adds-unread-filter misrouted"
+        );
+    }
+    // vector: mailbox-url-clamps-top-and-selects-newest
+    {
+        let top: i32 = serde_json::from_str(
+            r####"
+99
+"####,
+        )
+        .expect("top parses");
+        let unread_only: bool = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("unreadOnly parses");
+        let actual = seam.mailbox_messages_url(&top, &unread_only);
+        let actual_value = serde_json::to_value(actual)
+            .expect("mailbox-url-clamps-top-and-selects-newest: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://graph.microsoft.com/v1.0/me/messages?%24top=25&%24select=id%2Cfrom%2Csubject%2CreceivedDateTime%2CisRead%2CbodyPreview&%24orderby=receivedDateTime+desc"
+"####,
+        )
+        .expect("mailbox-url-clamps-top-and-selects-newest: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "mailbox-url-clamps-top-and-selects-newest misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for IntegrationsToolboxRuntime. Pass your real `impl IntegrationsToolboxRuntime`; the
 /// `S: IntegrationsToolboxRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_integrations_toolbox_runtime_conformance(&IntegrationsToolboxRuntimeImpl).await;` (or without `.await` when sync).

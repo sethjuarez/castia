@@ -49,6 +49,9 @@ pub use evaluation_suite_runtime::*;
 pub mod identity_runtime;
 pub use identity_runtime::*;
 
+pub mod integrations_graph_runtime;
+pub use integrations_graph_runtime::*;
+
 pub mod integrations_toolbox_runtime;
 pub use integrations_toolbox_runtime::*;
 
