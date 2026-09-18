@@ -43,6 +43,7 @@
         "ChatRuntime",
         "ConversationAccount",
         "EntitiesRuntime",
+        "EvaluationSuiteRuntime",
         "IdentityRuntime",
         "InvocationsRuntime",
         "InvokesRuntime",
@@ -121,6 +122,13 @@
           "kind": "type",
           "group": "",
           "source": "entities_runtime",
+          "protocol": true
+        },
+        {
+          "name": "EvaluationSuiteRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "evaluation_suite_runtime",
           "protocol": true
         },
         {
@@ -452,6 +460,62 @@
           ]
         },
         {
+          "name": "EvaluationSuiteRuntime",
+          "group": "",
+          "symbol": "EvaluationSuiteRuntime",
+          "source": "evaluation_suite_runtime",
+          "methods": [
+            {
+              "name": "buildGenerateArgv",
+              "returns": "unknown",
+              "params": {
+                "options": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildRunArgv",
+              "returns": "unknown",
+              "params": {
+                "options": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "buildUpdateArgv",
+              "returns": "unknown",
+              "params": {
+                "options": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "readRubric",
+              "returns": "unknown",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "IdentityRuntime",
           "group": "",
           "symbol": "IdentityRuntime",
@@ -755,6 +819,7 @@
         "context",
         "conversation_account",
         "entities_runtime",
+        "evaluation_suite_runtime",
         "identity_runtime",
         "invocations_runtime",
         "invokes_runtime",

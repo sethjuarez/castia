@@ -141,6 +141,29 @@ fn entities_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn EntitiesRuntime> = Box::new(CompileOnlyEntitiesRuntime);
 }
 
+struct CompileOnlyEvaluationSuiteRuntime;
+
+#[async_trait::async_trait]
+impl EvaluationSuiteRuntime for CompileOnlyEvaluationSuiteRuntime {
+    fn build_generate_argv(&self, options: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationSuiteRuntime.buildGenerateArgv is a compile-only protocol scaffold.")
+    }
+    fn build_run_argv(&self, options: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationSuiteRuntime.buildRunArgv is a compile-only protocol scaffold.")
+    }
+    fn build_update_argv(&self, options: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationSuiteRuntime.buildUpdateArgv is a compile-only protocol scaffold.")
+    }
+    fn read_rubric(&self, value: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationSuiteRuntime.readRubric is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn evaluation_suite_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn EvaluationSuiteRuntime> = Box::new(CompileOnlyEvaluationSuiteRuntime);
+}
+
 struct CompileOnlyIdentityRuntime;
 
 #[async_trait::async_trait]

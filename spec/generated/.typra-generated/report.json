@@ -3,7 +3,7 @@
   "version": 1,
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "summary": {
-    "emittedFiles": 36,
+    "emittedFiles": 37,
     "skippedFiles": 0,
     "staleMarkerOwnedRemovals": 0,
     "preservedUnmarkedSkippedFiles": 0,
@@ -63,6 +63,11 @@
     {
       "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/entities_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/evaluation_suite_runtime.rs",
       "marker": true
     },
     {

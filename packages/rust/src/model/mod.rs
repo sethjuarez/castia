@@ -31,6 +31,9 @@ pub use chat_runtime::*;
 pub mod entities_runtime;
 pub use entities_runtime::*;
 
+pub mod evaluation_suite_runtime;
+pub use evaluation_suite_runtime::*;
+
 pub mod identity_runtime;
 pub use identity_runtime::*;
 

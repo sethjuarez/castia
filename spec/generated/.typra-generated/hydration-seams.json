@@ -45,6 +45,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "EvaluationSuiteRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "EvaluationSuiteRuntime",
+      "generatedSource": "evaluation_suite_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "IdentityRuntime",
       "target": "rust",
       "group": "",

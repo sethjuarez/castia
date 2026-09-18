@@ -11,6 +11,7 @@ import "./messaging/invokes.tsp";
 import "./messaging/routing.tsp";
 import "./inference/model.tsp";
 import "./inference/tools.tsp";
+import "./evaluation/suite.tsp";
 
 namespace Castia.Spec;
 

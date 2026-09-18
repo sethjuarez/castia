@@ -1,3 +1,4 @@
+use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -5,8 +6,8 @@ use castia::messaging::{
 };
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
-    IdentityRuntime, InvocationsRuntime, InvokesRuntime, LoadContext, ModelRuntime,
-    ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime, LoadContext,
+    ModelRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -118,6 +119,22 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "EntitiesRuntime.sensitivityLabel",
             sync_with_normalize(entities_sensitivity_label, normalize_special_json_keys),
+        ),
+        (
+            "EvaluationSuiteRuntime.buildGenerateArgv",
+            sync(evaluation_build_generate_argv),
+        ),
+        (
+            "EvaluationSuiteRuntime.buildRunArgv",
+            sync(evaluation_build_run_argv),
+        ),
+        (
+            "EvaluationSuiteRuntime.buildUpdateArgv",
+            sync(evaluation_build_update_argv),
+        ),
+        (
+            "EvaluationSuiteRuntime.readRubric",
+            sync(evaluation_read_rubric),
         ),
         (
             "IdentityRuntime.agenticUserId",
@@ -374,6 +391,26 @@ fn entities_mention_entity(input: &Value, _: &Context) -> Result<Value, VectorEr
             .unwrap_or_default()
             .to_string(),
     ))
+}
+
+fn evaluation_build_generate_argv(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaEvaluationSuiteRuntime
+        .build_generate_argv(input.get("options").unwrap_or(&Value::Null)))
+}
+
+fn evaluation_build_update_argv(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(
+        CastiaEvaluationSuiteRuntime
+            .build_update_argv(input.get("options").unwrap_or(&Value::Null)),
+    )
+}
+
+fn evaluation_build_run_argv(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaEvaluationSuiteRuntime.build_run_argv(input.get("options").unwrap_or(&Value::Null)))
+}
+
+fn evaluation_read_rubric(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaEvaluationSuiteRuntime.read_rubric(input.get("value").unwrap_or(&Value::Null)))
 }
 
 fn identity_agentic_user_id(input: &Value, _: &Context) -> Result<Value, VectorError> {

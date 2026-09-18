@@ -1,3 +1,4 @@
+pub mod evaluation;
 pub mod inference;
 pub mod messaging;
 pub mod model;
