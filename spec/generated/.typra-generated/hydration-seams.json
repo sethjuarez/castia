@@ -69,6 +69,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "ModelRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ModelRuntime",
+      "generatedSource": "model_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ResponsesRuntime",
       "target": "rust",
       "group": "",
@@ -82,6 +90,14 @@
       "group": "",
       "symbol": "RoutingRuntime",
       "generatedSource": "routing_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ToolCatalogRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ToolCatalogRuntime",
+      "generatedSource": "tool_catalog_runtime",
       "seamKind": "protocol-adapter"
     }
   ]

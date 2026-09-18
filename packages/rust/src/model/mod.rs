@@ -40,11 +40,17 @@ pub use invocations_runtime::*;
 pub mod invokes_runtime;
 pub use invokes_runtime::*;
 
+pub mod model_runtime;
+pub use model_runtime::*;
+
 pub mod responses_runtime;
 pub use responses_runtime::*;
 
 pub mod routing_runtime;
 pub use routing_runtime::*;
+
+pub mod tool_catalog_runtime;
+pub use tool_catalog_runtime::*;
 
 pub mod optimizing;
 pub use optimizing::*;

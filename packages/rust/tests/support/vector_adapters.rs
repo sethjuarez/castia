@@ -1,11 +1,12 @@
+use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
     CastiaInvokesRuntime, CastiaRoutingRuntime,
 };
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
-    IdentityRuntime, InvocationsRuntime, InvokesRuntime, LoadContext, ResponsesRuntime,
-    RoutingRuntime, SaveContext,
+    IdentityRuntime, InvocationsRuntime, InvokesRuntime, LoadContext, ModelRuntime,
+    ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -126,6 +127,12 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             "IdentityRuntime.requireAgenticUser",
             sync(identity_require_agentic_user),
         ),
+        (
+            "ModelRuntime.instructionsParam",
+            sync(model_instructions_param),
+        ),
+        ("ModelRuntime.publicToolSpec", sync(model_public_tool_spec)),
+        ("ModelRuntime.reasoningParam", sync(model_reasoning_param)),
         ("InvocationsRuntime.body", sync(invocations_body)),
         ("InvocationsRuntime.inputText", sync(invocations_input_text)),
         ("InvokesRuntime.cardAction", sync(invokes_card_action)),
@@ -158,6 +165,19 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             "RoutingRuntime.teamsTaggedChannelMessage",
             sync(routing_teams_tagged_channel_message),
         ),
+        (
+            "ToolCatalogRuntime.activityToolNames",
+            sync(tool_catalog_activity_tool_names),
+        ),
+        (
+            "ToolCatalogRuntime.agentToolNames",
+            sync(tool_catalog_agent_tool_names),
+        ),
+        (
+            "ToolCatalogRuntime.graphToolNames",
+            sync(tool_catalog_graph_tool_names),
+        ),
+        ("ToolCatalogRuntime.toolSpec", sync(tool_catalog_tool_spec)),
     ])
 }
 
@@ -374,6 +394,47 @@ fn identity_require_agentic_user(input: &Value, _: &Context) -> Result<Value, Ve
     }
 }
 
+fn model_instructions_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaModelRuntime.instructions_param(
+        &input
+            .get("instructions")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    ))
+}
+
+fn model_reasoning_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    match try_reasoning_param(input.get("effort").and_then(Value::as_str)) {
+        Ok(value) => Ok(value),
+        Err(error) => Err(VectorError {
+            message: error.to_string(),
+            payload: Some(Value::String(error.to_string())),
+        }),
+    }
+}
+
+fn model_public_tool_spec(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let spec = restore_private_tool_keys(input.get("spec").unwrap_or(&Value::Null));
+    Ok(CastiaModelRuntime
+        .public_tool_spec(&spec, input.get("toolDefinitions").unwrap_or(&Value::Null)))
+}
+
+fn tool_catalog_activity_tool_names(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaToolCatalogRuntime.activity_tool_names())
+}
+
+fn tool_catalog_graph_tool_names(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaToolCatalogRuntime.graph_tool_names())
+}
+
+fn tool_catalog_agent_tool_names(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaToolCatalogRuntime.agent_tool_names())
+}
+
+fn tool_catalog_tool_spec(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaToolCatalogRuntime.tool_spec(input.get("tool").unwrap_or(&Value::Null)))
+}
+
 fn invokes_message_invoke_response(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaInvokesRuntime.message_invoke_response(
         &input
@@ -526,6 +587,26 @@ fn strip_special_json_keys(value: &Value) -> Value {
                 .collect(),
         ),
         Value::Array(items) => Value::Array(items.iter().map(strip_special_json_keys).collect()),
+        _ => value.clone(),
+    }
+}
+
+fn restore_private_tool_keys(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let key = if key == "xCastiaOptimizerToolDefinitions" {
+                        "x-castia-optimizer-tool-definitions".to_string()
+                    } else {
+                        key.clone()
+                    };
+                    (key, restore_private_tool_keys(value))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(restore_private_tool_keys).collect()),
         _ => value.clone(),
     }
 }

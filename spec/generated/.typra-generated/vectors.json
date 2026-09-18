@@ -1671,6 +1671,193 @@
       }
     },
     {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "instructionsParam",
+      "params": {
+        "instructions": "string?"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "instructions-none",
+        "stage": "callable",
+        "input": {
+          "instructions": null
+        },
+        "expected": {},
+        "operation": "instructionsParam"
+      }
+    },
+    {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "instructionsParam",
+      "params": {
+        "instructions": "string?"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "instructions-present",
+        "stage": "callable",
+        "input": {
+          "instructions": "be terse"
+        },
+        "expected": {
+          "instructions": "be terse"
+        },
+        "operation": "instructionsParam"
+      }
+    },
+    {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "publicToolSpec",
+      "params": {
+        "spec": "unknown",
+        "toolDefinitions": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "public-tool-spec-does-not-rewrite-flat-function",
+        "stage": "callable",
+        "input": {
+          "spec": {
+            "type": "function",
+            "name": "send_email",
+            "description": "Original.",
+            "parameters": {
+              "type": "object"
+            }
+          },
+          "toolDefinitions": [
+            {
+              "type": "function",
+              "function": {
+                "name": "send_email",
+                "description": "Rewritten."
+              }
+            }
+          ]
+        },
+        "expected": {
+          "type": "function",
+          "name": "send_email",
+          "description": "Original.",
+          "parameters": {
+            "type": "object"
+          }
+        },
+        "operation": "publicToolSpec"
+      }
+    },
+    {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "publicToolSpec",
+      "params": {
+        "spec": "unknown",
+        "toolDefinitions": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "public-tool-spec-strips-private-metadata",
+        "stage": "callable",
+        "input": {
+          "spec": {
+            "type": "mcp",
+            "server_label": "toolbox",
+            "server_url": "https://x/mcp",
+            "xCastiaOptimizerToolDefinitions": [
+              {
+                "function": {
+                  "name": "x"
+                }
+              }
+            ]
+          },
+          "toolDefinitions": []
+        },
+        "expected": {
+          "type": "mcp",
+          "server_label": "toolbox",
+          "server_url": "https://x/mcp"
+        },
+        "operation": "publicToolSpec"
+      }
+    },
+    {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "reasoningParam",
+      "params": {
+        "effort": "string?"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "reasoning-none",
+        "stage": "callable",
+        "input": {
+          "effort": null
+        },
+        "expected": {},
+        "operation": "reasoningParam"
+      }
+    },
+    {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "reasoningParam",
+      "params": {
+        "effort": "string?"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "reasoning-normalizes",
+        "stage": "callable",
+        "input": {
+          "effort": " High "
+        },
+        "expected": {
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "operation": "reasoningParam"
+      }
+    },
+    {
+      "contract": "ModelRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "reasoningParam",
+      "params": {
+        "effort": "string?"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "reasoning-rejects-typo",
+        "stage": "callable",
+        "input": {
+          "effort": "extreme"
+        },
+        "expectedError": "reasoning_effort must be one of ('minimal', 'low', 'medium', 'high'), got 'extreme'",
+        "operation": "reasoningParam"
+      }
+    },
+    {
       "contract": "ResponsesRuntime",
       "namespace": "Castia.Spec.Protocols",
       "group": "",
@@ -2208,6 +2395,105 @@
         },
         "expected": false,
         "operation": "teamsTaggedChannelMessage"
+      }
+    },
+    {
+      "contract": "ToolCatalogRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "activityToolNames",
+      "params": {},
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "activity-tool-names",
+        "stage": "callable",
+        "input": {},
+        "expected": [
+          "react_to_message",
+          "cite_source"
+        ],
+        "operation": "activityToolNames"
+      }
+    },
+    {
+      "contract": "ToolCatalogRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "agentToolNames",
+      "params": {},
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "agent-tool-names",
+        "stage": "callable",
+        "input": {},
+        "expected": [
+          "react_to_message",
+          "cite_source",
+          "send_email",
+          "reply_email",
+          "create_document",
+          "read_inbox"
+        ],
+        "operation": "agentToolNames"
+      }
+    },
+    {
+      "contract": "ToolCatalogRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "graphToolNames",
+      "params": {},
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "graph-tool-names",
+        "stage": "callable",
+        "input": {},
+        "expected": [
+          "send_email",
+          "reply_email",
+          "create_document",
+          "read_inbox"
+        ],
+        "operation": "graphToolNames"
+      }
+    },
+    {
+      "contract": "ToolCatalogRuntime",
+      "namespace": "Castia.Spec.Inference",
+      "group": "",
+      "operation": "toolSpec",
+      "params": {
+        "tool": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "tool-spec-omits-scopes",
+        "stage": "callable",
+        "input": {
+          "tool": {
+            "name": "send_email",
+            "description": "Send.",
+            "parameters": {
+              "type": "object"
+            },
+            "scopes": [
+              "Mail.Send"
+            ]
+          }
+        },
+        "expected": {
+          "type": "function",
+          "name": "send_email",
+          "description": "Send.",
+          "parameters": {
+            "type": "object"
+          }
+        },
+        "operation": "toolSpec"
       }
     }
   ],

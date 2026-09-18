@@ -47,8 +47,10 @@
         "InvocationsRuntime",
         "InvokesRuntime",
         "Mention",
+        "ModelRuntime",
         "ResponsesRuntime",
-        "RoutingRuntime"
+        "RoutingRuntime",
+        "ToolCatalogRuntime"
       ],
       "exports": [
         {
@@ -150,6 +152,13 @@
           "protocol": false
         },
         {
+          "name": "ModelRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "model_runtime",
+          "protocol": true
+        },
+        {
           "name": "ResponsesRuntime",
           "kind": "type",
           "group": "",
@@ -161,6 +170,13 @@
           "kind": "type",
           "group": "",
           "source": "routing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ToolCatalogRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "tool_catalog_runtime",
           "protocol": true
         }
       ],
@@ -556,6 +572,51 @@
           ]
         },
         {
+          "name": "ModelRuntime",
+          "group": "",
+          "symbol": "ModelRuntime",
+          "source": "model_runtime",
+          "methods": [
+            {
+              "name": "instructionsParam",
+              "returns": "unknown",
+              "params": {
+                "instructions": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "publicToolSpec",
+              "returns": "unknown",
+              "params": {
+                "spec": "unknown",
+                "toolDefinitions": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "reasoningParam",
+              "returns": "unknown",
+              "params": {
+                "effort": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -630,6 +691,56 @@
               "nonFatal": false
             }
           ]
+        },
+        {
+          "name": "ToolCatalogRuntime",
+          "group": "",
+          "symbol": "ToolCatalogRuntime",
+          "source": "tool_catalog_runtime",
+          "methods": [
+            {
+              "name": "activityToolNames",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "agentToolNames",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "graphToolNames",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "toolSpec",
+              "returns": "unknown",
+              "params": {
+                "tool": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
         }
       ],
       "modules": [
@@ -648,8 +759,10 @@
         "invocations_runtime",
         "invokes_runtime",
         "mention",
+        "model_runtime",
         "responses_runtime",
-        "routing_runtime"
+        "routing_runtime",
+        "tool_catalog_runtime"
       ]
     }
   ]

@@ -198,6 +198,30 @@ fn invokes_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn InvokesRuntime> = Box::new(CompileOnlyInvokesRuntime);
 }
 
+struct CompileOnlyModelRuntime;
+
+#[async_trait::async_trait]
+impl ModelRuntime for CompileOnlyModelRuntime {
+    fn instructions_param(&self, instructions: &Option<String>) -> serde_json::Value {
+        panic!("ModelRuntime.instructionsParam is a compile-only protocol scaffold.")
+    }
+    fn public_tool_spec(
+        &self,
+        spec: &serde_json::Value,
+        tool_definitions: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("ModelRuntime.publicToolSpec is a compile-only protocol scaffold.")
+    }
+    fn reasoning_param(&self, effort: &Option<String>) -> serde_json::Value {
+        panic!("ModelRuntime.reasoningParam is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn model_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ModelRuntime> = Box::new(CompileOnlyModelRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]
@@ -233,4 +257,27 @@ impl RoutingRuntime for CompileOnlyRoutingRuntime {
 #[test]
 fn routing_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RoutingRuntime> = Box::new(CompileOnlyRoutingRuntime);
+}
+
+struct CompileOnlyToolCatalogRuntime;
+
+#[async_trait::async_trait]
+impl ToolCatalogRuntime for CompileOnlyToolCatalogRuntime {
+    fn activity_tool_names(&self) -> serde_json::Value {
+        panic!("ToolCatalogRuntime.activityToolNames is a compile-only protocol scaffold.")
+    }
+    fn agent_tool_names(&self) -> serde_json::Value {
+        panic!("ToolCatalogRuntime.agentToolNames is a compile-only protocol scaffold.")
+    }
+    fn graph_tool_names(&self) -> serde_json::Value {
+        panic!("ToolCatalogRuntime.graphToolNames is a compile-only protocol scaffold.")
+    }
+    fn tool_spec(&self, tool: &serde_json::Value) -> serde_json::Value {
+        panic!("ToolCatalogRuntime.toolSpec is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn tool_catalog_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ToolCatalogRuntime> = Box::new(CompileOnlyToolCatalogRuntime);
 }

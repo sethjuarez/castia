@@ -31,6 +31,14 @@ pub fn apply_optimized_tool_definitions(tools: &[Value], definitions: &Value) ->
         .collect()
 }
 
+pub fn apply_optimized_toolbox_tools(tool: &Value, definitions: &Value) -> Value {
+    let lookup = definition_lookup(definitions);
+    if lookup.is_empty() {
+        return tool.clone();
+    }
+    apply_toolbox_sidecar(tool, &lookup).unwrap_or_else(|| tool.clone())
+}
+
 fn function_definition(tool: &Value) -> Option<Value> {
     let func = if let Some(func) = tool.get("function").and_then(Value::as_object) {
         Value::Object(func.clone())
@@ -141,7 +149,11 @@ fn apply_function_payload(
     let mut changed = false;
     let mut out = current.clone();
 
-    if let Some(description) = optimized.get("description").and_then(Value::as_str) {
+    if let Some(description) = optimized
+        .get("description")
+        .and_then(Value::as_str)
+        .filter(|description| !description.is_empty())
+    {
         if current.get("description").and_then(Value::as_str) != Some(description) {
             out.insert(
                 "description".to_string(),
@@ -179,7 +191,8 @@ fn merge_parameter_descriptions(
             optimized_props
                 .get(name)
                 .and_then(|schema| schema.get("description"))
-                .and_then(Value::as_str),
+                .and_then(Value::as_str)
+                .filter(|description| !description.is_empty()),
         ) {
             if schema.get("description").and_then(Value::as_str) != Some(description) {
                 schema.insert(

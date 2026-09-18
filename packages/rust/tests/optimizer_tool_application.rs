@@ -127,6 +127,40 @@ fn apply_accepts_flat_responses_form_and_unknown_names_pass_through() {
 }
 
 #[test]
+fn apply_ignores_empty_optimized_descriptions() {
+    let tools = vec![json!({
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Original.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": { "type": "string", "description": "Original recipient." },
+                },
+            },
+        },
+    })];
+    let definitions = json!([{
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "",
+            "parameters": {
+                "properties": {
+                    "to": { "description": "" },
+                },
+            },
+        },
+    }]);
+
+    assert_eq!(
+        apply_optimized_tool_definitions(&tools, &definitions),
+        tools
+    );
+}
+
+#[test]
 fn apply_overlays_toolbox_sidecar_and_regenerates_server_description() {
     let tools = vec![json!({
         "type": "mcp",
