@@ -12957,6 +12957,361 @@
       }
     },
     {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "includeApplicationPlan",
+      "params": {
+        "existingToolProviderCount": "int32",
+        "incomingToolProviderCount": "int32"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "include-application-plan-merges-tool-providers",
+        "stage": "callable",
+        "input": {
+          "existingToolProviderCount": 1,
+          "incomingToolProviderCount": 2
+        },
+        "expected": {
+          "toolProviderCount": 3
+        },
+        "operation": "includeApplicationPlan"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "registeredTools",
+      "params": {
+        "providerOutputs": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "registered-tools-dedupes-named-tools-first-wins",
+        "stage": "callable",
+        "input": {
+          "providerOutputs": [
+            [
+              {
+                "name": "dup",
+                "description": "first"
+              }
+            ],
+            [
+              {
+                "name": "dup",
+                "description": "second"
+              }
+            ]
+          ]
+        },
+        "expected": [
+          {
+            "name": "dup",
+            "description": "first"
+          }
+        ],
+        "operation": "registeredTools"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "registeredTools",
+      "params": {
+        "providerOutputs": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "registered-tools-empty",
+        "stage": "callable",
+        "input": {
+          "providerOutputs": []
+        },
+        "expected": [],
+        "operation": "registeredTools"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "registeredTools",
+      "params": {
+        "providerOutputs": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "registered-tools-flattens-providers",
+        "stage": "callable",
+        "input": {
+          "providerOutputs": [
+            [
+              {
+                "name": "a"
+              }
+            ],
+            [
+              {
+                "name": "b"
+              }
+            ]
+          ]
+        },
+        "expected": [
+          {
+            "name": "a"
+          },
+          {
+            "name": "b"
+          }
+        ],
+        "operation": "registeredTools"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "registeredTools",
+      "params": {
+        "providerOutputs": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "registered-tools-keeps-raw-specs-without-name",
+        "stage": "callable",
+        "input": {
+          "providerOutputs": [
+            [
+              {
+                "type": "mcp",
+                "serverLabel": "graph"
+              },
+              {
+                "name": "search"
+              }
+            ],
+            [
+              {
+                "type": "mcp",
+                "serverLabel": "graph"
+              }
+            ]
+          ]
+        },
+        "expected": [
+          {
+            "type": "mcp",
+            "serverLabel": "graph"
+          },
+          {
+            "name": "search"
+          },
+          {
+            "type": "mcp",
+            "serverLabel": "graph"
+          }
+        ],
+        "operation": "registeredTools"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "responsesOnlyApplicationProjection",
+      "params": {
+        "name": "string",
+        "requestedName": "string?",
+        "hasResponses": "boolean",
+        "hasResponsesStream": "boolean",
+        "registeredTools": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "responses-only-application-custom-name",
+        "stage": "callable",
+        "input": {
+          "name": "hal",
+          "requestedName": "custom",
+          "hasResponses": true,
+          "hasResponsesStream": false,
+          "registeredTools": []
+        },
+        "expected": {
+          "name": "custom",
+          "protocols": [
+            "responses"
+          ],
+          "wireProtocols": [
+            "responses"
+          ],
+          "tools": []
+        },
+        "operation": "responsesOnlyApplicationProjection"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "responsesOnlyApplicationProjection",
+      "params": {
+        "name": "string",
+        "requestedName": "string?",
+        "hasResponses": "boolean",
+        "hasResponsesStream": "boolean",
+        "registeredTools": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "responses-only-application-default-name-and-stream",
+        "stage": "callable",
+        "input": {
+          "name": "hal",
+          "requestedName": null,
+          "hasResponses": true,
+          "hasResponsesStream": true,
+          "registeredTools": [
+            {
+              "name": "a"
+            }
+          ]
+        },
+        "expected": {
+          "name": "hal-optimize",
+          "protocols": [
+            "responses"
+          ],
+          "wireProtocols": [
+            "responses",
+            "responses_stream"
+          ],
+          "tools": [
+            {
+              "name": "a"
+            }
+          ]
+        },
+        "operation": "responsesOnlyApplicationProjection"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "responsesOnlyApplicationProjection",
+      "params": {
+        "name": "string",
+        "requestedName": "string?",
+        "hasResponses": "boolean",
+        "hasResponsesStream": "boolean",
+        "registeredTools": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "responses-only-application-empty-custom-name-falls-back",
+        "stage": "callable",
+        "input": {
+          "name": "hal",
+          "requestedName": "",
+          "hasResponses": true,
+          "hasResponsesStream": false,
+          "registeredTools": []
+        },
+        "expected": {
+          "name": "hal-optimize",
+          "protocols": [
+            "responses"
+          ],
+          "wireProtocols": [
+            "responses"
+          ],
+          "tools": []
+        },
+        "operation": "responsesOnlyApplicationProjection"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "responsesOnlyApplicationProjection",
+      "params": {
+        "name": "string",
+        "requestedName": "string?",
+        "hasResponses": "boolean",
+        "hasResponsesStream": "boolean",
+        "registeredTools": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "responses-only-application-requires-responses",
+        "stage": "callable",
+        "input": {
+          "name": "hal",
+          "requestedName": null,
+          "hasResponses": false,
+          "hasResponsesStream": true,
+          "registeredTools": []
+        },
+        "expectedError": {
+          "message": "responses_only() needs an @responses handler to project; this agent registered none. Add @app.responses() (or include a router that does) before projecting."
+        },
+        "operation": "responsesOnlyApplicationProjection"
+      }
+    },
+    {
+      "contract": "RuntimeApplicationRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "responsesOnlyApplicationProjection",
+      "params": {
+        "name": "string",
+        "requestedName": "string?",
+        "hasResponses": "boolean",
+        "hasResponsesStream": "boolean",
+        "registeredTools": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "responses-only-application-unnamed",
+        "stage": "callable",
+        "input": {
+          "name": "",
+          "requestedName": null,
+          "hasResponses": true,
+          "hasResponsesStream": false,
+          "registeredTools": []
+        },
+        "expected": {
+          "name": null,
+          "protocols": [
+            "responses"
+          ],
+          "wireProtocols": [
+            "responses"
+          ],
+          "tools": []
+        },
+        "operation": "responsesOnlyApplicationProjection"
+      }
+    },
+    {
       "contract": "RuntimeContextRuntime",
       "namespace": "Castia.Spec.Runtime",
       "group": "",
@@ -13463,6 +13818,143 @@
           ]
         },
         "operation": "turnCite"
+      }
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "dependsMarker",
+      "params": {
+        "dependencyName": "string",
+        "useCache": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "depends-marker-defaults-to-cache",
+        "stage": "callable",
+        "input": {
+          "dependencyName": "model",
+          "useCache": true
+        },
+        "expected": {
+          "kind": "Depends",
+          "dependency": "model",
+          "useCache": true
+        },
+        "operation": "dependsMarker"
+      }
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "dependsMarker",
+      "params": {
+        "dependencyName": "string",
+        "useCache": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "depends-marker-records-cache-override",
+        "stage": "callable",
+        "input": {
+          "dependencyName": "nonce",
+          "useCache": false
+        },
+        "expected": {
+          "kind": "Depends",
+          "dependency": "nonce",
+          "useCache": false
+        },
+        "operation": "dependsMarker"
+      }
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "resolveDependencyPlan",
+      "params": {
+        "cacheKeys": "string[]",
+        "dependencyName": "string",
+        "useCache": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "dependency-resolve-calls-and-stores-miss",
+        "stage": "callable",
+        "input": {
+          "cacheKeys": [],
+          "dependencyName": "model",
+          "useCache": true
+        },
+        "expected": {
+          "action": "call_dependency",
+          "store": true
+        },
+        "operation": "resolveDependencyPlan"
+      }
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "resolveDependencyPlan",
+      "params": {
+        "cacheKeys": "string[]",
+        "dependencyName": "string",
+        "useCache": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "dependency-resolve-use-cache-false-currently-still-caches",
+        "stage": "callable",
+        "input": {
+          "cacheKeys": [
+            "nonce"
+          ],
+          "dependencyName": "nonce",
+          "useCache": false
+        },
+        "expected": {
+          "action": "cache_hit",
+          "store": false
+        },
+        "operation": "resolveDependencyPlan"
+      }
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "namespace": "Castia.Spec.Runtime",
+      "group": "",
+      "operation": "resolveDependencyPlan",
+      "params": {
+        "cacheKeys": "string[]",
+        "dependencyName": "string",
+        "useCache": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "dependency-resolve-uses-cache-hit",
+        "stage": "callable",
+        "input": {
+          "cacheKeys": [
+            "model"
+          ],
+          "dependencyName": "model",
+          "useCache": true
+        },
+        "expected": {
+          "action": "cache_hit",
+          "store": false
+        },
+        "operation": "resolveDependencyPlan"
       }
     },
     {

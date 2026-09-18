@@ -1123,6 +1123,40 @@ fn routing_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RoutingRuntime> = Box::new(CompileOnlyRoutingRuntime);
 }
 
+struct CompileOnlyRuntimeApplicationRuntime;
+
+#[async_trait::async_trait]
+impl RuntimeApplicationRuntime for CompileOnlyRuntimeApplicationRuntime {
+    fn include_application_plan(
+        &self,
+        existing_tool_provider_count: &i32,
+        incoming_tool_provider_count: &i32,
+    ) -> serde_json::Value {
+        panic!(
+            "RuntimeApplicationRuntime.includeApplicationPlan is a compile-only protocol scaffold."
+        )
+    }
+    fn registered_tools(&self, provider_outputs: &serde_json::Value) -> serde_json::Value {
+        panic!("RuntimeApplicationRuntime.registeredTools is a compile-only protocol scaffold.")
+    }
+    fn responses_only_application_projection(
+        &self,
+        name: &String,
+        requested_name: &Option<String>,
+        has_responses: &bool,
+        has_responses_stream: &bool,
+        registered_tools: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("RuntimeApplicationRuntime.responsesOnlyApplicationProjection is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn runtime_application_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn RuntimeApplicationRuntime> =
+        Box::new(CompileOnlyRuntimeApplicationRuntime);
+}
+
 struct CompileOnlyRuntimeContextRuntime;
 
 #[async_trait::async_trait]
@@ -1155,6 +1189,31 @@ impl RuntimeContextRuntime for CompileOnlyRuntimeContextRuntime {
 #[test]
 fn runtime_context_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RuntimeContextRuntime> = Box::new(CompileOnlyRuntimeContextRuntime);
+}
+
+struct CompileOnlyRuntimeDependenciesRuntime;
+
+#[async_trait::async_trait]
+impl RuntimeDependenciesRuntime for CompileOnlyRuntimeDependenciesRuntime {
+    fn depends_marker(&self, dependency_name: &String, use_cache: &bool) -> serde_json::Value {
+        panic!("RuntimeDependenciesRuntime.dependsMarker is a compile-only protocol scaffold.")
+    }
+    fn resolve_dependency_plan(
+        &self,
+        cache_keys: &Vec<String>,
+        dependency_name: &String,
+        use_cache: &bool,
+    ) -> serde_json::Value {
+        panic!(
+            "RuntimeDependenciesRuntime.resolveDependencyPlan is a compile-only protocol scaffold."
+        )
+    }
+}
+
+#[test]
+fn runtime_dependencies_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn RuntimeDependenciesRuntime> =
+        Box::new(CompileOnlyRuntimeDependenciesRuntime);
 }
 
 struct CompileOnlyRuntimeDispatchRuntime;

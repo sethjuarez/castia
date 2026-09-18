@@ -54,8 +54,9 @@ use castia::model::{
     LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
     ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
     ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime,
-    RuntimeContextRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext,
-    StreamingRuntime, ToolCatalogRuntime,
+    RuntimeApplicationRuntime, RuntimeContextRuntime, RuntimeDependenciesRuntime,
+    RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, StreamingRuntime,
+    ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -67,9 +68,11 @@ use castia::protocols::{
 };
 use castia::runtime::{
     decorate_message as build_decorate_message, include_plan as build_include_plan,
+    responses_only_application_projection as build_responses_only_application_projection,
     responses_only_projection as build_responses_only_projection, turn_cite as build_turn_cite,
-    wire_dispatch_plan as build_wire_dispatch_plan, CastiaRuntimeContextRuntime,
-    CastiaRuntimeDispatchRuntime, CastiaRuntimeRouterRuntime,
+    wire_dispatch_plan as build_wire_dispatch_plan, CastiaRuntimeApplicationRuntime,
+    CastiaRuntimeContextRuntime, CastiaRuntimeDependenciesRuntime, CastiaRuntimeDispatchRuntime,
+    CastiaRuntimeRouterRuntime,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -599,6 +602,26 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "RuntimeRouterRuntime.responsesOnlyProjection",
             sync(runtime_responses_only_projection),
+        ),
+        (
+            "RuntimeApplicationRuntime.registeredTools",
+            sync(runtime_application_registered_tools),
+        ),
+        (
+            "RuntimeApplicationRuntime.includeApplicationPlan",
+            sync(runtime_application_include_plan),
+        ),
+        (
+            "RuntimeApplicationRuntime.responsesOnlyApplicationProjection",
+            sync(runtime_application_responses_only_projection),
+        ),
+        (
+            "RuntimeDependenciesRuntime.dependsMarker",
+            sync(runtime_dependencies_depends_marker),
+        ),
+        (
+            "RuntimeDependenciesRuntime.resolveDependencyPlan",
+            sync(runtime_dependencies_resolve_plan),
         ),
         (
             "RuntimeContextRuntime.turnCite",
@@ -1789,6 +1812,69 @@ fn runtime_responses_only_projection(input: &Value, _: &Context) -> Result<Value
         &string_array_input(input, "toolNames")?,
     )
     .map_err(vector_error)
+}
+
+fn runtime_application_registered_tools(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeApplicationRuntime
+        .registered_tools(input.get("providerOutputs").unwrap_or(&Value::Null)))
+}
+
+fn runtime_application_include_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeApplicationRuntime.include_application_plan(
+        &(input
+            .get("existingToolProviderCount")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+        &(input
+            .get("incomingToolProviderCount")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32),
+    ))
+}
+
+fn runtime_application_responses_only_projection(
+    input: &Value,
+    _: &Context,
+) -> Result<Value, VectorError> {
+    let requested_name = input
+        .get("requestedName")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    build_responses_only_application_projection(
+        &string_input(input, "name")?,
+        requested_name.as_deref(),
+        input
+            .get("hasResponses")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        input
+            .get("hasResponsesStream")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        input.get("registeredTools").unwrap_or(&Value::Null),
+    )
+    .map_err(vector_error)
+}
+
+fn runtime_dependencies_depends_marker(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeDependenciesRuntime.depends_marker(
+        &string_input(input, "dependencyName")?,
+        &input
+            .get("useCache")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    ))
+}
+
+fn runtime_dependencies_resolve_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaRuntimeDependenciesRuntime.resolve_dependency_plan(
+        &string_array_input(input, "cacheKeys")?,
+        &string_input(input, "dependencyName")?,
+        &input
+            .get("useCache")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    ))
 }
 
 fn runtime_context_turn_cite(input: &Value, _: &Context) -> Result<Value, VectorError> {

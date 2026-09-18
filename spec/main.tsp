@@ -37,6 +37,8 @@ import "./observe/live.tsp";
 import "./runtime/dispatch.tsp";
 import "./runtime/context.tsp";
 import "./runtime/router.tsp";
+import "./runtime/application.tsp";
+import "./runtime/dependencies.tsp";
 
 namespace Castia.Spec;
 

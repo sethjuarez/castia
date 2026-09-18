@@ -269,11 +269,27 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "RuntimeApplicationRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeApplicationRuntime",
+      "generatedSource": "runtime_application_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "RuntimeContextRuntime",
       "target": "rust",
       "group": "",
       "symbol": "RuntimeContextRuntime",
       "generatedSource": "runtime_context_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "RuntimeDependenciesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "RuntimeDependenciesRuntime",
+      "generatedSource": "runtime_dependencies_runtime",
       "seamKind": "protocol-adapter"
     },
     {

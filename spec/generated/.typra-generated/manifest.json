@@ -220,7 +220,17 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/runtime_application_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/runtime_context_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/runtime_dependencies_runtime.rs",
       "marker": true
     },
     {

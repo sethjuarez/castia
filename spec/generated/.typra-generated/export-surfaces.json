@@ -72,7 +72,9 @@
         "ObserveTracingRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
+        "RuntimeApplicationRuntime",
         "RuntimeContextRuntime",
+        "RuntimeDependenciesRuntime",
         "RuntimeDispatchRuntime",
         "RuntimeRouterRuntime",
         "StreamingRuntime",
@@ -353,10 +355,24 @@
           "protocol": true
         },
         {
+          "name": "RuntimeApplicationRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_application_runtime",
+          "protocol": true
+        },
+        {
           "name": "RuntimeContextRuntime",
           "kind": "type",
           "group": "",
           "source": "runtime_context_runtime",
+          "protocol": true
+        },
+        {
+          "name": "RuntimeDependenciesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "runtime_dependencies_runtime",
           "protocol": true
         },
         {
@@ -2591,6 +2607,55 @@
           ]
         },
         {
+          "name": "RuntimeApplicationRuntime",
+          "group": "",
+          "symbol": "RuntimeApplicationRuntime",
+          "source": "runtime_application_runtime",
+          "methods": [
+            {
+              "name": "includeApplicationPlan",
+              "returns": "unknown",
+              "params": {
+                "existingToolProviderCount": "int32",
+                "incomingToolProviderCount": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "registeredTools",
+              "returns": "unknown",
+              "params": {
+                "providerOutputs": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "responsesOnlyApplicationProjection",
+              "returns": "unknown",
+              "params": {
+                "hasResponses": "boolean",
+                "hasResponsesStream": "boolean",
+                "name": "string",
+                "registeredTools": "unknown",
+                "requestedName": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "RuntimeContextRuntime",
           "group": "",
           "symbol": "RuntimeContextRuntime",
@@ -2624,6 +2689,41 @@
                 "keywords": "unknown",
                 "name": "string",
                 "url": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "RuntimeDependenciesRuntime",
+          "group": "",
+          "symbol": "RuntimeDependenciesRuntime",
+          "source": "runtime_dependencies_runtime",
+          "methods": [
+            {
+              "name": "dependsMarker",
+              "returns": "unknown",
+              "params": {
+                "dependencyName": "string",
+                "useCache": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "resolveDependencyPlan",
+              "returns": "unknown",
+              "params": {
+                "cacheKeys": "string[]",
+                "dependencyName": "string",
+                "useCache": "boolean"
               },
               "optional": false,
               "sync": true,
@@ -2994,7 +3094,9 @@
         "observe_tracing_runtime",
         "responses_runtime",
         "routing_runtime",
+        "runtime_application_runtime",
         "runtime_context_runtime",
+        "runtime_dependencies_runtime",
         "runtime_dispatch_runtime",
         "runtime_router_runtime",
         "streaming_runtime",
