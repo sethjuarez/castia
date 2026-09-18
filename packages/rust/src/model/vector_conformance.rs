@@ -1117,6 +1117,90 @@ true
     // skipped: safe-path-rejects-windows-device — expectedError on a @sync op has no typed error channel
 }
 
+/// Typed @vector conformance for LifecycleStorageRuntime. Pass your real `impl LifecycleStorageRuntime`; the
+/// `S: LifecycleStorageRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_lifecycle_storage_runtime_conformance(&LifecycleStorageRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_lifecycle_storage_runtime_conformance<
+    S: crate::model::LifecycleStorageRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: put-artifact-is-idempotent
+    {
+        let root: String = serde_json::from_str(
+            r####"
+"$temp/evidence"
+"####,
+        )
+        .expect("root parses");
+        let record: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "schemaVersion": 1,
+  "kind": "agent",
+  "sourceFiles": [],
+  "dependencies": {},
+  "model": {
+    "deployment": "baseline"
+  },
+  "instructions": "Be helpful."
+}
+"####,
+        )
+        .expect("record parses");
+        let actual = seam.put_artifact(&root, &record);
+        let actual_value =
+            serde_json::to_value(actual).expect("put-artifact-is-idempotent: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"c495bdfc9ddaea5fae01f5e8363543acb8fe64306767df0330856c14bc3c6d59"
+"####,
+        )
+        .expect("put-artifact-is-idempotent: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "put-artifact-is-idempotent misrouted"
+        );
+    }
+    // vector: put-artifact-writes-normalized-envelope
+    {
+        let root: String = serde_json::from_str(
+            r####"
+"$temp/evidence"
+"####,
+        )
+        .expect("root parses");
+        let record: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "schemaVersion": 1,
+  "kind": "agent",
+  "sourceFiles": [],
+  "dependencies": {},
+  "model": {
+    "deployment": "baseline"
+  },
+  "instructions": "Be helpful."
+}
+"####,
+        )
+        .expect("record parses");
+        let actual = seam.put_artifact(&root, &record);
+        let actual_value = serde_json::to_value(actual)
+            .expect("put-artifact-writes-normalized-envelope: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"c495bdfc9ddaea5fae01f5e8363543acb8fe64306767df0330856c14bc3c6d59"
+"####,
+        )
+        .expect("put-artifact-writes-normalized-envelope: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "put-artifact-writes-normalized-envelope misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for ResponsesRuntime. Pass your real `impl ResponsesRuntime`; the
 /// `S: ResponsesRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_responses_runtime_conformance(&ResponsesRuntimeImpl).await;` (or without `.await` when sync).

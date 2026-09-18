@@ -85,6 +85,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "LifecycleStorageRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleStorageRuntime",
+      "generatedSource": "lifecycle_storage_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ModelRuntime",
       "target": "rust",
       "group": "",

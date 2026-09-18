@@ -802,7 +802,7 @@ fn validate_config_content(path: &str, content: &str) -> Result<(), LifecycleRec
     Ok(())
 }
 
-fn reject_json_duplicate_keys(content: &str) -> Result<(), LifecycleRecordsError> {
+pub(crate) fn reject_json_duplicate_keys(content: &str) -> Result<(), LifecycleRecordsError> {
     let mut deserializer = serde_json::Deserializer::from_str(content);
     NoDuplicateKeys
         .deserialize(&mut deserializer)

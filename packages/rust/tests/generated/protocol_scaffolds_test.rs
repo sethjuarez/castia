@@ -259,6 +259,23 @@ fn lifecycle_records_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn LifecycleRecordsRuntime> = Box::new(CompileOnlyLifecycleRecordsRuntime);
 }
 
+struct CompileOnlyLifecycleStorageRuntime;
+
+#[async_trait::async_trait]
+impl LifecycleStorageRuntime for CompileOnlyLifecycleStorageRuntime {
+    fn get_artifact(&self, root: &String, id: &String) -> serde_json::Value {
+        panic!("LifecycleStorageRuntime.getArtifact is a compile-only protocol scaffold.")
+    }
+    fn put_artifact(&self, root: &String, record: &serde_json::Value) -> String {
+        panic!("LifecycleStorageRuntime.putArtifact is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn lifecycle_storage_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn LifecycleStorageRuntime> = Box::new(CompileOnlyLifecycleStorageRuntime);
+}
+
 struct CompileOnlyModelRuntime;
 
 #[async_trait::async_trait]

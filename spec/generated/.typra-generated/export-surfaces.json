@@ -48,6 +48,7 @@
         "InvocationsRuntime",
         "InvokesRuntime",
         "LifecycleRecordsRuntime",
+        "LifecycleStorageRuntime",
         "Mention",
         "ModelRuntime",
         "ResponsesRuntime",
@@ -158,6 +159,13 @@
           "kind": "type",
           "group": "",
           "source": "lifecycle_records_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleStorageRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_storage_runtime",
           "protocol": true
         },
         {
@@ -760,6 +768,40 @@
           ]
         },
         {
+          "name": "LifecycleStorageRuntime",
+          "group": "",
+          "symbol": "LifecycleStorageRuntime",
+          "source": "lifecycle_storage_runtime",
+          "methods": [
+            {
+              "name": "getArtifact",
+              "returns": "unknown",
+              "params": {
+                "id": "string",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "putArtifact",
+              "returns": "string",
+              "params": {
+                "record": "unknown",
+                "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ModelRuntime",
           "group": "",
           "symbol": "ModelRuntime",
@@ -948,6 +990,7 @@
         "invocations_runtime",
         "invokes_runtime",
         "lifecycle_records_runtime",
+        "lifecycle_storage_runtime",
         "mention",
         "model_runtime",
         "responses_runtime",

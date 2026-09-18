@@ -29,6 +29,7 @@ target/
 
 # Local lifecycle evidence can contain private execution data
 .castia/
+packages/rust/$temp/
 
 # Environment / secrets
 .env

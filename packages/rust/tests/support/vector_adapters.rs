@@ -1,7 +1,8 @@
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
-    canonical_json, check_public, content_hash, example_id, normalize_record, record_id, safe_path,
+    canonical_json, check_public, content_hash, example_id, get_artifact, normalize_record,
+    put_artifact, record_id, safe_path,
 };
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -10,8 +11,8 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
-    LifecycleRecordsRuntime, LoadContext, ModelRuntime, ResponsesRuntime, RoutingRuntime,
-    SaveContext, ToolCatalogRuntime,
+    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime, ResponsesRuntime,
+    RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -183,6 +184,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleRecordsRuntime.safePath",
             sync(lifecycle_safe_path),
+        ),
+        (
+            "LifecycleStorageRuntime.getArtifact",
+            sync(lifecycle_get_artifact),
+        ),
+        (
+            "LifecycleStorageRuntime.putArtifact",
+            sync(lifecycle_put_artifact),
         ),
         (
             "ModelRuntime.instructionsParam",
@@ -542,6 +551,41 @@ fn lifecycle_example_id(input: &Value, _: &Context) -> Result<Value, VectorError
     ))
     .map(Value::String)
     .map_err(vector_error)
+}
+
+fn lifecycle_put_artifact(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let temp = temp_dir(&vector_temp_label(ctx));
+    let result = (|| {
+        write_vector_files(&temp, &ctx.vector)?;
+        let root = vector_path(input, "root", &temp)?;
+        put_artifact(
+            root,
+            &lifecycle_record_to_snake(input.get("record").unwrap_or(&Value::Null)),
+        )
+        .map(Value::String)
+        .map_err(vector_error)
+    })();
+    let _ = fs::remove_dir_all(temp);
+    result
+}
+
+fn lifecycle_get_artifact(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let temp = temp_dir(&vector_temp_label(ctx));
+    let result = (|| {
+        write_vector_files(&temp, &ctx.vector)?;
+        let root = vector_path(input, "root", &temp)?;
+        let Some(id) = input.get("id").and_then(Value::as_str) else {
+            return Err(VectorError {
+                message: "missing id input".to_string(),
+                payload: None,
+            });
+        };
+        get_artifact(root, id)
+            .map(|record| lifecycle_keys(&record, false))
+            .map_err(vector_error)
+    })();
+    let _ = fs::remove_dir_all(temp);
+    result
 }
 
 fn vector_error(error: impl std::fmt::Display) -> VectorError {
