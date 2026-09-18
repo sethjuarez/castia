@@ -94,6 +94,11 @@ def _sse_event(event_type: str, payload: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
+def _responses_completed_event(text: str) -> dict:
+    body = _responses_body(text)
+    return {"type": "response.completed", "response": body, **body}
+
+
 def _chat_body(text: str) -> dict:
     """An OpenAI Chat Completions-shaped payload carrying ``text``."""
     return {
@@ -268,19 +273,33 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
         async def responses(request: Request) -> Response:
             body = await request.json()
             text = _responses_input(body.get("input"))
-            if body.get("stream") is True and responses_stream_dispatch is not None:
-
+            if body.get("stream") is True:
                 async def events():
                     chunks: list[str] = []
-                    async for delta in responses_stream_dispatch(text):
-                        chunks.append(delta)
-                        yield _sse_event(
-                            "response.output_text.delta",
-                            {"type": "response.output_text.delta", "delta": delta},
-                        )
+                    if responses_stream_dispatch is not None:
+                        async for delta in responses_stream_dispatch(text):
+                            chunks.append(delta)
+                            yield _sse_event(
+                                "response.output_text.delta",
+                                {
+                                    "type": "response.output_text.delta",
+                                    "delta": delta,
+                                },
+                            )
+                    else:
+                        reply = await responses_dispatch(text)
+                        if reply:
+                            chunks.append(reply)
+                            yield _sse_event(
+                                "response.output_text.delta",
+                                {
+                                    "type": "response.output_text.delta",
+                                    "delta": reply,
+                                },
+                            )
                     yield _sse_event(
                         "response.completed",
-                        _responses_body("".join(chunks)),
+                        _responses_completed_event("".join(chunks)),
                     )
 
                 return StreamingResponse(events(), media_type="text/event-stream")

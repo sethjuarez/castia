@@ -209,6 +209,11 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8088)
 ```
 
+The same `@app.responses()` handler is enough for Foundry Playground clients
+that send `{"stream": true}`: Castia returns `text/event-stream` with the
+completed answer as a Responses delta and `response.completed` event. Add
+`@app.responses_stream()` only when the app can produce real incremental deltas.
+
 Set `HOST=127.0.0.1` for local-only runs. Hosted deployments need `0.0.0.0`
 so platform ingress can reach the process.
 

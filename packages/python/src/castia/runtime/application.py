@@ -119,9 +119,11 @@ class Router:
     def responses_stream(self) -> Callable[[Handler], Handler]:
         """Serve ``func`` as the streaming variant of the Responses protocol.
 
-        When present, ``POST /responses`` with ``{"stream": true}`` returns an
-        SSE stream of real handler deltas. It does not add another publishable
-        protocol; hosted agents still advertise plain ``responses``.
+        ``POST /responses`` with ``{"stream": true}`` always returns SSE for a
+        Responses app. Register this only when the app can produce real deltas;
+        otherwise Castia streams the normal ``@app.responses()`` result as one
+        final text delta plus ``response.completed``. It does not add another
+        publishable protocol; hosted agents still advertise plain ``responses``.
         """
         return self._wire_decorator("responses_stream")
 
