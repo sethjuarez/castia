@@ -47,6 +47,7 @@
         "IdentityRuntime",
         "InvocationsRuntime",
         "InvokesRuntime",
+        "LifecycleOperationsRuntime",
         "LifecycleRecordsRuntime",
         "LifecycleStorageRuntime",
         "Mention",
@@ -152,6 +153,13 @@
           "kind": "type",
           "group": "",
           "source": "invokes_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleOperationsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_operations_runtime",
           "protocol": true
         },
         {
@@ -676,6 +684,42 @@
           ]
         },
         {
+          "name": "LifecycleOperationsRuntime",
+          "group": "",
+          "symbol": "LifecycleOperationsRuntime",
+          "source": "lifecycle_operations_runtime",
+          "methods": [
+            {
+              "name": "curateDataset",
+              "returns": "unknown",
+              "params": {
+                "heldoutFraction": "float64",
+                "redactionVersion": "string",
+                "seed": "string",
+                "traces": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "datasetJsonl",
+              "returns": "string",
+              "params": {
+                "dataset": "unknown",
+                "split": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "LifecycleRecordsRuntime",
           "group": "",
           "symbol": "LifecycleRecordsRuntime",
@@ -989,6 +1033,7 @@
         "identity_runtime",
         "invocations_runtime",
         "invokes_runtime",
+        "lifecycle_operations_runtime",
         "lifecycle_records_runtime",
         "lifecycle_storage_runtime",
         "mention",

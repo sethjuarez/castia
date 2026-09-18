@@ -14,6 +14,7 @@ import "./inference/tools.tsp";
 import "./evaluation/suite.tsp";
 import "./lifecycle/records.tsp";
 import "./lifecycle/storage.tsp";
+import "./lifecycle/operations.tsp";
 
 namespace Castia.Spec;
 

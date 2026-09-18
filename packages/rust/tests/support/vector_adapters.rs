@@ -1,8 +1,8 @@
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
-    canonical_json, check_public, content_hash, example_id, get_artifact, normalize_record,
-    put_artifact, record_id, safe_path,
+    canonical_json, check_public, content_hash, curate_dataset, dataset_jsonl, example_id,
+    get_artifact, normalize_record, put_artifact, record_id, safe_path,
 };
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -11,8 +11,8 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
-    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime, ResponsesRuntime,
-    RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
+    ModelRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -192,6 +192,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleStorageRuntime.putArtifact",
             sync(lifecycle_put_artifact),
+        ),
+        (
+            "LifecycleOperationsRuntime.curateDataset",
+            sync_with_normalize(lifecycle_curate_dataset, lifecycle_record_to_camel),
+        ),
+        (
+            "LifecycleOperationsRuntime.datasetJsonl",
+            sync(lifecycle_dataset_jsonl),
         ),
         (
             "ModelRuntime.instructionsParam",
@@ -588,6 +596,53 @@ fn lifecycle_get_artifact(input: &Value, ctx: &Context) -> Result<Value, VectorE
     result
 }
 
+fn lifecycle_curate_dataset(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let traces = input
+        .get("traces")
+        .map(lifecycle_record_to_snake)
+        .and_then(|value| value.as_array().cloned())
+        .ok_or_else(|| VectorError {
+            message: "missing traces input".to_string(),
+            payload: None,
+        })?;
+    let redaction_version = input
+        .get("redactionVersion")
+        .and_then(Value::as_str)
+        .ok_or_else(|| VectorError {
+            message: "missing redactionVersion input".to_string(),
+            payload: None,
+        })?;
+    let heldout_fraction = input
+        .get("heldoutFraction")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| VectorError {
+            message: "missing heldoutFraction input".to_string(),
+            payload: None,
+        })?;
+    let seed = input
+        .get("seed")
+        .and_then(Value::as_str)
+        .ok_or_else(|| VectorError {
+            message: "missing seed input".to_string(),
+            payload: None,
+        })?;
+    curate_dataset(&traces, redaction_version, heldout_fraction, seed).map_err(vector_error)
+}
+
+fn lifecycle_dataset_jsonl(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let dataset = lifecycle_record_to_snake(input.get("dataset").unwrap_or(&Value::Null));
+    let split = input
+        .get("split")
+        .and_then(Value::as_str)
+        .ok_or_else(|| VectorError {
+            message: "missing split input".to_string(),
+            payload: None,
+        })?;
+    dataset_jsonl(&dataset, split)
+        .map(Value::String)
+        .map_err(vector_error)
+}
+
 fn vector_error(error: impl std::fmt::Display) -> VectorError {
     VectorError {
         message: error.to_string(),
@@ -809,6 +864,9 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                         (true, "candidateRunId") => "candidate_run_id",
                         (true, "baselineAgentId") => "baseline_agent_id",
                         (true, "candidateAgentId") => "candidate_agent_id",
+                        (true, "traceId") => "trace_id",
+                        (true, "referenceOrigin") => "reference_origin",
+                        (true, "modelOutput") => "model_output",
                         (false, "schema_version") => "schemaVersion",
                         (false, "source_files") => "sourceFiles",
                         (false, "reference_origins") => "referenceOrigins",
@@ -825,6 +883,9 @@ fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
                         (false, "candidate_run_id") => "candidateRunId",
                         (false, "baseline_agent_id") => "baselineAgentId",
                         (false, "candidate_agent_id") => "candidateAgentId",
+                        (false, "trace_id") => "traceId",
+                        (false, "reference_origin") => "referenceOrigin",
+                        (false, "model_output") => "modelOutput",
                         _ => key.as_str(),
                     };
                     let value = if matches!(

@@ -227,6 +227,30 @@ fn invokes_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn InvokesRuntime> = Box::new(CompileOnlyInvokesRuntime);
 }
 
+struct CompileOnlyLifecycleOperationsRuntime;
+
+#[async_trait::async_trait]
+impl LifecycleOperationsRuntime for CompileOnlyLifecycleOperationsRuntime {
+    fn curate_dataset(
+        &self,
+        traces: &serde_json::Value,
+        redaction_version: &String,
+        heldout_fraction: &f64,
+        seed: &String,
+    ) -> serde_json::Value {
+        panic!("LifecycleOperationsRuntime.curateDataset is a compile-only protocol scaffold.")
+    }
+    fn dataset_jsonl(&self, dataset: &serde_json::Value, split: &String) -> String {
+        panic!("LifecycleOperationsRuntime.datasetJsonl is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn lifecycle_operations_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn LifecycleOperationsRuntime> =
+        Box::new(CompileOnlyLifecycleOperationsRuntime);
+}
+
 struct CompileOnlyLifecycleRecordsRuntime;
 
 #[async_trait::async_trait]

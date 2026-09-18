@@ -898,6 +898,146 @@ pub fn run_invocations_runtime_conformance<S: crate::model::InvocationsRuntime +
     }
 }
 
+/// Typed @vector conformance for LifecycleOperationsRuntime. Pass your real `impl LifecycleOperationsRuntime`; the
+/// `S: LifecycleOperationsRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_lifecycle_operations_runtime_conformance(&LifecycleOperationsRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_lifecycle_operations_runtime_conformance<
+    S: crate::model::LifecycleOperationsRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: dataset-jsonl-exports-heldout
+    {
+        let dataset: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "schemaVersion": 1,
+  "kind": "dataset",
+  "examples": [
+    {
+      "input": "question-4",
+      "reference": "reference-4",
+      "group": "ada4f2d6999ab34adfb25b7924fe007ceebd8575555c8fb9e98e14bd440730a1",
+      "provenance": [
+        "trace-4"
+      ],
+      "reviewers": [
+        "human-reviewer"
+      ],
+      "referenceOrigins": [
+        "human"
+      ]
+    },
+    {
+      "input": "question-3",
+      "reference": "reference-3",
+      "group": "207f3f2c40a278c4c0373565e29ee0157614384a3c7285510fbaf3e446d71033",
+      "provenance": [
+        "trace-3"
+      ],
+      "reviewers": [
+        "human-reviewer"
+      ],
+      "referenceOrigins": [
+        "human"
+      ]
+    },
+    {
+      "input": "question-1",
+      "reference": "reference-1",
+      "group": "3d4d007868105f5324540be8e475012d789e11a404abea386c89b8e5616cac18",
+      "provenance": [
+        "trace-1"
+      ],
+      "reviewers": [
+        "human-reviewer"
+      ],
+      "referenceOrigins": [
+        "human"
+      ]
+    },
+    {
+      "input": "question-5",
+      "reference": "reference-5",
+      "group": "e6cc1575b9e2288b0b5f0c6abd927b77b2a0a740a0fad986c5cf8e0c95f09b9e",
+      "provenance": [
+        "trace-5"
+      ],
+      "reviewers": [
+        "human-reviewer"
+      ],
+      "referenceOrigins": [
+        "human"
+      ]
+    },
+    {
+      "input": "question-0",
+      "reference": "reference-0",
+      "group": "69e88732eac8006038bbfaff8641b2e67221dd5d1e1fc80dcd83a3e71cfd82c7",
+      "provenance": [
+        "trace-0"
+      ],
+      "reviewers": [
+        "human-reviewer"
+      ],
+      "referenceOrigins": [
+        "human"
+      ]
+    },
+    {
+      "input": "question-2",
+      "reference": "reference-2",
+      "group": "f8c77c9e7194fc372600650152a562be9321bce0c51fbfdc9bbd8eeb894a0e2a",
+      "provenance": [
+        "trace-2"
+      ],
+      "reviewers": [
+        "human-reviewer"
+      ],
+      "referenceOrigins": [
+        "human"
+      ]
+    }
+  ],
+  "trainIds": [
+    "229f6d6e9faeec2efc159c566693ac0452a360088f86ea457a1c34057cfe62e1",
+    "378e032c99714dc149845afc558df0d658421ed86673d0579da0fc32eae2d39b",
+    "d351e278dadc78bec9ad701fbcee682f73a485f5be9e63999b55661db26cf357",
+    "d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"
+  ],
+  "heldoutIds": [
+    "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20",
+    "eb8419dfae8418e28509b282030b030f69e9c0b361a674e023ee59ee6ed04cf3"
+  ],
+  "seed": "castia",
+  "redactionVersion": "v1"
+}
+"####,
+        )
+        .expect("dataset parses");
+        let split: String = serde_json::from_str(
+            r####"
+"heldout"
+"####,
+        )
+        .expect("split parses");
+        let actual = seam.dataset_jsonl(&dataset, &split);
+        let actual_value =
+            serde_json::to_value(actual).expect("dataset-jsonl-exports-heldout: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"{\"example_id\":\"bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20\",\"messages\":[{\"content\":\"question-1\",\"role\":\"user\"}],\"provenance\":[\"trace-1\"],\"reference\":\"reference-1\",\"reference_origins\":[\"human\"]}\n{\"example_id\":\"eb8419dfae8418e28509b282030b030f69e9c0b361a674e023ee59ee6ed04cf3\",\"messages\":[{\"content\":\"question-2\",\"role\":\"user\"}],\"provenance\":[\"trace-2\"],\"reference\":\"reference-2\",\"reference_origins\":[\"human\"]}\n"
+"####,
+        )
+        .expect("dataset-jsonl-exports-heldout: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "dataset-jsonl-exports-heldout misrouted"
+        );
+    }
+    // skipped: dataset-jsonl-rejects-unknown-split — expectedError on a @sync op has no typed error channel
+}
+
 /// Typed @vector conformance for LifecycleRecordsRuntime. Pass your real `impl LifecycleRecordsRuntime`; the
 /// `S: LifecycleRecordsRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_lifecycle_records_runtime_conformance(&LifecycleRecordsRuntimeImpl).await;` (or without `.await` when sync).

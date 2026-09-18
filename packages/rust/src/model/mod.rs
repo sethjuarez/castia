@@ -43,6 +43,9 @@ pub use invocations_runtime::*;
 pub mod invokes_runtime;
 pub use invokes_runtime::*;
 
+pub mod lifecycle_operations_runtime;
+pub use lifecycle_operations_runtime::*;
+
 pub mod lifecycle_records_runtime;
 pub use lifecycle_records_runtime::*;
 
