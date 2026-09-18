@@ -961,8 +961,8 @@ true
             "check-public-accepts-placeholders misrouted"
         );
     }
-    // skipped: check-public-rejects-bearer-value — expectedError on a @sync op has no typed error channel
     // skipped: check-public-rejects-camelcase-secret-key — expectedError on a @sync op has no typed error channel
+    // skipped: check-public-rejects-credential-value — expectedError on a @sync op has no typed error channel
     // skipped: check-public-rejects-nested-assignment-string — expectedError on a @sync op has no typed error channel
     // skipped: check-public-rejects-secret-key — expectedError on a @sync op has no typed error channel
     // vector: content-hash-canonical-object
@@ -1015,6 +1015,79 @@ true
         assert_eq!(
             actual_value, expected,
             "content-hash-example-input misrouted"
+        );
+    }
+    // vector: example-id-hashes-input-only
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "input": "question-0",
+  "reference": "reference-0",
+  "group": "conversation-0",
+  "provenance": [
+    "trace-0"
+  ],
+  "reviewers": [
+    "human-reviewer"
+  ],
+  "referenceOrigins": [
+    "human"
+  ]
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.example_id(&value);
+        let actual_value =
+            serde_json::to_value(actual).expect("example-id-hashes-input-only: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"
+"####,
+        )
+        .expect("example-id-hashes-input-only: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "example-id-hashes-input-only misrouted"
+        );
+    }
+    // vector: record-id-agent-hash-vector
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "schemaVersion": 1,
+  "kind": "agent",
+  "sourceFiles": [
+    {
+      "path": "agent.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    }
+  ],
+  "dependencies": {},
+  "model": {
+    "deployment": "baseline"
+  },
+  "instructions": "Be helpful.",
+  "tools": []
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.record_id(&value);
+        let actual_value =
+            serde_json::to_value(actual).expect("record-id-agent-hash-vector: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"1adec8c6672ca08db9323fe9512150565047d77d3df71b71c6a2a7932b4346da"
+"####,
+        )
+        .expect("record-id-agent-hash-vector: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "record-id-agent-hash-vector misrouted"
         );
     }
     // vector: safe-path-normalizes-backslashes

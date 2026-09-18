@@ -1,6 +1,8 @@
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
-use castia::lifecycle::{canonical_json, check_public, content_hash, safe_path};
+use castia::lifecycle::{
+    canonical_json, check_public, content_hash, example_id, normalize_record, record_id, safe_path,
+};
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
     CastiaInvokesRuntime, CastiaRoutingRuntime,
@@ -165,6 +167,18 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "LifecycleRecordsRuntime.contentHash",
             sync(lifecycle_content_hash),
+        ),
+        (
+            "LifecycleRecordsRuntime.exampleId",
+            sync(lifecycle_example_id),
+        ),
+        (
+            "LifecycleRecordsRuntime.normalizeRecord",
+            sync_with_normalize(lifecycle_normalize_record, lifecycle_record_to_camel),
+        ),
+        (
+            "LifecycleRecordsRuntime.recordId",
+            sync(lifecycle_record_id),
         ),
         (
             "LifecycleRecordsRuntime.safePath",
@@ -507,6 +521,29 @@ fn lifecycle_check_public(input: &Value, _: &Context) -> Result<Value, VectorErr
         .map_err(vector_error)
 }
 
+fn lifecycle_normalize_record(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    normalize_record(&lifecycle_record_to_snake(
+        input.get("value").unwrap_or(&Value::Null),
+    ))
+    .map_err(vector_error)
+}
+
+fn lifecycle_record_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    record_id(&lifecycle_record_to_snake(
+        input.get("value").unwrap_or(&Value::Null),
+    ))
+    .map(Value::String)
+    .map_err(vector_error)
+}
+
+fn lifecycle_example_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    example_id(&lifecycle_record_to_snake(
+        input.get("value").unwrap_or(&Value::Null),
+    ))
+    .map(Value::String)
+    .map_err(vector_error)
+}
+
 fn vector_error(error: impl std::fmt::Display) -> VectorError {
     VectorError {
         message: error.to_string(),
@@ -695,6 +732,80 @@ fn normalize_agent_config_source(value: &Value, _: &Context) -> Value {
 
 fn normalize_special_json_keys(value: &Value, _: &Context) -> Value {
     strip_special_json_keys(value)
+}
+
+fn lifecycle_record_to_camel(value: &Value, _: &Context) -> Value {
+    lifecycle_keys(value, false)
+}
+
+fn lifecycle_record_to_snake(value: &Value) -> Value {
+    lifecycle_keys(value, true)
+}
+
+fn lifecycle_keys(value: &Value, to_snake: bool) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match (to_snake, key.as_str()) {
+                        (true, "schemaVersion") => "schema_version",
+                        (true, "sourceFiles") => "source_files",
+                        (true, "referenceOrigins") => "reference_origins",
+                        (true, "trainIds") => "train_ids",
+                        (true, "heldoutIds") => "heldout_ids",
+                        (true, "redactionVersion") => "redaction_version",
+                        (true, "exampleId") => "example_id",
+                        (true, "agentId") => "agent_id",
+                        (true, "datasetId") => "dataset_id",
+                        (true, "expectedIds") => "expected_ids",
+                        (true, "baselineId") => "baseline_id",
+                        (true, "agentSnapshot") => "agent_snapshot",
+                        (true, "baselineRunId") => "baseline_run_id",
+                        (true, "candidateRunId") => "candidate_run_id",
+                        (true, "baselineAgentId") => "baseline_agent_id",
+                        (true, "candidateAgentId") => "candidate_agent_id",
+                        (false, "schema_version") => "schemaVersion",
+                        (false, "source_files") => "sourceFiles",
+                        (false, "reference_origins") => "referenceOrigins",
+                        (false, "train_ids") => "trainIds",
+                        (false, "heldout_ids") => "heldoutIds",
+                        (false, "redaction_version") => "redactionVersion",
+                        (false, "example_id") => "exampleId",
+                        (false, "agent_id") => "agentId",
+                        (false, "dataset_id") => "datasetId",
+                        (false, "expected_ids") => "expectedIds",
+                        (false, "baseline_id") => "baselineId",
+                        (false, "agent_snapshot") => "agentSnapshot",
+                        (false, "baseline_run_id") => "baselineRunId",
+                        (false, "candidate_run_id") => "candidateRunId",
+                        (false, "baseline_agent_id") => "baselineAgentId",
+                        (false, "candidate_agent_id") => "candidateAgentId",
+                        _ => key.as_str(),
+                    };
+                    let value = if matches!(
+                        translated,
+                        "dependencies"
+                            | "model"
+                            | "tools"
+                            | "metrics"
+                            | "configuration"
+                            | "aggregates"
+                            | "gate"
+                    ) {
+                        value.clone()
+                    } else {
+                        lifecycle_keys(value, to_snake)
+                    };
+                    (translated.to_string(), value)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|v| lifecycle_keys(v, to_snake)).collect())
+        }
+        _ => value.clone(),
+    }
 }
 
 fn strip_special_json_keys(value: &Value) -> Value {

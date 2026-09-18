@@ -240,6 +240,15 @@ impl LifecycleRecordsRuntime for CompileOnlyLifecycleRecordsRuntime {
     fn content_hash(&self, value: &serde_json::Value) -> String {
         panic!("LifecycleRecordsRuntime.contentHash is a compile-only protocol scaffold.")
     }
+    fn example_id(&self, value: &serde_json::Value) -> String {
+        panic!("LifecycleRecordsRuntime.exampleId is a compile-only protocol scaffold.")
+    }
+    fn normalize_record(&self, value: &serde_json::Value) -> serde_json::Value {
+        panic!("LifecycleRecordsRuntime.normalizeRecord is a compile-only protocol scaffold.")
+    }
+    fn record_id(&self, value: &serde_json::Value) -> String {
+        panic!("LifecycleRecordsRuntime.recordId is a compile-only protocol scaffold.")
+    }
     fn safe_path(&self, path: &String) -> String {
         panic!("LifecycleRecordsRuntime.safePath is a compile-only protocol scaffold.")
     }

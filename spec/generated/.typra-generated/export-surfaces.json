@@ -710,6 +710,42 @@
               "nonFatal": false
             },
             {
+              "name": "exampleId",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "normalizeRecord",
+              "returns": "unknown",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "recordId",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
               "name": "safePath",
               "returns": "string",
               "params": {

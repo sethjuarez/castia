@@ -16,5 +16,8 @@ pub trait LifecycleRecordsRuntime: Send + Sync {
     fn canonical_json(&self, value: &serde_json::Value) -> String;
     fn check_public(&self, value: &serde_json::Value) -> bool;
     fn content_hash(&self, value: &serde_json::Value) -> String;
+    fn example_id(&self, value: &serde_json::Value) -> String;
+    fn normalize_record(&self, value: &serde_json::Value) -> serde_json::Value;
+    fn record_id(&self, value: &serde_json::Value) -> String;
     fn safe_path(&self, path: &String) -> String;
 }
