@@ -2934,6 +2934,210 @@ pub fn run_lifecycle_storage_runtime_conformance<
     }
 }
 
+/// Typed @vector conformance for OptimizerJobsRuntime. Pass your real `impl OptimizerJobsRuntime`; the
+/// `S: OptimizerJobsRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_optimizer_jobs_runtime_conformance(&OptimizerJobsRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: optimizer-best-candidate-by-score
+    {
+        let status: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "result": {
+    "candidates": [
+      {
+        "candidate_id": "low",
+        "avg_score": 0.1
+      },
+      {
+        "candidateId": "high",
+        "score": 0.9
+      }
+    ]
+  }
+}
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.best_optimizer_candidate_id(&status);
+        let actual_value =
+            serde_json::to_value(actual).expect("optimizer-best-candidate-by-score: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"high"
+"####,
+        )
+        .expect("optimizer-best-candidate-by-score: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-best-candidate-by-score misrouted"
+        );
+    }
+    // vector: optimizer-best-candidate-explicit-best
+    {
+        let status: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "result": {
+    "bestCandidateId": "cand_2"
+  }
+}
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.best_optimizer_candidate_id(&status);
+        let actual_value = serde_json::to_value(actual)
+            .expect("optimizer-best-candidate-explicit-best: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"cand_2"
+"####,
+        )
+        .expect("optimizer-best-candidate-explicit-best: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-best-candidate-explicit-best misrouted"
+        );
+    }
+    // vector: optimizer-best-candidate-falsy-score-falls-through
+    {
+        let status: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "result": {
+    "candidates": [
+      {
+        "candidate_id": "chosen",
+        "avg_score": 0,
+        "score": 0.9
+      }
+    ]
+  }
+}
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.best_optimizer_candidate_id(&status);
+        let actual_value = serde_json::to_value(actual)
+            .expect("optimizer-best-candidate-falsy-score-falls-through: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"chosen"
+"####,
+        )
+        .expect("optimizer-best-candidate-falsy-score-falls-through: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-best-candidate-falsy-score-falls-through misrouted"
+        );
+    }
+    // vector: optimizer-best-candidate-first-tie-wins
+    {
+        let status: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "result": {
+    "candidates": [
+      {
+        "candidate_id": "first",
+        "score": 0.5
+      },
+      {
+        "candidate_id": "second",
+        "score": 0.5
+      }
+    ]
+  }
+}
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.best_optimizer_candidate_id(&status);
+        let actual_value = serde_json::to_value(actual)
+            .expect("optimizer-best-candidate-first-tie-wins: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"first"
+"####,
+        )
+        .expect("optimizer-best-candidate-first-tie-wins: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-best-candidate-first-tie-wins misrouted"
+        );
+    }
+    // vector: optimizer-job-id-extraction
+    {
+        let payload: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "operationId": "opt_1"
+}
+"####,
+        )
+        .expect("payload parses");
+        let actual = seam.optimizer_job_id(&payload);
+        let actual_value =
+            serde_json::to_value(actual).expect("optimizer-job-id-extraction: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"opt_1"
+"####,
+        )
+        .expect("optimizer-job-id-extraction: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-job-id-extraction misrouted"
+        );
+    }
+    // vector: optimizer-nonterminal-status
+    {
+        let status: Option<String> = serde_json::from_str(
+            r####"
+"running"
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.terminal_optimizer_status(&status);
+        let actual_value =
+            serde_json::to_value(actual).expect("optimizer-nonterminal-status: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("optimizer-nonterminal-status: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-nonterminal-status misrouted"
+        );
+    }
+    // vector: optimizer-terminal-statuses
+    {
+        let status: Option<String> = serde_json::from_str(
+            r####"
+"cancelled"
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.terminal_optimizer_status(&status);
+        let actual_value =
+            serde_json::to_value(actual).expect("optimizer-terminal-statuses: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("optimizer-terminal-statuses: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-terminal-statuses misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for ResponsesRuntime. Pass your real `impl ResponsesRuntime`; the
 /// `S: ResponsesRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_responses_runtime_conformance(&ResponsesRuntimeImpl).await;` (or without `.await` when sync).

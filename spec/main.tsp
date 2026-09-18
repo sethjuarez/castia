@@ -4,6 +4,7 @@ import "./protocols/chat.tsp";
 import "./protocols/invocations.tsp";
 import "./protocols/responses.tsp";
 import "./optimizing/config.tsp";
+import "./optimizing/jobs.tsp";
 import "./messaging/cards.tsp";
 import "./messaging/connector.tsp";
 import "./messaging/entities.tsp";

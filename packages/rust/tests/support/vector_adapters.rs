@@ -53,8 +53,8 @@ use castia::model::{
     IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
     LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
     ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime,
-    RuntimeApplicationRuntime, RuntimeContextRuntime, RuntimeDependenciesRuntime,
+    ObserveTelemetryRuntime, ObserveTracingRuntime, OptimizerJobsRuntime, ResponsesRuntime,
+    RoutingRuntime, RuntimeApplicationRuntime, RuntimeContextRuntime, RuntimeDependenciesRuntime,
     RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, StreamingRuntime,
     ToolCatalogRuntime,
 };
@@ -62,7 +62,11 @@ use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
     CastiaObserveTelemetryRuntime, CastiaObserveTracingRuntime,
 };
-use castia::optimizing::CastiaAgentConfigResolver;
+use castia::optimizing::{
+    optimizer_request as build_optimizer_request,
+    optimizer_rest_request as build_optimizer_rest_request, CastiaAgentConfigResolver,
+    CastiaOptimizerJobsRuntime,
+};
 use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
 };
@@ -148,6 +152,30 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "AgentConfigResolver.resolve",
             sync_with_normalize(agent_config_resolve, normalize_agent_config_source),
+        ),
+        (
+            "OptimizerJobsRuntime.optimizerRequest",
+            sync(optimizer_request),
+        ),
+        (
+            "OptimizerJobsRuntime.optimizerRestRequest",
+            sync(optimizer_rest_request),
+        ),
+        (
+            "OptimizerJobsRuntime.terminalOptimizerStatus",
+            sync(optimizer_terminal_status),
+        ),
+        (
+            "OptimizerJobsRuntime.bestOptimizerCandidateId",
+            sync(optimizer_best_candidate_id),
+        ),
+        (
+            "OptimizerJobsRuntime.optimizerJobId",
+            sync(optimizer_job_id),
+        ),
+        (
+            "OptimizerJobsRuntime.optimizerCandidateApplyPlan",
+            sync(optimizer_candidate_apply_plan),
         ),
         (
             "BuildScaffoldRuntime.scaffoldFiles",
@@ -2477,6 +2505,65 @@ fn agent_config_resolve(input: &Value, ctx: &Context) -> Result<Value, VectorErr
     restore_optimizer_env(saved_env);
     let _ = fs::remove_dir_all(temp);
     result
+}
+
+fn optimizer_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_optimizer_request(
+        input.get("evalConfig").unwrap_or(&Value::Null),
+        input.get("baseline").unwrap_or(&Value::Null),
+        input.get("datasetItems").unwrap_or(&Value::Null),
+        input.get("validationItems").unwrap_or(&Value::Null),
+        input.get("agentName").and_then(Value::as_str),
+        input.get("agentVersion").and_then(Value::as_str),
+        input.get("evalModel").and_then(Value::as_str),
+        input.get("optimizeModel").and_then(Value::as_str),
+        input
+            .get("maxCandidates")
+            .and_then(Value::as_i64)
+            .map(|value| value as i32),
+    )
+    .map_err(vector_error)
+}
+
+fn optimizer_rest_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_optimizer_rest_request(
+        &string_input(input, "projectEndpoint")?,
+        &string_input(input, "action")?,
+        input.get("jobId").and_then(Value::as_str),
+        input.get("candidateId").and_then(Value::as_str),
+        input.get("body").unwrap_or(&Value::Null),
+    )
+    .map_err(vector_error)
+}
+
+fn optimizer_terminal_status(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaOptimizerJobsRuntime.terminal_optimizer_status(
+        &input
+            .get("status")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    )))
+}
+
+fn optimizer_best_candidate_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaOptimizerJobsRuntime
+        .best_optimizer_candidate_id(input.get("status").unwrap_or(&Value::Null))
+        .map(Value::String)
+        .unwrap_or(Value::Null))
+}
+
+fn optimizer_job_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaOptimizerJobsRuntime
+        .optimizer_job_id(input.get("payload").unwrap_or(&Value::Null))
+        .map(Value::String)
+        .unwrap_or(Value::Null))
+}
+
+fn optimizer_candidate_apply_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaOptimizerJobsRuntime.optimizer_candidate_apply_plan(
+        &string_input(input, "candidateId")?,
+        input.get("config").unwrap_or(&Value::Null),
+    ))
 }
 
 fn build_scaffold_files(input: &Value, _: &Context) -> Result<Value, VectorError> {

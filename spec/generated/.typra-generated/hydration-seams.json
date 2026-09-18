@@ -253,6 +253,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "OptimizerJobsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "OptimizerJobsRuntime",
+      "generatedSource": "optimizer_jobs_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ResponsesRuntime",
       "target": "rust",
       "group": "",

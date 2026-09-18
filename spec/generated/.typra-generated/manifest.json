@@ -175,6 +175,11 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/optimizer_jobs_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/optimizing/agent_config_resolution.rs",
       "marker": true
     },

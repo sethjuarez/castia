@@ -70,6 +70,7 @@
         "ObserveSuiteRuntime",
         "ObserveTelemetryRuntime",
         "ObserveTracingRuntime",
+        "OptimizerJobsRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
         "RuntimeApplicationRuntime",
@@ -338,6 +339,13 @@
           "kind": "type",
           "group": "",
           "source": "observe_tracing_runtime",
+          "protocol": true
+        },
+        {
+          "name": "OptimizerJobsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "optimizer_jobs_runtime",
           "protocol": true
         },
         {
@@ -2531,6 +2539,99 @@
           ]
         },
         {
+          "name": "OptimizerJobsRuntime",
+          "group": "",
+          "symbol": "OptimizerJobsRuntime",
+          "source": "optimizer_jobs_runtime",
+          "methods": [
+            {
+              "name": "bestOptimizerCandidateId",
+              "returns": "string?",
+              "params": {
+                "status": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerCandidateApplyPlan",
+              "returns": "unknown",
+              "params": {
+                "candidateId": "string",
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerJobId",
+              "returns": "string?",
+              "params": {
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerRequest",
+              "returns": "unknown",
+              "params": {
+                "agentName": "string?",
+                "agentVersion": "string?",
+                "baseline": "unknown",
+                "datasetItems": "unknown",
+                "evalConfig": "unknown",
+                "evalModel": "string?",
+                "maxCandidates": "int32?",
+                "optimizeModel": "string?",
+                "validationItems": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerRestRequest",
+              "returns": "unknown",
+              "params": {
+                "action": "string",
+                "body": "unknown",
+                "candidateId": "string?",
+                "jobId": "string?",
+                "projectEndpoint": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "terminalOptimizerStatus",
+              "returns": "boolean",
+              "params": {
+                "status": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -3092,6 +3193,7 @@
         "observe_suite_runtime",
         "observe_telemetry_runtime",
         "observe_tracing_runtime",
+        "optimizer_jobs_runtime",
         "responses_runtime",
         "routing_runtime",
         "runtime_application_runtime",

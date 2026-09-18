@@ -1086,6 +1086,59 @@ fn observe_tracing_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ObserveTracingRuntime> = Box::new(CompileOnlyObserveTracingRuntime);
 }
 
+struct CompileOnlyOptimizerJobsRuntime;
+
+#[async_trait::async_trait]
+impl OptimizerJobsRuntime for CompileOnlyOptimizerJobsRuntime {
+    fn best_optimizer_candidate_id(&self, status: &serde_json::Value) -> Option<String> {
+        panic!("OptimizerJobsRuntime.bestOptimizerCandidateId is a compile-only protocol scaffold.")
+    }
+    fn optimizer_candidate_apply_plan(
+        &self,
+        candidate_id: &String,
+        config: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!(
+            "OptimizerJobsRuntime.optimizerCandidateApplyPlan is a compile-only protocol scaffold."
+        )
+    }
+    fn optimizer_job_id(&self, payload: &serde_json::Value) -> Option<String> {
+        panic!("OptimizerJobsRuntime.optimizerJobId is a compile-only protocol scaffold.")
+    }
+    fn optimizer_request(
+        &self,
+        eval_config: &serde_json::Value,
+        baseline: &serde_json::Value,
+        dataset_items: &serde_json::Value,
+        validation_items: &serde_json::Value,
+        agent_name: &Option<String>,
+        agent_version: &Option<String>,
+        eval_model: &Option<String>,
+        optimize_model: &Option<String>,
+        max_candidates: &Option<i32>,
+    ) -> serde_json::Value {
+        panic!("OptimizerJobsRuntime.optimizerRequest is a compile-only protocol scaffold.")
+    }
+    fn optimizer_rest_request(
+        &self,
+        project_endpoint: &String,
+        action: &String,
+        job_id: &Option<String>,
+        candidate_id: &Option<String>,
+        body: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("OptimizerJobsRuntime.optimizerRestRequest is a compile-only protocol scaffold.")
+    }
+    fn terminal_optimizer_status(&self, status: &Option<String>) -> bool {
+        panic!("OptimizerJobsRuntime.terminalOptimizerStatus is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn optimizer_jobs_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn OptimizerJobsRuntime> = Box::new(CompileOnlyOptimizerJobsRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]

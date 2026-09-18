@@ -109,6 +109,9 @@ pub use observe_telemetry_runtime::*;
 pub mod observe_tracing_runtime;
 pub use observe_tracing_runtime::*;
 
+pub mod optimizer_jobs_runtime;
+pub use optimizer_jobs_runtime::*;
+
 pub mod responses_runtime;
 pub use responses_runtime::*;
 
