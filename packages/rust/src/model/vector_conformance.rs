@@ -1506,6 +1506,130 @@ false
     // skipped: token-response-rejects-non-200-with-truncated-text — expectedError on a @sync op has no typed error channel
 }
 
+/// Typed @vector conformance for HostingServerRuntime. Pass your real `impl HostingServerRuntime`; the
+/// `S: HostingServerRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_hosting_server_runtime_conformance(&HostingServerRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_hosting_server_runtime_conformance<S: crate::model::HostingServerRuntime + ?Sized>(
+    seam: &S,
+) {
+    // vector: readiness-body
+    {
+        let actual = seam.readiness_body();
+        let actual_value = serde_json::to_value(actual).expect("readiness-body: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"Agent running!"
+"####,
+        )
+        .expect("readiness-body: expected parses");
+        assert_eq!(actual_value, expected, "readiness-body misrouted");
+    }
+    // vector: sse-event-completed-preserves-python-response-key-order
+    {
+        let event_type: String = serde_json::from_str(
+            r####"
+"response.completed"
+"####,
+        )
+        .expect("eventType parses");
+        let payload: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "id": "resp_1",
+  "object": "response",
+  "status": "completed",
+  "output_text": "ok",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "ok"
+        }
+      ]
+    }
+  ]
+}
+"####,
+        )
+        .expect("payload parses");
+        let actual = seam.sse_event(&event_type, &payload);
+        let actual_value = serde_json::to_value(actual)
+            .expect("sse-event-completed-preserves-python-response-key-order: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"event: response.completed\ndata: {\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\",\"output_text\":\"ok\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}\n\n"
+"####,
+        )
+        .expect("sse-event-completed-preserves-python-response-key-order: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "sse-event-completed-preserves-python-response-key-order misrouted"
+        );
+    }
+    // vector: sse-event-escapes-non-ascii-like-python-json-dumps
+    {
+        let event_type: String = serde_json::from_str(
+            r####"
+"response.output_text.delta"
+"####,
+        )
+        .expect("eventType parses");
+        let payload: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "type": "response.output_text.delta",
+  "delta": "café 🚀"
+}
+"####,
+        )
+        .expect("payload parses");
+        let actual = seam.sse_event(&event_type, &payload);
+        let actual_value = serde_json::to_value(actual)
+            .expect("sse-event-escapes-non-ascii-like-python-json-dumps: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"caf\\u00e9 \\ud83d\\ude80\"}\n\n"
+"####,
+        )
+        .expect("sse-event-escapes-non-ascii-like-python-json-dumps: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "sse-event-escapes-non-ascii-like-python-json-dumps misrouted"
+        );
+    }
+    // vector: sse-event-minifies-json
+    {
+        let event_type: String = serde_json::from_str(
+            r####"
+"response.output_text.delta"
+"####,
+        )
+        .expect("eventType parses");
+        let payload: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "type": "response.output_text.delta",
+  "delta": "hi"
+}
+"####,
+        )
+        .expect("payload parses");
+        let actual = seam.sse_event(&event_type, &payload);
+        let actual_value =
+            serde_json::to_value(actual).expect("sse-event-minifies-json: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"
+"####,
+        )
+        .expect("sse-event-minifies-json: expected parses");
+        assert_eq!(actual_value, expected, "sse-event-minifies-json misrouted");
+    }
+}
+
 /// Typed @vector conformance for IdentityRuntime. Pass your real `impl IdentityRuntime`; the
 /// `S: IdentityRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_identity_runtime_conformance(&IdentityRuntimeImpl).await;` (or without `.await` when sync).

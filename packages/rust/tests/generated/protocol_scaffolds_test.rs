@@ -462,6 +462,26 @@ fn hosting_credentials_runtime_compile_only_conformance() {
         Box::new(CompileOnlyHostingCredentialsRuntime);
 }
 
+struct CompileOnlyHostingServerRuntime;
+
+#[async_trait::async_trait]
+impl HostingServerRuntime for CompileOnlyHostingServerRuntime {
+    fn readiness_body(&self) -> String {
+        panic!("HostingServerRuntime.readinessBody is a compile-only protocol scaffold.")
+    }
+    fn sse_event(&self, event_type: &String, payload: &serde_json::Value) -> String {
+        panic!("HostingServerRuntime.sseEvent is a compile-only protocol scaffold.")
+    }
+    fn wire_endpoints(&self, wire_protocols: &Vec<String>) -> serde_json::Value {
+        panic!("HostingServerRuntime.wireEndpoints is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn hosting_server_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn HostingServerRuntime> = Box::new(CompileOnlyHostingServerRuntime);
+}
+
 struct CompileOnlyIdentityRuntime;
 
 #[async_trait::async_trait]

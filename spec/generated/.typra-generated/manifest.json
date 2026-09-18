@@ -80,6 +80,11 @@
     },
     {
       "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/hosting_server_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/identity_runtime.rs",
       "marker": true
     },

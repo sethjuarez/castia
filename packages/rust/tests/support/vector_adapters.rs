@@ -14,8 +14,10 @@ use castia::finetuning::{
     validate_sft_example as build_validate_sft_example, CastiaFinetuningTrainingRuntime,
 };
 use castia::hosting::{
+    readiness_body as build_readiness_body, sse_event as build_sse_event,
     token_response_access_token as build_token_response_access_token,
-    user_fic_token_request as build_user_fic_token_request, CastiaHostingCredentialsRuntime,
+    user_fic_token_request as build_user_fic_token_request, wire_endpoints as build_wire_endpoints,
+    CastiaHostingCredentialsRuntime, CastiaHostingServerRuntime,
 };
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::integrations::{
@@ -35,13 +37,13 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, FinetuningTrainingRuntime, HostingCredentialsRuntime, IdentityRuntime,
-    IntegrationsGraphRuntime, IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime,
-    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
-    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
-    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
-    RoutingRuntime, RuntimeContextRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime,
-    SaveContext, ToolCatalogRuntime,
+    EvaluationSuiteRuntime, FinetuningTrainingRuntime, HostingCredentialsRuntime,
+    HostingServerRuntime, IdentityRuntime, IntegrationsGraphRuntime, IntegrationsToolboxRuntime,
+    InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
+    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
+    ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
+    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, RuntimeContextRuntime,
+    RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -329,6 +331,18 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "HostingCredentialsRuntime.tokenResponseAccessToken",
             sync(hosting_token_response_access_token),
+        ),
+        (
+            "HostingServerRuntime.readinessBody",
+            sync(hosting_server_readiness_body),
+        ),
+        (
+            "HostingServerRuntime.sseEvent",
+            sync(hosting_server_sse_event),
+        ),
+        (
+            "HostingServerRuntime.wireEndpoints",
+            sync(hosting_server_wire_endpoints),
         ),
         (
             "IdentityRuntime.agenticUserId",
@@ -1088,6 +1102,24 @@ fn hosting_token_response_access_token(input: &Value, _: &Context) -> Result<Val
     )
     .map(Value::String)
     .map_err(vector_error)
+}
+
+fn hosting_server_readiness_body(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(build_readiness_body()))
+}
+
+fn hosting_server_sse_event(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(build_sse_event(
+        &string_input(input, "eventType")?,
+        input.get("payload").unwrap_or(&Value::Null),
+    )))
+}
+
+fn hosting_server_wire_endpoints(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(build_wire_endpoints(&string_array_input(
+        input,
+        "wireProtocols",
+    )?))
 }
 
 fn identity_agentic_user_id(input: &Value, _: &Context) -> Result<Value, VectorError> {

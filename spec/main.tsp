@@ -12,6 +12,7 @@ import "./messaging/routing.tsp";
 import "./inference/model.tsp";
 import "./inference/tools.tsp";
 import "./hosting/credentials.tsp";
+import "./hosting/server.tsp";
 import "./integrations/graph.tsp";
 import "./integrations/toolbox.tsp";
 import "./building/preflight.tsp";

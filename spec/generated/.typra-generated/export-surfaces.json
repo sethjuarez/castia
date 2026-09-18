@@ -51,6 +51,7 @@
         "EvaluationSuiteRuntime",
         "FinetuningTrainingRuntime",
         "HostingCredentialsRuntime",
+        "HostingServerRuntime",
         "IdentityRuntime",
         "IntegrationsGraphRuntime",
         "IntegrationsToolboxRuntime",
@@ -199,6 +200,13 @@
           "kind": "type",
           "group": "",
           "source": "hosting_credentials_runtime",
+          "protocol": true
+        },
+        {
+          "name": "HostingServerRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "hosting_server_runtime",
           "protocol": true
         },
         {
@@ -1215,6 +1223,49 @@
                 "instanceClientId": "string",
                 "instanceToken": "string",
                 "scope": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "HostingServerRuntime",
+          "group": "",
+          "symbol": "HostingServerRuntime",
+          "source": "hosting_server_runtime",
+          "methods": [
+            {
+              "name": "readinessBody",
+              "returns": "string",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "sseEvent",
+              "returns": "string",
+              "params": {
+                "eventType": "string",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "wireEndpoints",
+              "returns": "unknown",
+              "params": {
+                "wireProtocols": "string[]"
               },
               "optional": false,
               "sync": true,
@@ -2451,6 +2502,7 @@
         "evaluation_suite_runtime",
         "finetuning_training_runtime",
         "hosting_credentials_runtime",
+        "hosting_server_runtime",
         "identity_runtime",
         "integrations_graph_runtime",
         "integrations_toolbox_runtime",

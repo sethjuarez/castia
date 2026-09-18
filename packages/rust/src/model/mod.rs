@@ -55,6 +55,9 @@ pub use finetuning_training_runtime::*;
 pub mod hosting_credentials_runtime;
 pub use hosting_credentials_runtime::*;
 
+pub mod hosting_server_runtime;
+pub use hosting_server_runtime::*;
+
 pub mod identity_runtime;
 pub use identity_runtime::*;
 
