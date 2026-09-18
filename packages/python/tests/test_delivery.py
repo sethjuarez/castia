@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from castia.delivery import AzdDeployment
+from castia.delivery.manifest import reserved_env_var_keys
 
 ENDPOINT = "https://test.services.ai.azure.com/api/projects/project"
 SUBSCRIPTION = "11111111-1111-1111-1111-111111111111"
@@ -105,8 +106,25 @@ def test_manifest_cannot_escape_root(tmp_path):
         )
 
 
-@pytest.mark.parametrize("reserved", ["FOUNDRY_PROJECT_ENDPOINT", "AGENT_SECRET"])
-def test_reserved_hosted_env_blocks_deployment_handoff(tmp_path, reserved):
+def test_reserved_env_var_keys_are_sorted_from_mapping_only():
+    assert reserved_env_var_keys(
+        {
+            "Z_PUBLIC": "ok",
+            "FOUNDRY_PROJECT_ENDPOINT": "reserved",
+            "AGENT_SECRET": "reserved",
+        }
+    ) == ["AGENT_SECRET", "FOUNDRY_PROJECT_ENDPOINT"]
+
+
+@pytest.mark.parametrize(
+    ("field", "reserved"),
+    [
+        ("env", "FOUNDRY_PROJECT_ENDPOINT"),
+        ("env_vars", "AGENT_SECRET"),
+        ("environment_variables", "FOUNDRY_INTERNAL"),
+    ],
+)
+def test_reserved_hosted_env_blocks_deployment_handoff(tmp_path, field, reserved):
     (tmp_path / "azure.yaml").write_text(
         "services:\n"
         "  smoke:\n"
@@ -114,7 +132,7 @@ def test_reserved_hosted_env_blocks_deployment_handoff(tmp_path, reserved):
         "    kind: hosted\n"
         "    name: smoke\n"
         "    project: .\n"
-        "    env:\n"
+        f"    {field}:\n"
         f"      {reserved}: ${{{reserved}}}\n"
     )
     with pytest.raises(ValueError, match=reserved):

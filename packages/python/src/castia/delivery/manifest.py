@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -43,20 +44,27 @@ def _protocol_version(protocol: str) -> str:
     return _PROTOCOL_VERSIONS.get(protocol, "2.0.0")
 
 
+def reserved_env_var_keys(env_vars: Mapping[str, Any] | None) -> list[str]:
+    """Reserved Foundry-hosted env names from an authored env-var mapping."""
+    if env_vars is None:
+        return []
+    if not isinstance(env_vars, Mapping):
+        raise TypeError("hosted agent service env vars must be a mapping")
+    return sorted(
+        key
+        for key in env_vars
+        if isinstance(key, str) and key.startswith(RESERVED_HOSTED_ENV_PREFIXES)
+    )
+
+
 def reserved_hosted_env_keys(service: dict[str, Any]) -> list[str]:
     """Reserved hosted-agent env names authored on a service."""
     if service.get("host") != "azure.ai.agent" or service.get("kind") != "hosted":
         return []
-    env = service.get("env")
-    if env is None:
-        return []
-    if not isinstance(env, dict):
-        raise TypeError("hosted agent service env must be a mapping")
-    return sorted(
-        key
-        for key in env
-        if isinstance(key, str) and key.startswith(RESERVED_HOSTED_ENV_PREFIXES)
-    )
+    keys: set[str] = set()
+    for env_field in ("env", "env_vars", "environment_variables"):
+        keys.update(reserved_env_var_keys(service.get(env_field)))
+    return sorted(keys)
 
 
 def reserved_hosted_env_message(service_name: str, keys: list[str]) -> str:
@@ -64,7 +72,7 @@ def reserved_hosted_env_message(service_name: str, keys: list[str]) -> str:
     return (
         f"hosted agent service {service_name!r} declares reserved container env "
         f"variable(s): {names}. Foundry manages FOUNDRY_* and AGENT_* variables "
-        "for hosted agents; remove them from azure.yaml env. Keep "
+        "for hosted agents; remove them from authored hosted env vars. Keep "
         "FOUNDRY_PROJECT_ENDPOINT in .env or process/azd host-side context for "
         "local development and Castia checks."
     )
