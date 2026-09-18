@@ -42,20 +42,20 @@ use castia::lifecycle::{
     normalize_record, put_artifact, record_id, safe_path, stage_candidate,
 };
 use castia::messaging::{
-    try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
-    CastiaInvokesRuntime, CastiaRoutingRuntime,
+    try_require_agentic_user, CastiaCardsRuntime, CastiaConnectorRuntime, CastiaEntitiesRuntime,
+    CastiaIdentityRuntime, CastiaInvokesRuntime, CastiaRoutingRuntime, CastiaStreamingRuntime,
 };
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
-    CardsRuntime, ChatRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, FinetuningJobsRuntime, FinetuningTrainingRuntime,
+    CardsRuntime, ChatRuntime, ConnectorRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime,
+    EntitiesRuntime, EvaluationSuiteRuntime, FinetuningJobsRuntime, FinetuningTrainingRuntime,
     HostingCredentialsRuntime, HostingServerRuntime, IdentityRuntime, IntegrationsGraphRuntime,
     IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
     LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
     ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
     ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime,
     RuntimeContextRuntime, RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext,
-    ToolCatalogRuntime,
+    StreamingRuntime, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -185,6 +185,39 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "CardsRuntime.suggestedActions",
             sync(cards_suggested_actions),
+        ),
+        (
+            "ConnectorRuntime.connectorEndpoint",
+            sync(connector_endpoint),
+        ),
+        (
+            "ConnectorRuntime.connectorEnvelope",
+            sync(connector_envelope),
+        ),
+        ("ConnectorRuntime.connectorOk", sync(connector_ok)),
+        (
+            "ConnectorRuntime.createdActivityId",
+            sync(connector_created_activity_id),
+        ),
+        (
+            "ConnectorRuntime.deleteActivityRequest",
+            sync(connector_delete_activity_request),
+        ),
+        (
+            "ConnectorRuntime.postActivityRequest",
+            sync(connector_post_activity_request),
+        ),
+        (
+            "ConnectorRuntime.reactionRequest",
+            sync(connector_reaction_request),
+        ),
+        (
+            "ConnectorRuntime.typingRequest",
+            sync(connector_typing_request),
+        ),
+        (
+            "ConnectorRuntime.updateActivityRequest",
+            sync(connector_update_activity_request),
         ),
         (
             "DeliveryAzdRuntime.validateDeploymentInput",
@@ -706,6 +739,26 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             "RoutingRuntime.teamsTaggedChannelMessage",
             sync(routing_teams_tagged_channel_message),
         ),
+        ("StreamingRuntime.appendPlan", sync(streaming_append_plan)),
+        (
+            "StreamingRuntime.captureStreamId",
+            sync(streaming_capture_stream_id),
+        ),
+        (
+            "StreamingRuntime.finishAllowed",
+            sync(streaming_finish_allowed),
+        ),
+        ("StreamingRuntime.finishText", sync(streaming_finish_text)),
+        ("StreamingRuntime.nextFlush", sync(streaming_next_flush)),
+        (
+            "StreamingRuntime.nextSequence",
+            sync(streaming_next_sequence),
+        ),
+        ("StreamingRuntime.streamChunk", sync(streaming_stream_chunk)),
+        (
+            "StreamingRuntime.updateAllowed",
+            sync(streaming_update_allowed),
+        ),
         (
             "ToolCatalogRuntime.activityToolNames",
             sync(tool_catalog_activity_tool_names),
@@ -854,6 +907,63 @@ fn cards_decision_card(input: &Value, _: &Context) -> Result<Value, VectorError>
             .and_then(Value::as_str)
             .unwrap_or_default(),
         input.get("card").unwrap_or(&Value::Null),
+    ))
+}
+
+fn connector_endpoint(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime.connector_endpoint(&activity))
+}
+
+fn connector_envelope(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime.connector_envelope(&activity))
+}
+
+fn connector_ok(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaConnectorRuntime.connector_ok(
+        input.get("response").unwrap_or(&Value::Null)
+    )))
+}
+
+fn connector_created_activity_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaConnectorRuntime.created_activity_id(
+        input.get("response").unwrap_or(&Value::Null)
+    )))
+}
+
+fn connector_delete_activity_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime
+        .delete_activity_request(&activity, &string_input(input, "activityId")?))
+}
+
+fn connector_post_activity_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime
+        .post_activity_request(&activity, input.get("payload").unwrap_or(&Value::Null)))
+}
+
+fn connector_reaction_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime.reaction_request(
+        &activity,
+        &string_input(input, "reactionType")?,
+        &string_input(input, "method")?,
+    ))
+}
+
+fn connector_typing_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime.typing_request(&activity))
+}
+
+fn connector_update_activity_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let activity = activity(input)?;
+    Ok(CastiaConnectorRuntime.update_activity_request(
+        &activity,
+        &string_input(input, "activityId")?,
+        input.get("payload").unwrap_or(&Value::Null),
     ))
 }
 
@@ -2161,6 +2271,101 @@ fn routing_teams_tagged_channel_message(input: &Value, _: &Context) -> Result<Va
     Ok(serde_json::json!(
         CastiaRoutingRuntime.teams_tagged_channel_message(&activity)
     ))
+}
+
+fn streaming_append_plan(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaStreamingRuntime.append_plan(
+        &input
+            .get("finished")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        &string_input(input, "currentText")?,
+        &string_input(input, "delta")?,
+        &f64_input(input, "lastFlush")?,
+        &f64_input(input, "now")?,
+        &f64_input(input, "minInterval")?,
+    ))
+}
+
+fn streaming_capture_stream_id(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaStreamingRuntime.capture_stream_id(
+        &input
+            .get("currentStreamId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        &input
+            .get("createdId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    )))
+}
+
+fn streaming_finish_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaStreamingRuntime.finish_text(
+        &string_input(input, "currentText")?,
+        &input
+            .get("overrideText")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    )))
+}
+
+fn streaming_finish_allowed(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaStreamingRuntime.finish_allowed(
+        &input
+            .get("finished")
+            .and_then(Value::as_bool)
+            .unwrap_or_default()
+    )))
+}
+
+fn streaming_next_flush(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaStreamingRuntime.next_flush(
+        &f64_input(input, "lastFlush")?,
+        &f64_input(input, "now")?,
+        &input
+            .get("emitted")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    ))
+}
+
+fn streaming_next_sequence(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaStreamingRuntime.next_sequence(
+        &i32_input(input, "sequence")?,
+        &input
+            .get("isFinal")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+    )))
+}
+
+fn streaming_stream_chunk(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaStreamingRuntime.stream_chunk(
+        &string_input(input, "streamType")?,
+        &string_input(input, "text")?,
+        &input
+            .get("streamId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        &i32_input(input, "sequence")?,
+        &input
+            .get("isFinal")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        input.get("attachments").unwrap_or(&Value::Null),
+        input.get("suggestions").unwrap_or(&Value::Null),
+    ))
+}
+
+fn streaming_update_allowed(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(json!(CastiaStreamingRuntime.update_allowed(
+        &input
+            .get("finished")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        &string_input(input, "currentText")?,
+    )))
 }
 
 fn agent_config_resolve(input: &Value, ctx: &Context) -> Result<Value, VectorError> {

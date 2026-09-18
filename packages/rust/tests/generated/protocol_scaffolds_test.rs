@@ -173,6 +173,62 @@ fn chat_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ChatRuntime> = Box::new(CompileOnlyChatRuntime);
 }
 
+struct CompileOnlyConnectorRuntime;
+
+#[async_trait::async_trait]
+impl ConnectorRuntime for CompileOnlyConnectorRuntime {
+    fn connector_endpoint(&self, activity: &Activity) -> serde_json::Value {
+        panic!("ConnectorRuntime.connectorEndpoint is a compile-only protocol scaffold.")
+    }
+    fn connector_envelope(&self, activity: &Activity) -> serde_json::Value {
+        panic!("ConnectorRuntime.connectorEnvelope is a compile-only protocol scaffold.")
+    }
+    fn connector_ok(&self, response: &serde_json::Value) -> bool {
+        panic!("ConnectorRuntime.connectorOk is a compile-only protocol scaffold.")
+    }
+    fn created_activity_id(&self, response: &serde_json::Value) -> Option<String> {
+        panic!("ConnectorRuntime.createdActivityId is a compile-only protocol scaffold.")
+    }
+    fn delete_activity_request(
+        &self,
+        activity: &Activity,
+        activity_id: &String,
+    ) -> serde_json::Value {
+        panic!("ConnectorRuntime.deleteActivityRequest is a compile-only protocol scaffold.")
+    }
+    fn post_activity_request(
+        &self,
+        activity: &Activity,
+        payload: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("ConnectorRuntime.postActivityRequest is a compile-only protocol scaffold.")
+    }
+    fn reaction_request(
+        &self,
+        activity: &Activity,
+        reaction_type: &String,
+        method: &String,
+    ) -> serde_json::Value {
+        panic!("ConnectorRuntime.reactionRequest is a compile-only protocol scaffold.")
+    }
+    fn typing_request(&self, activity: &Activity) -> serde_json::Value {
+        panic!("ConnectorRuntime.typingRequest is a compile-only protocol scaffold.")
+    }
+    fn update_activity_request(
+        &self,
+        activity: &Activity,
+        activity_id: &String,
+        payload: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("ConnectorRuntime.updateActivityRequest is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn connector_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ConnectorRuntime> = Box::new(CompileOnlyConnectorRuntime);
+}
+
 struct CompileOnlyDeliveryAzdRuntime;
 
 #[async_trait::async_trait]
@@ -1181,6 +1237,62 @@ impl RuntimeRouterRuntime for CompileOnlyRuntimeRouterRuntime {
 #[test]
 fn runtime_router_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn RuntimeRouterRuntime> = Box::new(CompileOnlyRuntimeRouterRuntime);
+}
+
+struct CompileOnlyStreamingRuntime;
+
+#[async_trait::async_trait]
+impl StreamingRuntime for CompileOnlyStreamingRuntime {
+    fn append_plan(
+        &self,
+        finished: &bool,
+        current_text: &String,
+        delta: &String,
+        last_flush: &f64,
+        now: &f64,
+        min_interval: &f64,
+    ) -> serde_json::Value {
+        panic!("StreamingRuntime.appendPlan is a compile-only protocol scaffold.")
+    }
+    fn capture_stream_id(
+        &self,
+        current_stream_id: &Option<String>,
+        created_id: &Option<String>,
+    ) -> Option<String> {
+        panic!("StreamingRuntime.captureStreamId is a compile-only protocol scaffold.")
+    }
+    fn finish_allowed(&self, finished: &bool) -> bool {
+        panic!("StreamingRuntime.finishAllowed is a compile-only protocol scaffold.")
+    }
+    fn finish_text(&self, current_text: &String, override_text: &Option<String>) -> String {
+        panic!("StreamingRuntime.finishText is a compile-only protocol scaffold.")
+    }
+    fn next_flush(&self, last_flush: &f64, now: &f64, emitted: &bool) -> serde_json::Value {
+        panic!("StreamingRuntime.nextFlush is a compile-only protocol scaffold.")
+    }
+    fn next_sequence(&self, sequence: &i32, is_final: &bool) -> i32 {
+        panic!("StreamingRuntime.nextSequence is a compile-only protocol scaffold.")
+    }
+    fn stream_chunk(
+        &self,
+        stream_type: &String,
+        text: &String,
+        stream_id: &Option<String>,
+        sequence: &i32,
+        is_final: &bool,
+        attachments: &serde_json::Value,
+        suggestions: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("StreamingRuntime.streamChunk is a compile-only protocol scaffold.")
+    }
+    fn update_allowed(&self, finished: &bool, current_text: &String) -> bool {
+        panic!("StreamingRuntime.updateAllowed is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn streaming_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn StreamingRuntime> = Box::new(CompileOnlyStreamingRuntime);
 }
 
 struct CompileOnlyToolCatalogRuntime;

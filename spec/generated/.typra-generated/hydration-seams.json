@@ -61,6 +61,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "ConnectorRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ConnectorRuntime",
+      "generatedSource": "connector_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "DeliveryAzdRuntime",
       "target": "rust",
       "group": "",
@@ -282,6 +290,14 @@
       "group": "",
       "symbol": "RuntimeRouterRuntime",
       "generatedSource": "runtime_router_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "StreamingRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "StreamingRuntime",
+      "generatedSource": "streaming_runtime",
       "seamKind": "protocol-adapter"
     },
     {

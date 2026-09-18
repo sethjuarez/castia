@@ -713,6 +713,108 @@ pub fn run_chat_runtime_conformance<S: crate::model::ChatRuntime + ?Sized>(seam:
     }
 }
 
+/// Typed @vector conformance for ConnectorRuntime. Pass your real `impl ConnectorRuntime`; the
+/// `S: ConnectorRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_connector_runtime_conformance(&ConnectorRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_connector_runtime_conformance<S: crate::model::ConnectorRuntime + ?Sized>(seam: &S) {
+    // vector: connector-ok-null-is-false
+    {
+        let response: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("response parses");
+        let actual = seam.connector_ok(&response);
+        let actual_value =
+            serde_json::to_value(actual).expect("connector-ok-null-is-false: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("connector-ok-null-is-false: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "connector-ok-null-is-false misrouted"
+        );
+    }
+    // vector: connector-ok-success
+    {
+        let response: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "statusCode": 204
+}
+"####,
+        )
+        .expect("response parses");
+        let actual = seam.connector_ok(&response);
+        let actual_value = serde_json::to_value(actual).expect("connector-ok-success: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("connector-ok-success: expected parses");
+        assert_eq!(actual_value, expected, "connector-ok-success misrouted");
+    }
+    // vector: created-id-from-error-is-null
+    {
+        let response: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "statusCode": 403,
+  "body": {
+    "id": "ignored"
+  }
+}
+"####,
+        )
+        .expect("response parses");
+        let actual = seam.created_activity_id(&response);
+        let actual_value =
+            serde_json::to_value(actual).expect("created-id-from-error-is-null: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+null
+"####,
+        )
+        .expect("created-id-from-error-is-null: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "created-id-from-error-is-null misrouted"
+        );
+    }
+    // vector: created-id-from-success-body
+    {
+        let response: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "statusCode": 201,
+  "body": {
+    "id": "created-id"
+  }
+}
+"####,
+        )
+        .expect("response parses");
+        let actual = seam.created_activity_id(&response);
+        let actual_value =
+            serde_json::to_value(actual).expect("created-id-from-success-body: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"created-id"
+"####,
+        )
+        .expect("created-id-from-success-body: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "created-id-from-success-body misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for DeliveryAzdRuntime. Pass your real `impl DeliveryAzdRuntime`; the
 /// `S: DeliveryAzdRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_delivery_azd_runtime_conformance(&DeliveryAzdRuntimeImpl).await;` (or without `.await` when sync).
@@ -3691,6 +3793,277 @@ pub fn run_runtime_router_runtime_conformance<S: crate::model::RuntimeRouterRunt
         assert_eq!(
             actual_value, expected,
             "registered-protocols-no-chat-publishable-assumption misrouted"
+        );
+    }
+}
+
+/// Typed @vector conformance for StreamingRuntime. Pass your real `impl StreamingRuntime`; the
+/// `S: StreamingRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_streaming_runtime_conformance(&StreamingRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_streaming_runtime_conformance<S: crate::model::StreamingRuntime + ?Sized>(seam: &S) {
+    // vector: capture-first-created-stream-id
+    {
+        let current_stream_id: Option<String> = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("currentStreamId parses");
+        let created_id: Option<String> = serde_json::from_str(
+            r####"
+"created-id"
+"####,
+        )
+        .expect("createdId parses");
+        let actual = seam.capture_stream_id(&current_stream_id, &created_id);
+        let actual_value =
+            serde_json::to_value(actual).expect("capture-first-created-stream-id: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"created-id"
+"####,
+        )
+        .expect("capture-first-created-stream-id: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "capture-first-created-stream-id misrouted"
+        );
+    }
+    // vector: finish-allowed-before-finished
+    {
+        let finished: bool = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("finished parses");
+        let actual = seam.finish_allowed(&finished);
+        let actual_value =
+            serde_json::to_value(actual).expect("finish-allowed-before-finished: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("finish-allowed-before-finished: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "finish-allowed-before-finished misrouted"
+        );
+    }
+    // vector: finish-ignored-after-finished
+    {
+        let finished: bool = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("finished parses");
+        let actual = seam.finish_allowed(&finished);
+        let actual_value =
+            serde_json::to_value(actual).expect("finish-ignored-after-finished: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("finish-ignored-after-finished: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "finish-ignored-after-finished misrouted"
+        );
+    }
+    // vector: finish-text-defaults-to-accumulated
+    {
+        let current_text: String = serde_json::from_str(
+            r####"
+"Hello"
+"####,
+        )
+        .expect("currentText parses");
+        let override_text: Option<String> = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("overrideText parses");
+        let actual = seam.finish_text(&current_text, &override_text);
+        let actual_value =
+            serde_json::to_value(actual).expect("finish-text-defaults-to-accumulated: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"Hello"
+"####,
+        )
+        .expect("finish-text-defaults-to-accumulated: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "finish-text-defaults-to-accumulated misrouted"
+        );
+    }
+    // vector: finish-text-uses-explicit-override
+    {
+        let current_text: String = serde_json::from_str(
+            r####"
+"Hello"
+"####,
+        )
+        .expect("currentText parses");
+        let override_text: Option<String> = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("overrideText parses");
+        let actual = seam.finish_text(&current_text, &override_text);
+        let actual_value =
+            serde_json::to_value(actual).expect("finish-text-uses-explicit-override: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("finish-text-uses-explicit-override: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "finish-text-uses-explicit-override misrouted"
+        );
+    }
+    // vector: keep-existing-stream-id
+    {
+        let current_stream_id: Option<String> = serde_json::from_str(
+            r####"
+"first-id"
+"####,
+        )
+        .expect("currentStreamId parses");
+        let created_id: Option<String> = serde_json::from_str(
+            r####"
+"second-id"
+"####,
+        )
+        .expect("createdId parses");
+        let actual = seam.capture_stream_id(&current_stream_id, &created_id);
+        let actual_value =
+            serde_json::to_value(actual).expect("keep-existing-stream-id: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"first-id"
+"####,
+        )
+        .expect("keep-existing-stream-id: expected parses");
+        assert_eq!(actual_value, expected, "keep-existing-stream-id misrouted");
+    }
+    // vector: next-sequence-advances-interim
+    {
+        let sequence: i32 = serde_json::from_str(
+            r####"
+2
+"####,
+        )
+        .expect("sequence parses");
+        let is_final: bool = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("isFinal parses");
+        let actual = seam.next_sequence(&sequence, &is_final);
+        let actual_value =
+            serde_json::to_value(actual).expect("next-sequence-advances-interim: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+3
+"####,
+        )
+        .expect("next-sequence-advances-interim: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "next-sequence-advances-interim misrouted"
+        );
+    }
+    // vector: next-sequence-does-not-advance-final
+    {
+        let sequence: i32 = serde_json::from_str(
+            r####"
+3
+"####,
+        )
+        .expect("sequence parses");
+        let is_final: bool = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("isFinal parses");
+        let actual = seam.next_sequence(&sequence, &is_final);
+        let actual_value =
+            serde_json::to_value(actual).expect("next-sequence-does-not-advance-final: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+3
+"####,
+        )
+        .expect("next-sequence-does-not-advance-final: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "next-sequence-does-not-advance-final misrouted"
+        );
+    }
+    // vector: update-allowed-before-text
+    {
+        let finished: bool = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("finished parses");
+        let current_text: String = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("currentText parses");
+        let actual = seam.update_allowed(&finished, &current_text);
+        let actual_value =
+            serde_json::to_value(actual).expect("update-allowed-before-text: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("update-allowed-before-text: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "update-allowed-before-text misrouted"
+        );
+    }
+    // vector: update-ignored-after-text
+    {
+        let finished: bool = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("finished parses");
+        let current_text: String = serde_json::from_str(
+            r####"
+"body"
+"####,
+        )
+        .expect("currentText parses");
+        let actual = seam.update_allowed(&finished, &current_text);
+        let actual_value =
+            serde_json::to_value(actual).expect("update-ignored-after-text: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("update-ignored-after-text: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "update-ignored-after-text misrouted"
         );
     }
 }

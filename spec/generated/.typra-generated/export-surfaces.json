@@ -44,6 +44,7 @@
         "CastiaContracts",
         "ChannelAccount",
         "ChatRuntime",
+        "ConnectorRuntime",
         "ConversationAccount",
         "DeliveryAzdRuntime",
         "DeliveryManifestRuntime",
@@ -74,6 +75,7 @@
         "RuntimeContextRuntime",
         "RuntimeDispatchRuntime",
         "RuntimeRouterRuntime",
+        "StreamingRuntime",
         "ToolCatalogRuntime"
       ],
       "exports": [
@@ -152,6 +154,13 @@
           "kind": "type",
           "group": "",
           "source": "chat_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ConnectorRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "connector_runtime",
           "protocol": true
         },
         {
@@ -362,6 +371,13 @@
           "kind": "type",
           "group": "",
           "source": "runtime_router_runtime",
+          "protocol": true
+        },
+        {
+          "name": "StreamingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "streaming_runtime",
           "protocol": true
         },
         {
@@ -662,6 +678,128 @@
               "returns": "string",
               "params": {
                 "messages": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "ConnectorRuntime",
+          "group": "",
+          "symbol": "ConnectorRuntime",
+          "source": "connector_runtime",
+          "methods": [
+            {
+              "name": "connectorEndpoint",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "connectorEnvelope",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "connectorOk",
+              "returns": "boolean",
+              "params": {
+                "response": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "createdActivityId",
+              "returns": "string?",
+              "params": {
+                "response": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "deleteActivityRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "activityId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "postActivityRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "reactionRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "method": "string",
+                "reactionType": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "typingRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "updateActivityRequest",
+              "returns": "unknown",
+              "params": {
+                "activity": "Activity",
+                "activityId": "string",
+                "payload": "unknown"
               },
               "optional": false,
               "sync": true,
@@ -2644,6 +2782,127 @@
           ]
         },
         {
+          "name": "StreamingRuntime",
+          "group": "",
+          "symbol": "StreamingRuntime",
+          "source": "streaming_runtime",
+          "methods": [
+            {
+              "name": "appendPlan",
+              "returns": "unknown",
+              "params": {
+                "currentText": "string",
+                "delta": "string",
+                "finished": "boolean",
+                "lastFlush": "float64",
+                "minInterval": "float64",
+                "now": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "captureStreamId",
+              "returns": "string?",
+              "params": {
+                "createdId": "string?",
+                "currentStreamId": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "finishAllowed",
+              "returns": "boolean",
+              "params": {
+                "finished": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "finishText",
+              "returns": "string",
+              "params": {
+                "currentText": "string",
+                "overrideText": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "nextFlush",
+              "returns": "unknown",
+              "params": {
+                "emitted": "boolean",
+                "lastFlush": "float64",
+                "now": "float64"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "nextSequence",
+              "returns": "int32",
+              "params": {
+                "isFinal": "boolean",
+                "sequence": "int32"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "streamChunk",
+              "returns": "unknown",
+              "params": {
+                "attachments": "unknown",
+                "isFinal": "boolean",
+                "sequence": "int32",
+                "streamId": "string?",
+                "streamType": "string",
+                "suggestions": "unknown",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "updateAllowed",
+              "returns": "boolean",
+              "params": {
+                "currentText": "string",
+                "finished": "boolean"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ToolCatalogRuntime",
           "group": "",
           "symbol": "ToolCatalogRuntime",
@@ -2706,6 +2965,7 @@
         "castia_contracts",
         "channel_account",
         "chat_runtime",
+        "connector_runtime",
         "context",
         "conversation_account",
         "delivery_azd_runtime",
@@ -2737,6 +2997,7 @@
         "runtime_context_runtime",
         "runtime_dispatch_runtime",
         "runtime_router_runtime",
+        "streaming_runtime",
         "tool_catalog_runtime"
       ]
     }

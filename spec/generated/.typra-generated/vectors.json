@@ -1801,6 +1801,496 @@
       }
     },
     {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "connectorEndpoint",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "connector-endpoint-missing-service-url-is-null",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "conversation": {
+              "id": "chat"
+            }
+          }
+        },
+        "expected": null,
+        "operation": "connectorEndpoint"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "connectorEndpoint",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "connector-endpoint-trims-service-url",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "serviceUrl": "https://smba.trafficmanager.net/teams/",
+            "conversation": {
+              "id": "19:meeting_abc@thread.v2"
+            }
+          }
+        },
+        "expected": {
+          "service_url": "https://smba.trafficmanager.net/teams",
+          "conversation_id": "19:meeting_abc@thread.v2"
+        },
+        "operation": "connectorEndpoint"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "connectorEnvelope",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "connector-envelope-null-reply-to-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "conversation": {
+              "id": "chat"
+            },
+            "from": {
+              "id": "29:user"
+            },
+            "recipient": {
+              "id": "28:agent"
+            }
+          }
+        },
+        "expected": {
+          "from": {
+            "id": "28:agent"
+          },
+          "recipient": {
+            "id": "29:user"
+          },
+          "conversation": {
+            "id": "chat"
+          },
+          "replyToId": null
+        },
+        "operation": "connectorEnvelope"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "connectorEnvelope",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "connector-envelope-swaps-from-recipient",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "id": "turn",
+            "conversation": {
+              "id": "chat"
+            },
+            "from": {
+              "id": "29:user",
+              "name": "User"
+            },
+            "recipient": {
+              "id": "28:agent",
+              "name": "HAL"
+            }
+          }
+        },
+        "expected": {
+          "from": {
+            "id": "28:agent",
+            "name": "HAL"
+          },
+          "recipient": {
+            "id": "29:user",
+            "name": "User"
+          },
+          "conversation": {
+            "id": "chat"
+          },
+          "replyToId": "turn"
+        },
+        "operation": "connectorEnvelope"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "connectorOk",
+      "params": {
+        "response": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "connector-ok-null-is-false",
+        "stage": "callable",
+        "input": {
+          "response": null
+        },
+        "expected": false,
+        "operation": "connectorOk"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "connectorOk",
+      "params": {
+        "response": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "connector-ok-success",
+        "stage": "callable",
+        "input": {
+          "response": {
+            "statusCode": 204
+          }
+        },
+        "expected": true,
+        "operation": "connectorOk"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "createdActivityId",
+      "params": {
+        "response": "unknown"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "created-id-from-error-is-null",
+        "stage": "callable",
+        "input": {
+          "response": {
+            "statusCode": 403,
+            "body": {
+              "id": "ignored"
+            }
+          }
+        },
+        "expected": null,
+        "operation": "createdActivityId"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "createdActivityId",
+      "params": {
+        "response": "unknown"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "created-id-from-success-body",
+        "stage": "callable",
+        "input": {
+          "response": {
+            "statusCode": 201,
+            "body": {
+              "id": "created-id"
+            }
+          }
+        },
+        "expected": "created-id",
+        "operation": "createdActivityId"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "deleteActivityRequest",
+      "params": {
+        "activity": "Activity",
+        "activityId": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "delete-request-uses-activity-id",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "serviceUrl": "https://s",
+            "conversation": {
+              "id": "chat"
+            }
+          },
+          "activityId": "drop-me"
+        },
+        "expected": {
+          "method": "DELETE",
+          "url": "https://s/v3/conversations/chat/activities/drop-me",
+          "json": null
+        },
+        "operation": "deleteActivityRequest"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "postActivityRequest",
+      "params": {
+        "activity": "Activity",
+        "payload": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "post-activity-request-merges-envelope-and-payload",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "id": "turn",
+            "serviceUrl": "https://smba.trafficmanager.net/teams",
+            "conversation": {
+              "id": "chat"
+            },
+            "from": {
+              "id": "29:user"
+            },
+            "recipient": {
+              "id": "28:agent"
+            }
+          },
+          "payload": {
+            "type": "message",
+            "text": "hi there"
+          }
+        },
+        "expected": {
+          "method": "POST",
+          "url": "https://smba.trafficmanager.net/teams/v3/conversations/chat/activities",
+          "json": {
+            "from": {
+              "id": "28:agent"
+            },
+            "recipient": {
+              "id": "29:user"
+            },
+            "conversation": {
+              "id": "chat"
+            },
+            "replyToId": "turn",
+            "type": "message",
+            "text": "hi there"
+          }
+        },
+        "operation": "postActivityRequest"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "postActivityRequest",
+      "params": {
+        "activity": "Activity",
+        "payload": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "post-activity-request-missing-service-url-is-null",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "id": "turn",
+            "conversation": {
+              "id": "chat"
+            },
+            "from": {
+              "id": "29:user"
+            },
+            "recipient": {
+              "id": "28:agent"
+            }
+          },
+          "payload": {
+            "type": "typing"
+          }
+        },
+        "expected": null,
+        "operation": "postActivityRequest"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "reactionRequest",
+      "params": {
+        "activity": "Activity",
+        "reactionType": "string",
+        "method": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "reaction-request-url-encodes-activity-and-reaction",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "id": "turn 1",
+            "serviceUrl": "https://s/",
+            "conversation": {
+              "id": "chat"
+            }
+          },
+          "reactionType": "white check",
+          "method": "PUT"
+        },
+        "expected": {
+          "method": "PUT",
+          "url": "https://s/v3/conversations/chat/activities/turn%201/reactions/white%20check",
+          "json": null
+        },
+        "operation": "reactionRequest"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "typingRequest",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "typing-request-has-no-text",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "id": "turn",
+            "serviceUrl": "https://s",
+            "conversation": {
+              "id": "chat"
+            },
+            "recipient": {
+              "id": "bot"
+            },
+            "from": {
+              "id": "user"
+            }
+          }
+        },
+        "expected": {
+          "method": "POST",
+          "url": "https://s/v3/conversations/chat/activities",
+          "json": {
+            "from": {
+              "id": "bot"
+            },
+            "recipient": {
+              "id": "user"
+            },
+            "conversation": {
+              "id": "chat"
+            },
+            "replyToId": "turn",
+            "type": "typing"
+          }
+        },
+        "operation": "typingRequest"
+      }
+    },
+    {
+      "contract": "ConnectorRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "updateActivityRequest",
+      "params": {
+        "activity": "Activity",
+        "activityId": "string",
+        "payload": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "update-request-includes-id-and-payload",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "id": "turn",
+            "serviceUrl": "https://s",
+            "conversation": {
+              "id": "chat"
+            },
+            "recipient": {
+              "id": "bot"
+            },
+            "from": {
+              "id": "user"
+            }
+          },
+          "activityId": "edit-me",
+          "payload": {
+            "type": "message",
+            "text": "v2"
+          }
+        },
+        "expected": {
+          "method": "PUT",
+          "url": "https://s/v3/conversations/chat/activities/edit-me",
+          "json": {
+            "from": {
+              "id": "bot"
+            },
+            "recipient": {
+              "id": "user"
+            },
+            "conversation": {
+              "id": "chat"
+            },
+            "replyToId": "turn",
+            "id": "edit-me",
+            "type": "message",
+            "text": "v2"
+          }
+        },
+        "operation": "updateActivityRequest"
+      }
+    },
+    {
       "contract": "DeliveryAzdRuntime",
       "namespace": "Castia.Spec.Delivery",
       "group": "",
@@ -13835,6 +14325,497 @@
           "tools": []
         },
         "operation": "responsesOnlyProjection"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "appendPlan",
+      "params": {
+        "finished": "boolean",
+        "currentText": "string",
+        "delta": "string",
+        "lastFlush": "float64",
+        "now": "float64",
+        "minInterval": "float64"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "append-plan-flushes-after-min-interval",
+        "stage": "callable",
+        "input": {
+          "finished": false,
+          "currentText": "Hello",
+          "delta": " world",
+          "lastFlush": 1,
+          "now": 2,
+          "minInterval": 0.75
+        },
+        "expected": {
+          "text": "Hello world",
+          "flush": true,
+          "nextFlush": 2
+        },
+        "operation": "appendPlan"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "appendPlan",
+      "params": {
+        "finished": "boolean",
+        "currentText": "string",
+        "delta": "string",
+        "lastFlush": "float64",
+        "now": "float64",
+        "minInterval": "float64"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "append-plan-ignores-empty-delta",
+        "stage": "callable",
+        "input": {
+          "finished": false,
+          "currentText": "Hello",
+          "delta": "",
+          "lastFlush": 1,
+          "now": 2,
+          "minInterval": 0.75
+        },
+        "expected": {
+          "text": "Hello",
+          "flush": false,
+          "nextFlush": 1
+        },
+        "operation": "appendPlan"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "captureStreamId",
+      "params": {
+        "currentStreamId": "string?",
+        "createdId": "string?"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "capture-first-created-stream-id",
+        "stage": "callable",
+        "input": {
+          "currentStreamId": null,
+          "createdId": "created-id"
+        },
+        "expected": "created-id",
+        "operation": "captureStreamId"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "captureStreamId",
+      "params": {
+        "currentStreamId": "string?",
+        "createdId": "string?"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "keep-existing-stream-id",
+        "stage": "callable",
+        "input": {
+          "currentStreamId": "first-id",
+          "createdId": "second-id"
+        },
+        "expected": "first-id",
+        "operation": "captureStreamId"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "finishAllowed",
+      "params": {
+        "finished": "boolean"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "finish-allowed-before-finished",
+        "stage": "callable",
+        "input": {
+          "finished": false
+        },
+        "expected": true,
+        "operation": "finishAllowed"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "finishAllowed",
+      "params": {
+        "finished": "boolean"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "finish-ignored-after-finished",
+        "stage": "callable",
+        "input": {
+          "finished": true
+        },
+        "expected": false,
+        "operation": "finishAllowed"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "finishText",
+      "params": {
+        "currentText": "string",
+        "overrideText": "string?"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "finish-text-defaults-to-accumulated",
+        "stage": "callable",
+        "input": {
+          "currentText": "Hello",
+          "overrideText": null
+        },
+        "expected": "Hello",
+        "operation": "finishText"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "finishText",
+      "params": {
+        "currentText": "string",
+        "overrideText": "string?"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "finish-text-uses-explicit-override",
+        "stage": "callable",
+        "input": {
+          "currentText": "Hello",
+          "overrideText": ""
+        },
+        "expected": "",
+        "operation": "finishText"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "nextFlush",
+      "params": {
+        "lastFlush": "float64",
+        "now": "float64",
+        "emitted": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "next-flush-keeps-last-time-when-not-emitted",
+        "stage": "callable",
+        "input": {
+          "lastFlush": 1,
+          "now": 2,
+          "emitted": false
+        },
+        "expected": 1,
+        "operation": "nextFlush"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "nextFlush",
+      "params": {
+        "lastFlush": "float64",
+        "now": "float64",
+        "emitted": "boolean"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "next-flush-updates-after-emitted-chunk",
+        "stage": "callable",
+        "input": {
+          "lastFlush": 1,
+          "now": 2,
+          "emitted": true
+        },
+        "expected": 2,
+        "operation": "nextFlush"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "nextSequence",
+      "params": {
+        "sequence": "int32",
+        "isFinal": "boolean"
+      },
+      "returns": "int32",
+      "sync": true,
+      "vector": {
+        "name": "next-sequence-advances-interim",
+        "stage": "callable",
+        "input": {
+          "sequence": 2,
+          "isFinal": false
+        },
+        "expected": 3,
+        "operation": "nextSequence"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "nextSequence",
+      "params": {
+        "sequence": "int32",
+        "isFinal": "boolean"
+      },
+      "returns": "int32",
+      "sync": true,
+      "vector": {
+        "name": "next-sequence-does-not-advance-final",
+        "stage": "callable",
+        "input": {
+          "sequence": 3,
+          "isFinal": true
+        },
+        "expected": 3,
+        "operation": "nextSequence"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "streamChunk",
+      "params": {
+        "streamType": "string",
+        "text": "string",
+        "streamId": "string?",
+        "sequence": "int32",
+        "isFinal": "boolean",
+        "attachments": "unknown",
+        "suggestions": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "final-chunk-omits-sequence-and-adds-suggestions",
+        "stage": "callable",
+        "input": {
+          "streamType": "final",
+          "text": "Hello world",
+          "streamId": "created-id",
+          "sequence": 3,
+          "isFinal": true,
+          "attachments": null,
+          "suggestions": {
+            "actions": [
+              {
+                "type": "imBack",
+                "title": "Thanks!",
+                "value": "Thanks!"
+              }
+            ],
+            "to": []
+          }
+        },
+        "expected": {
+          "type": "message",
+          "channelData": {
+            "streamType": "final",
+            "streamId": "created-id"
+          },
+          "entities": [
+            {
+              "type": "streamInfo",
+              "streamType": "final",
+              "streamId": "created-id"
+            }
+          ],
+          "text": "Hello world",
+          "suggestedActions": {
+            "actions": [
+              {
+                "type": "imBack",
+                "title": "Thanks!",
+                "value": "Thanks!"
+              }
+            ],
+            "to": []
+          }
+        },
+        "operation": "streamChunk"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "streamChunk",
+      "params": {
+        "streamType": "string",
+        "text": "string",
+        "streamId": "string?",
+        "sequence": "int32",
+        "isFinal": "boolean",
+        "attachments": "unknown",
+        "suggestions": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "informative-chunk-has-sequence-and-no-stream-id",
+        "stage": "callable",
+        "input": {
+          "streamType": "informative",
+          "text": "Thinking...",
+          "streamId": null,
+          "sequence": 0,
+          "isFinal": false,
+          "attachments": null,
+          "suggestions": null
+        },
+        "expected": {
+          "type": "typing",
+          "channelData": {
+            "streamType": "informative",
+            "streamSequence": 1
+          },
+          "entities": [
+            {
+              "type": "streamInfo",
+              "streamType": "informative",
+              "streamSequence": 1
+            }
+          ],
+          "text": "Thinking..."
+        },
+        "operation": "streamChunk"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "streamChunk",
+      "params": {
+        "streamType": "string",
+        "text": "string",
+        "streamId": "string?",
+        "sequence": "int32",
+        "isFinal": "boolean",
+        "attachments": "unknown",
+        "suggestions": "unknown"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
+        "name": "streaming-chunk-reuses-stream-id",
+        "stage": "callable",
+        "input": {
+          "streamType": "streaming",
+          "text": "Hello",
+          "streamId": "created-id",
+          "sequence": 1,
+          "isFinal": false,
+          "attachments": null,
+          "suggestions": null
+        },
+        "expected": {
+          "type": "typing",
+          "channelData": {
+            "streamType": "streaming",
+            "streamId": "created-id",
+            "streamSequence": 2
+          },
+          "entities": [
+            {
+              "type": "streamInfo",
+              "streamType": "streaming",
+              "streamId": "created-id",
+              "streamSequence": 2
+            }
+          ],
+          "text": "Hello"
+        },
+        "operation": "streamChunk"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "updateAllowed",
+      "params": {
+        "finished": "boolean",
+        "currentText": "string"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "update-allowed-before-text",
+        "stage": "callable",
+        "input": {
+          "finished": false,
+          "currentText": ""
+        },
+        "expected": true,
+        "operation": "updateAllowed"
+      }
+    },
+    {
+      "contract": "StreamingRuntime",
+      "namespace": "Castia.Spec.Messaging",
+      "group": "",
+      "operation": "updateAllowed",
+      "params": {
+        "finished": "boolean",
+        "currentText": "string"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "update-ignored-after-text",
+        "stage": "callable",
+        "input": {
+          "finished": false,
+          "currentText": "body"
+        },
+        "expected": false,
+        "operation": "updateAllowed"
       }
     },
     {

@@ -37,6 +37,9 @@ pub use cards_runtime::*;
 pub mod chat_runtime;
 pub use chat_runtime::*;
 
+pub mod connector_runtime;
+pub use connector_runtime::*;
+
 pub mod delivery_azd_runtime;
 pub use delivery_azd_runtime::*;
 
@@ -120,6 +123,9 @@ pub use runtime_dispatch_runtime::*;
 
 pub mod runtime_router_runtime;
 pub use runtime_router_runtime::*;
+
+pub mod streaming_runtime;
+pub use streaming_runtime::*;
 
 pub mod tool_catalog_runtime;
 pub use tool_catalog_runtime::*;
