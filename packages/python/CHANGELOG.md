@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/sethjuarez/castia/compare/python-v0.7.0...python-v0.7.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **python:** catch hosted deploy diagnostics earlier ([be71c57](https://github.com/sethjuarez/castia/commit/be71c57dcd2af432a6b725e6b0531dc10ea108b3))
+
 ## [0.7.0](https://github.com/sethjuarez/castia/compare/python-v0.6.0...python-v0.7.0) (2026-09-18)
 
 
