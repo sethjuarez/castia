@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "foundry-agent-starter-kit",
+  "version": "0.1.0",
+  "description": "Build, test, and deploy Microsoft Foundry agents from Python repos.",
+  "author": {
+    "name": "Castia contributors",
+    "url": "https://github.com/sethjuarez/castia"
+  },
+  "homepage": "https://sethjuarez.github.io/castia/starter-kit/",
+  "repository": "https://github.com/sethjuarez/castia",
+  "keywords": [
+    "foundry",
+    "agents",
+    "castia",
+    "copilot"
+  ]
+}

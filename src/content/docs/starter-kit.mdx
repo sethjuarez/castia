@@ -1,0 +1,66 @@
+---
+title: Foundry Agent Starter Kit
+description: Install the Copilot guidance and playground for Castia-backed Foundry agents.
+---
+
+import { Card, CardGrid, LinkButton } from "@astrojs/starlight/components";
+
+Build a Microsoft Foundry agent from a Python repo without starting from a
+blank chat. The starter kit installs the Copilot guidance. The playground gives
+you the local test surface.
+
+<LinkButton href="https://github.com/sethjuarez/castia/tree/main/plugins/foundry-agent-starter-kit" variant="primary">
+  View starter kit
+</LinkButton>
+
+<CardGrid>
+  <Card title="Guidance" icon="star">
+    Skills keep Copilot on the Castia path and keep live work behind approval.
+  </Card>
+  <Card title="Prompts" icon="right-arrow">
+    Build and test prompts give a fresh session a clear first move.
+  </Card>
+  <Card title="Playground" icon="puzzle">
+    A canvas reads `.env`, checks readiness, and chats with local or hosted agents.
+  </Card>
+</CardGrid>
+
+## Install the kit
+
+Use the plugin when you want the guidance available beyond one repo:
+
+```powershell
+agency plugin install github:sethjuarez/castia:plugins/foundry-agent-starter-kit --engine copilot
+```
+
+For a scenario repo, copy the prompts and skills into `.github` so every session
+in that repo gets the same instructions:
+
+```powershell
+New-Item -ItemType Directory -Force .github\prompts, .github\skills
+Copy-Item ..\castia\plugins\foundry-agent-starter-kit\prompts\*.prompt.md .github\prompts\
+Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -Recurse
+```
+
+## Install the playground
+
+Install **Foundry Agent Playground** from this repo folder or from a shared
+extension gist:
+
+```text
+https://github.com/sethjuarez/castia/tree/main/plugins/foundry-agent-starter-kit/extensions/foundry-agent-playground
+```
+
+Then open the canvas from Copilot App, choose the agent folder, refresh `.env`,
+and run the readiness check before sending a prompt.
+
+## Use it
+
+1. Open a scenario repo.
+2. Ask Copilot to build a Foundry agent for the repo.
+3. Fill `.env` from `.env.example`.
+4. Start the agent with `uv run --directory <agent-root> python main.py`.
+5. Open **Foundry Agent Playground**.
+6. Check readiness.
+7. Send one prompt.
+8. Deploy only when you approve live work.

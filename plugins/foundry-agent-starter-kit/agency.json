@@ -1,0 +1,19 @@
+{
+  "$schema": "https://github.com/agency-microsoft/playground/schemas/agency.schema.json",
+  "engines": [
+    "copilot"
+  ],
+  "category": "developer-tools",
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "authors": [
+    {
+      "name": "Castia contributors",
+      "url": "https://github.com/sethjuarez/castia",
+      "role": "owner"
+    }
+  ]
+}
