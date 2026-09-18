@@ -1,5 +1,6 @@
 pub mod evaluation;
 pub mod inference;
+pub mod lifecycle;
 pub mod messaging;
 pub mod model;
 pub mod optimizing;

@@ -2240,6 +2240,283 @@
       }
     },
     {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "canonicalJson",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "canonical-json-sorts-keys-and-compacts",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "b": [
+              2,
+              1
+            ],
+            "a": "é"
+          }
+        },
+        "expected": "{\"a\":\"é\",\"b\":[2,1]}",
+        "operation": "canonicalJson"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "checkPublic",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "check-public-accepts-placeholders",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "apiKey": "[redacted]",
+            "nested": {
+              "password": "<redacted>"
+            }
+          }
+        },
+        "expected": true,
+        "operation": "checkPublic"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "checkPublic",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "check-public-rejects-bearer-value",
+        "stage": "callable",
+        "input": {
+          "value": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz"
+        },
+        "expectedError": {
+          "message": "credential-shaped content is not evidence"
+        },
+        "operation": "checkPublic"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "checkPublic",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "check-public-rejects-camelcase-secret-key",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "authToken": "private"
+          }
+        },
+        "expectedError": {
+          "message": "secret-bearing configuration key is not evidence"
+        },
+        "operation": "checkPublic"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "checkPublic",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "check-public-rejects-nested-assignment-string",
+        "stage": "callable",
+        "input": {
+          "value": "{\"outer\": {\"password\": \"hunter2\"}}"
+        },
+        "expectedError": {
+          "message": "secret-bearing configuration assignment is not evidence"
+        },
+        "operation": "checkPublic"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "checkPublic",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "boolean",
+      "sync": true,
+      "vector": {
+        "name": "check-public-rejects-secret-key",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "clientSecret": "private"
+          }
+        },
+        "expectedError": {
+          "message": "secret-bearing configuration key is not evidence"
+        },
+        "operation": "checkPublic"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "contentHash",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "content-hash-canonical-object",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "b": [
+              2,
+              1
+            ],
+            "a": "é"
+          }
+        },
+        "expected": "265cdd44ca612f13fd2b8e14f6913a5513adf3142e6c82317e55ba51948f43f2",
+        "operation": "contentHash"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "contentHash",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "content-hash-example-input",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "input": "question-0"
+          }
+        },
+        "expected": "d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1",
+        "operation": "contentHash"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "safePath",
+      "params": {
+        "path": "string"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "safe-path-normalizes-backslashes",
+        "stage": "callable",
+        "input": {
+          "path": "src\\main.py"
+        },
+        "expected": "src/main.py",
+        "operation": "safePath"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "safePath",
+      "params": {
+        "path": "string"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "safe-path-rejects-empty",
+        "stage": "callable",
+        "input": {
+          "path": ""
+        },
+        "expectedError": {
+          "message": "relative path must be nonempty text"
+        },
+        "operation": "safePath"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "safePath",
+      "params": {
+        "path": "string"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "safe-path-rejects-traversal",
+        "stage": "callable",
+        "input": {
+          "path": "../escape"
+        },
+        "expectedError": {
+          "message": "path must be a normalized relative file path"
+        },
+        "operation": "safePath"
+      }
+    },
+    {
+      "contract": "LifecycleRecordsRuntime",
+      "namespace": "Castia.Spec.Lifecycle",
+      "group": "",
+      "operation": "safePath",
+      "params": {
+        "path": "string"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "safe-path-rejects-windows-device",
+        "stage": "callable",
+        "input": {
+          "path": "CON.txt"
+        },
+        "expectedError": {
+          "message": "path must be a normalized relative file path"
+        },
+        "operation": "safePath"
+      }
+    },
+    {
       "contract": "ModelRuntime",
       "namespace": "Castia.Spec.Inference",
       "group": "",

@@ -1,13 +1,15 @@
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
+use castia::lifecycle::{canonical_json, check_public, content_hash, safe_path};
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
     CastiaInvokesRuntime, CastiaRoutingRuntime,
 };
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime, LoadContext,
-    ModelRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
+    LifecycleRecordsRuntime, LoadContext, ModelRuntime, ResponsesRuntime, RoutingRuntime,
+    SaveContext, ToolCatalogRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -151,6 +153,22 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "IdentityRuntime.requireAgenticUser",
             sync(identity_require_agentic_user),
+        ),
+        (
+            "LifecycleRecordsRuntime.canonicalJson",
+            sync(lifecycle_canonical_json),
+        ),
+        (
+            "LifecycleRecordsRuntime.checkPublic",
+            sync(lifecycle_check_public),
+        ),
+        (
+            "LifecycleRecordsRuntime.contentHash",
+            sync(lifecycle_content_hash),
+        ),
+        (
+            "LifecycleRecordsRuntime.safePath",
+            sync(lifecycle_safe_path),
         ),
         (
             "ModelRuntime.instructionsParam",
@@ -460,6 +478,39 @@ fn identity_require_agentic_user(input: &Value, _: &Context) -> Result<Value, Ve
             message: error.to_string(),
             payload: Some(Value::String(error.to_string())),
         }),
+    }
+}
+
+fn lifecycle_canonical_json(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    canonical_json(input.get("value").unwrap_or(&Value::Null))
+        .map(Value::String)
+        .map_err(vector_error)
+}
+
+fn lifecycle_content_hash(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    content_hash(input.get("value").unwrap_or(&Value::Null))
+        .map(Value::String)
+        .map_err(vector_error)
+}
+
+fn lifecycle_safe_path(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let path = input
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    safe_path(path).map(Value::String).map_err(vector_error)
+}
+
+fn lifecycle_check_public(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    check_public(input.get("value").unwrap_or(&Value::Null))
+        .map(|()| Value::Bool(true))
+        .map_err(vector_error)
+}
+
+fn vector_error(error: impl std::fmt::Display) -> VectorError {
+    VectorError {
+        message: error.to_string(),
+        payload: None,
     }
 }
 

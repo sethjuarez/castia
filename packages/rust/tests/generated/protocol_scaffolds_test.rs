@@ -227,6 +227,29 @@ fn invokes_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn InvokesRuntime> = Box::new(CompileOnlyInvokesRuntime);
 }
 
+struct CompileOnlyLifecycleRecordsRuntime;
+
+#[async_trait::async_trait]
+impl LifecycleRecordsRuntime for CompileOnlyLifecycleRecordsRuntime {
+    fn canonical_json(&self, value: &serde_json::Value) -> String {
+        panic!("LifecycleRecordsRuntime.canonicalJson is a compile-only protocol scaffold.")
+    }
+    fn check_public(&self, value: &serde_json::Value) -> bool {
+        panic!("LifecycleRecordsRuntime.checkPublic is a compile-only protocol scaffold.")
+    }
+    fn content_hash(&self, value: &serde_json::Value) -> String {
+        panic!("LifecycleRecordsRuntime.contentHash is a compile-only protocol scaffold.")
+    }
+    fn safe_path(&self, path: &String) -> String {
+        panic!("LifecycleRecordsRuntime.safePath is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn lifecycle_records_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn LifecycleRecordsRuntime> = Box::new(CompileOnlyLifecycleRecordsRuntime);
+}
+
 struct CompileOnlyModelRuntime;
 
 #[async_trait::async_trait]

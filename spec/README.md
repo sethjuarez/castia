@@ -14,6 +14,7 @@ spec/
 ├─ messaging/     # portable Teams message builders, invokes, identity and routing seams
 ├─ inference/     # model-call helper and tool-catalog seams
 ├─ evaluation/    # eval-suite command builders and rubric parsing seams
+├─ lifecycle/     # immutable evidence primitive and lifecycle record seams
 ├─ optimizing/    # optimizer configuration contracts and seams
 └─ conformance/   # language-neutral fixtures / golden cases the SDKs test against
 ```
@@ -38,6 +39,7 @@ into capability namespaces that mirror the Python package map:
 | `Castia.Spec.Messaging` | `messaging/*.tsp` | `castia.messaging`, `castia.hosting.identity` |
 | `Castia.Spec.Inference` | `inference/*.tsp` | `castia.inference` |
 | `Castia.Spec.Evaluation` | `evaluation/*.tsp` | `castia.evaluation` |
+| `Castia.Spec.Lifecycle` | `lifecycle/*.tsp` | `castia.lifecycle` |
 | `Castia.Spec.Optimizing` | `optimizing/config.tsp` | `castia.optimizing` |
 
 Typra currently emits Rust models and compile-only interface scaffolds into the

@@ -47,6 +47,7 @@
         "IdentityRuntime",
         "InvocationsRuntime",
         "InvokesRuntime",
+        "LifecycleRecordsRuntime",
         "Mention",
         "ModelRuntime",
         "ResponsesRuntime",
@@ -150,6 +151,13 @@
           "kind": "type",
           "group": "",
           "source": "invokes_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleRecordsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_records_runtime",
           "protocol": true
         },
         {
@@ -660,6 +668,62 @@
           ]
         },
         {
+          "name": "LifecycleRecordsRuntime",
+          "group": "",
+          "symbol": "LifecycleRecordsRuntime",
+          "source": "lifecycle_records_runtime",
+          "methods": [
+            {
+              "name": "canonicalJson",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "checkPublic",
+              "returns": "boolean",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "contentHash",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "safePath",
+              "returns": "string",
+              "params": {
+                "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ModelRuntime",
           "group": "",
           "symbol": "ModelRuntime",
@@ -847,6 +911,7 @@
         "identity_runtime",
         "invocations_runtime",
         "invokes_runtime",
+        "lifecycle_records_runtime",
         "mention",
         "model_runtime",
         "responses_runtime",

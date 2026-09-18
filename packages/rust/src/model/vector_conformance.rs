@@ -898,6 +898,152 @@ pub fn run_invocations_runtime_conformance<S: crate::model::InvocationsRuntime +
     }
 }
 
+/// Typed @vector conformance for LifecycleRecordsRuntime. Pass your real `impl LifecycleRecordsRuntime`; the
+/// `S: LifecycleRecordsRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_lifecycle_records_runtime_conformance(&LifecycleRecordsRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_lifecycle_records_runtime_conformance<
+    S: crate::model::LifecycleRecordsRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: canonical-json-sorts-keys-and-compacts
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "b": [
+    2,
+    1
+  ],
+  "a": "é"
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.canonical_json(&value);
+        let actual_value = serde_json::to_value(actual)
+            .expect("canonical-json-sorts-keys-and-compacts: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"{\"a\":\"é\",\"b\":[2,1]}"
+"####,
+        )
+        .expect("canonical-json-sorts-keys-and-compacts: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "canonical-json-sorts-keys-and-compacts misrouted"
+        );
+    }
+    // vector: check-public-accepts-placeholders
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "apiKey": "[redacted]",
+  "nested": {
+    "password": "<redacted>"
+  }
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.check_public(&value);
+        let actual_value =
+            serde_json::to_value(actual).expect("check-public-accepts-placeholders: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("check-public-accepts-placeholders: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "check-public-accepts-placeholders misrouted"
+        );
+    }
+    // skipped: check-public-rejects-bearer-value — expectedError on a @sync op has no typed error channel
+    // skipped: check-public-rejects-camelcase-secret-key — expectedError on a @sync op has no typed error channel
+    // skipped: check-public-rejects-nested-assignment-string — expectedError on a @sync op has no typed error channel
+    // skipped: check-public-rejects-secret-key — expectedError on a @sync op has no typed error channel
+    // vector: content-hash-canonical-object
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "b": [
+    2,
+    1
+  ],
+  "a": "é"
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.content_hash(&value);
+        let actual_value =
+            serde_json::to_value(actual).expect("content-hash-canonical-object: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"265cdd44ca612f13fd2b8e14f6913a5513adf3142e6c82317e55ba51948f43f2"
+"####,
+        )
+        .expect("content-hash-canonical-object: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "content-hash-canonical-object misrouted"
+        );
+    }
+    // vector: content-hash-example-input
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "input": "question-0"
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.content_hash(&value);
+        let actual_value =
+            serde_json::to_value(actual).expect("content-hash-example-input: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"
+"####,
+        )
+        .expect("content-hash-example-input: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "content-hash-example-input misrouted"
+        );
+    }
+    // vector: safe-path-normalizes-backslashes
+    {
+        let path: String = serde_json::from_str(
+            r####"
+"src\\main.py"
+"####,
+        )
+        .expect("path parses");
+        let actual = seam.safe_path(&path);
+        let actual_value =
+            serde_json::to_value(actual).expect("safe-path-normalizes-backslashes: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"src/main.py"
+"####,
+        )
+        .expect("safe-path-normalizes-backslashes: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "safe-path-normalizes-backslashes misrouted"
+        );
+    }
+    // skipped: safe-path-rejects-empty — expectedError on a @sync op has no typed error channel
+    // skipped: safe-path-rejects-traversal — expectedError on a @sync op has no typed error channel
+    // skipped: safe-path-rejects-windows-device — expectedError on a @sync op has no typed error channel
+}
+
 /// Typed @vector conformance for ResponsesRuntime. Pass your real `impl ResponsesRuntime`; the
 /// `S: ResponsesRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_responses_runtime_conformance(&ResponsesRuntimeImpl).await;` (or without `.await` when sync).
