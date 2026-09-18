@@ -382,6 +382,43 @@ fn model_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ModelRuntime> = Box::new(CompileOnlyModelRuntime);
 }
 
+struct CompileOnlyObserveLiveRuntime;
+
+#[async_trait::async_trait]
+impl ObserveLiveRuntime for CompileOnlyObserveLiveRuntime {
+    fn candidate_config(&self, payload: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveLiveRuntime.candidateConfig is a compile-only protocol scaffold.")
+    }
+    fn optimizer_status(
+        &self,
+        payload: &serde_json::Value,
+        expected_id: &Option<String>,
+    ) -> serde_json::Value {
+        panic!("ObserveLiveRuntime.optimizerStatus is a compile-only protocol scaffold.")
+    }
+    fn response_text_result(
+        &self,
+        response: &serde_json::Value,
+        expected: &Option<String>,
+    ) -> serde_json::Value {
+        panic!("ObserveLiveRuntime.responseTextResult is a compile-only protocol scaffold.")
+    }
+    fn stream_result(&self, events: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveLiveRuntime.streamResult is a compile-only protocol scaffold.")
+    }
+    fn validate_limits(&self, limits: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveLiveRuntime.validateLimits is a compile-only protocol scaffold.")
+    }
+    fn validate_live_config(&self, config: &serde_json::Value) -> serde_json::Value {
+        panic!("ObserveLiveRuntime.validateLiveConfig is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn observe_live_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ObserveLiveRuntime> = Box::new(CompileOnlyObserveLiveRuntime);
+}
+
 struct CompileOnlyObserveRecordsRuntime;
 
 #[async_trait::async_trait]

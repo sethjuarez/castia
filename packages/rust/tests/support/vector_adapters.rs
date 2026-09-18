@@ -13,13 +13,13 @@ use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, CardsRuntime, ChatRuntime, EntitiesRuntime,
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
-    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext,
-    ToolCatalogRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
+    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
+    RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
-    CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime, CastiaObserveTelemetryRuntime,
-    CastiaObserveTracingRuntime,
+    CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
+    CastiaObserveTelemetryRuntime, CastiaObserveTracingRuntime,
 };
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
@@ -276,6 +276,30 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "ObserveTelemetryRuntime.verifyProbe",
             sync_with_normalize(observe_verify_probe, observe_telemetry_to_camel),
+        ),
+        (
+            "ObserveLiveRuntime.validateLimits",
+            sync_with_normalize(observe_validate_limits, observe_live_to_camel),
+        ),
+        (
+            "ObserveLiveRuntime.validateLiveConfig",
+            sync_with_normalize(observe_validate_live_config, observe_live_to_camel),
+        ),
+        (
+            "ObserveLiveRuntime.responseTextResult",
+            sync_with_normalize(observe_response_text_result, observe_live_to_camel),
+        ),
+        (
+            "ObserveLiveRuntime.streamResult",
+            sync_with_normalize(observe_stream_result, observe_live_to_camel),
+        ),
+        (
+            "ObserveLiveRuntime.optimizerStatus",
+            sync(observe_optimizer_status),
+        ),
+        (
+            "ObserveLiveRuntime.candidateConfig",
+            sync(observe_candidate_config),
         ),
         ("ModelRuntime.publicToolSpec", sync(model_public_tool_spec)),
         ("ModelRuntime.reasoningParam", sync(model_reasoning_param)),
@@ -1066,6 +1090,44 @@ fn observe_verify_probe(input: &Value, _: &Context) -> Result<Value, VectorError
     ))
 }
 
+fn observe_validate_limits(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let limits = observe_live_to_snake(input.get("limits").unwrap_or(&Value::Null));
+    castia::observe::validate_limits(&limits).map_err(vector_error)
+}
+
+fn observe_validate_live_config(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let config = observe_live_to_snake(input.get("config").unwrap_or(&Value::Null));
+    castia::observe::validate_live_config(&config).map_err(vector_error)
+}
+
+fn observe_response_text_result(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let response = observe_live_to_snake(input.get("response").unwrap_or(&Value::Null));
+    Ok(CastiaObserveLiveRuntime.response_text_result(
+        &response,
+        &input
+            .get("expected")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    ))
+}
+
+fn observe_stream_result(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let events = observe_live_to_snake(input.get("events").unwrap_or(&Value::Null));
+    Ok(CastiaObserveLiveRuntime.stream_result(&events))
+}
+
+fn observe_optimizer_status(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let payload = observe_live_to_snake(input.get("payload").unwrap_or(&Value::Null));
+    castia::observe::optimizer_status(&payload, input.get("expectedId").and_then(Value::as_str))
+        .map(Value::String)
+        .map_err(vector_error)
+}
+
+fn observe_candidate_config(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let payload = observe_live_to_snake(input.get("payload").unwrap_or(&Value::Null));
+    castia::observe::candidate_config(&payload).map_err(vector_error)
+}
+
 fn model_instructions_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaModelRuntime.instructions_param(
         &input
@@ -1279,6 +1341,98 @@ fn observe_telemetry_to_camel(value: &Value, _: &Context) -> Value {
 
 fn observe_telemetry_to_snake(value: &Value) -> Value {
     observe_telemetry_keys(value, true)
+}
+
+fn observe_live_to_camel(value: &Value, _: &Context) -> Value {
+    observe_vector_numbers(&observe_live_keys(value, false))
+}
+
+fn observe_live_to_snake(value: &Value) -> Value {
+    observe_live_keys(value, true)
+}
+
+fn observe_live_keys(value: &Value, to_snake: bool) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match (to_snake, key.as_str()) {
+                        (true, "maxRequests") => "max_requests",
+                        (true, "maxSeconds") => "max_seconds",
+                        (true, "maxOutputTokens") => "max_output_tokens",
+                        (true, "maxTotalOutputTokens") => "max_total_output_tokens",
+                        (true, "maxResponseBytes") => "max_response_bytes",
+                        (true, "projectEndpoint") => "project_endpoint",
+                        (true, "projectReadUrl") => "project_read_url",
+                        (true, "modelUrl") => "model_url",
+                        (true, "hostedResponsesUrl") => "hosted_responses_url",
+                        (true, "hostedInvocationsUrl") => "hosted_invocations_url",
+                        (true, "toolboxUrl") => "toolbox_url",
+                        (true, "toolboxTools") => "toolbox_tools",
+                        (true, "projectReadScope") => "project_read_scope",
+                        (true, "hostedScope") => "hosted_scope",
+                        (true, "allowOptimizerSubmit") => "allow_optimizer_submit",
+                        (true, "optimizerRequest") => "optimizer_request",
+                        (true, "optimizerTimeoutSeconds") => "optimizer_timeout_seconds",
+                        (true, "optimizerPollSeconds") => "optimizer_poll_seconds",
+                        (true, "cleanupTimeoutSeconds") => "cleanup_timeout_seconds",
+                        (true, "maxCandidates") => "max_candidates",
+                        (true, "hostedResponsesBody") => "hosted_responses_body",
+                        (true, "hostedResponsesExpectedText") => "hosted_responses_expected_text",
+                        (true, "outputText") => "output_text",
+                        (true, "inputTokens") => "input_tokens",
+                        (true, "outputTokens") => "output_tokens",
+                        (true, "totalTokens") => "total_tokens",
+                        (true, "outputCharacters") => "output_characters",
+                        (true, "deltaCount") => "delta_count",
+                        (true, "completedCount") => "completed_count",
+                        (true, "operationId") => "operationId",
+                        (true, "systemPrompt") => "system_prompt",
+                        (false, "max_requests") => "maxRequests",
+                        (false, "max_seconds") => "maxSeconds",
+                        (false, "max_output_tokens") => "maxOutputTokens",
+                        (false, "max_total_output_tokens") => "maxTotalOutputTokens",
+                        (false, "max_response_bytes") => "maxResponseBytes",
+                        (false, "project_endpoint") => "projectEndpoint",
+                        (false, "project_read_url") => "projectReadUrl",
+                        (false, "model_url") => "modelUrl",
+                        (false, "hosted_responses_url") => "hostedResponsesUrl",
+                        (false, "hosted_invocations_url") => "hostedInvocationsUrl",
+                        (false, "toolbox_url") => "toolboxUrl",
+                        (false, "toolbox_tools") => "toolboxTools",
+                        (false, "project_read_scope") => "projectReadScope",
+                        (false, "hosted_scope") => "hostedScope",
+                        (false, "allow_optimizer_submit") => "allowOptimizerSubmit",
+                        (false, "optimizer_request") => "optimizerRequest",
+                        (false, "optimizer_timeout_seconds") => "optimizerTimeoutSeconds",
+                        (false, "optimizer_poll_seconds") => "optimizerPollSeconds",
+                        (false, "cleanup_timeout_seconds") => "cleanupTimeoutSeconds",
+                        (false, "max_candidates") => "maxCandidates",
+                        (false, "hosted_responses_body") => "hostedResponsesBody",
+                        (false, "hosted_responses_expected_text") => "hostedResponsesExpectedText",
+                        (false, "output_text") => "outputText",
+                        (false, "input_tokens") => "inputTokens",
+                        (false, "output_tokens") => "outputTokens",
+                        (false, "total_tokens") => "totalTokens",
+                        (false, "output_characters") => "outputCharacters",
+                        (false, "delta_count") => "deltaCount",
+                        (false, "completed_count") => "completedCount",
+                        (false, "system_prompt") => "systemPrompt",
+                        _ => key.as_str(),
+                    };
+                    (translated.to_string(), observe_live_keys(value, to_snake))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|value| observe_live_keys(value, to_snake))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 fn observe_telemetry_keys(value: &Value, to_snake: bool) -> Value {

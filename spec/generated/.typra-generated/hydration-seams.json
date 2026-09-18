@@ -117,6 +117,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "ObserveLiveRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ObserveLiveRuntime",
+      "generatedSource": "observe_live_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "ObserveRecordsRuntime",
       "target": "rust",
       "group": "",

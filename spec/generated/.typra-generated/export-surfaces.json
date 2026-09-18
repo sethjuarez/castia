@@ -53,6 +53,7 @@
         "LifecycleStorageRuntime",
         "Mention",
         "ModelRuntime",
+        "ObserveLiveRuntime",
         "ObserveRecordsRuntime",
         "ObserveSuiteRuntime",
         "ObserveTelemetryRuntime",
@@ -200,6 +201,13 @@
           "kind": "type",
           "group": "",
           "source": "model_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveLiveRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_live_runtime",
           "protocol": true
         },
         {
@@ -1022,6 +1030,88 @@
           ]
         },
         {
+          "name": "ObserveLiveRuntime",
+          "group": "",
+          "symbol": "ObserveLiveRuntime",
+          "source": "observe_live_runtime",
+          "methods": [
+            {
+              "name": "candidateConfig",
+              "returns": "unknown",
+              "params": {
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "optimizerStatus",
+              "returns": "unknown",
+              "params": {
+                "expectedId": "string?",
+                "payload": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "responseTextResult",
+              "returns": "unknown",
+              "params": {
+                "expected": "string?",
+                "response": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "streamResult",
+              "returns": "unknown",
+              "params": {
+                "events": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateLimits",
+              "returns": "unknown",
+              "params": {
+                "limits": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "validateLiveConfig",
+              "returns": "unknown",
+              "params": {
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ObserveRecordsRuntime",
           "group": "",
           "symbol": "ObserveRecordsRuntime",
@@ -1346,6 +1436,7 @@
         "lifecycle_storage_runtime",
         "mention",
         "model_runtime",
+        "observe_live_runtime",
         "observe_records_runtime",
         "observe_suite_runtime",
         "observe_telemetry_runtime",

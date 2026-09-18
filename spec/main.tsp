@@ -20,6 +20,7 @@ import "./observe/records.tsp";
 import "./observe/suite.tsp";
 import "./observe/telemetry.tsp";
 import "./observe/tracing.tsp";
+import "./observe/live.tsp";
 
 namespace Castia.Spec;
 
