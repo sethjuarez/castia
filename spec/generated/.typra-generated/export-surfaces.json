@@ -49,6 +49,7 @@
         "EntitiesRuntime",
         "EvaluationSuiteRuntime",
         "IdentityRuntime",
+        "IntegrationsToolboxRuntime",
         "InvocationsRuntime",
         "InvokesRuntime",
         "LifecycleAcceptanceRuntime",
@@ -177,6 +178,13 @@
           "kind": "type",
           "group": "",
           "source": "identity_runtime",
+          "protocol": true
+        },
+        {
+          "name": "IntegrationsToolboxRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "integrations_toolbox_runtime",
           "protocol": true
         },
         {
@@ -844,6 +852,76 @@
               "returns": "string",
               "params": {
                 "activity": "Activity"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "IntegrationsToolboxRuntime",
+          "group": "",
+          "symbol": "IntegrationsToolboxRuntime",
+          "source": "integrations_toolbox_runtime",
+          "methods": [
+            {
+              "name": "composeToolboxEndpoint",
+              "returns": "string",
+              "params": {
+                "name": "string",
+                "projectEndpoint": "string",
+                "version": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "knowledgeBaseMcpTool",
+              "returns": "unknown",
+              "params": {
+                "config": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "platformEndpointEnv",
+              "returns": "string",
+              "params": {
+                "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "resolveToolboxEndpoint",
+              "returns": "string?",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "toolboxMcpTool",
+              "returns": "unknown",
+              "params": {
+                "config": "unknown"
               },
               "optional": false,
               "sync": true,
@@ -1642,6 +1720,7 @@
         "entities_runtime",
         "evaluation_suite_runtime",
         "identity_runtime",
+        "integrations_toolbox_runtime",
         "invocations_runtime",
         "invokes_runtime",
         "lifecycle_acceptance_runtime",

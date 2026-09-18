@@ -2,6 +2,10 @@ use castia::building::{CastiaBuildPreflightRuntime, CastiaBuildTestingRuntime};
 use castia::delivery::CastiaDeliveryAzdRuntime;
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
+use castia::integrations::{
+    knowledge_base_mcp_tool as build_knowledge_base_mcp_tool,
+    toolbox_mcp_tool as build_toolbox_mcp_tool, CastiaIntegrationsToolboxRuntime,
+};
 use castia::lifecycle::{
     canonical_json, check_public, compare_runs, content_hash, curate_dataset, dataset_jsonl,
     default_gate, diff_candidates, evaluate_outcomes, example_id, get_artifact, journal_read,
@@ -14,11 +18,11 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, DeliveryAzdRuntime, EntitiesRuntime, EvaluationSuiteRuntime,
-    IdentityRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
-    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
-    ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext,
-    ToolCatalogRuntime,
+    IdentityRuntime, IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime,
+    LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
+    LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime,
+    ObserveSuiteRuntime, ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime,
+    RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -77,6 +81,15 @@ pub struct Adapter {
 pub struct VectorError {
     pub message: String,
     pub payload: Option<Value>,
+}
+
+impl VectorError {
+    fn new(message: String) -> Self {
+        Self {
+            message,
+            payload: None,
+        }
+    }
 }
 
 pub fn adapters() -> HashMap<&'static str, Adapter> {
@@ -206,6 +219,29 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "IdentityRuntime.requireAgenticUser",
             sync(identity_require_agentic_user),
+        ),
+        (
+            "IntegrationsToolboxRuntime.platformEndpointEnv",
+            sync(integrations_platform_endpoint_env),
+        ),
+        (
+            "IntegrationsToolboxRuntime.composeToolboxEndpoint",
+            sync(integrations_compose_toolbox_endpoint),
+        ),
+        (
+            "IntegrationsToolboxRuntime.resolveToolboxEndpoint",
+            sync(integrations_resolve_toolbox_endpoint),
+        ),
+        (
+            "IntegrationsToolboxRuntime.toolboxMcpTool",
+            sync_with_normalize(integrations_toolbox_mcp_tool, integrations_toolbox_to_camel),
+        ),
+        (
+            "IntegrationsToolboxRuntime.knowledgeBaseMcpTool",
+            sync_with_normalize(
+                integrations_knowledge_base_mcp_tool,
+                integrations_toolbox_to_camel,
+            ),
         ),
         (
             "LifecycleRecordsRuntime.canonicalJson",
@@ -674,6 +710,55 @@ fn identity_require_agentic_user(input: &Value, _: &Context) -> Result<Value, Ve
     }
 }
 
+fn integrations_platform_endpoint_env(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let name = required(input, "name")?
+        .as_str()
+        .ok_or_else(|| VectorError::new("platformEndpointEnv.name must be a string".to_string()))?;
+    Ok(Value::String(
+        CastiaIntegrationsToolboxRuntime.platform_endpoint_env(&name.to_string()),
+    ))
+}
+
+fn integrations_compose_toolbox_endpoint(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let project_endpoint = required(input, "projectEndpoint")?
+        .as_str()
+        .ok_or_else(|| {
+            VectorError::new("composeToolboxEndpoint.projectEndpoint must be a string".to_string())
+        })?;
+    let name = required(input, "name")?.as_str().ok_or_else(|| {
+        VectorError::new("composeToolboxEndpoint.name must be a string".to_string())
+    })?;
+    let version = input
+        .get("version")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Ok(Value::String(
+        CastiaIntegrationsToolboxRuntime.compose_toolbox_endpoint(
+            &project_endpoint.to_string(),
+            &name.to_string(),
+            &version,
+        ),
+    ))
+}
+
+fn integrations_resolve_toolbox_endpoint(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let env = required(input, "env")?;
+    Ok(CastiaIntegrationsToolboxRuntime
+        .resolve_toolbox_endpoint(env)
+        .map(Value::String)
+        .unwrap_or(Value::Null))
+}
+
+fn integrations_toolbox_mcp_tool(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let config = required(input, "config")?;
+    build_toolbox_mcp_tool(config).map_err(vector_error)
+}
+
+fn integrations_knowledge_base_mcp_tool(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let config = required(input, "config")?;
+    build_knowledge_base_mcp_tool(config).map_err(vector_error)
+}
+
 fn lifecycle_canonical_json(input: &Value, _: &Context) -> Result<Value, VectorError> {
     canonical_json(input.get("value").unwrap_or(&Value::Null))
         .map(Value::String)
@@ -916,6 +1001,16 @@ fn vector_error(error: impl std::fmt::Display) -> VectorError {
     VectorError {
         message: error.to_string(),
         payload: None,
+    }
+}
+
+fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = panic.downcast_ref::<String>() {
+        message.clone()
+    } else if let Some(message) = panic.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else {
+        "adapter panicked".to_string()
     }
 }
 
@@ -1553,6 +1648,64 @@ fn normalize_agent_config_source(value: &Value, _: &Context) -> Value {
 
 fn normalize_special_json_keys(value: &Value, _: &Context) -> Value {
     strip_special_json_keys(value)
+}
+
+fn integrations_toolbox_to_camel(value: &Value, _: &Context) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match key.as_str() {
+                        "server_label" => "serverLabel",
+                        "server_url" => "serverUrl",
+                        "require_approval" => "requireApproval",
+                        "allowed_tools" => "allowedTools",
+                        "project_connection_id" => "projectConnectionId",
+                        "server_description" => "serverDescription",
+                        "x-castia-optimizer-tool-definitions" => "optimizerToolDefinitions",
+                        "x-castia-server-description" => "optimizerServerDescription",
+                        _ => key,
+                    };
+                    (
+                        translated.to_string(),
+                        integrations_toolbox_to_camel(
+                            value,
+                            &Context {
+                                contract: String::new(),
+                                operation: String::new(),
+                                vector: Value::Null,
+                                provider: None,
+                                target_api: None,
+                                doubles: Value::Null,
+                                base_dir: String::new(),
+                            },
+                        ),
+                    )
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|value| {
+                    integrations_toolbox_to_camel(
+                        value,
+                        &Context {
+                            contract: String::new(),
+                            operation: String::new(),
+                            vector: Value::Null,
+                            provider: None,
+                            target_api: None,
+                            doubles: Value::Null,
+                            base_dir: String::new(),
+                        },
+                    )
+                })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 fn build_scaffold_to_camel(value: &Value, _: &Context) -> Value {
@@ -2284,6 +2437,13 @@ fn vector_path(input: &Value, key: &str, temp: &Path) -> Result<String, VectorEr
         return Ok(temp.join(rest).to_string_lossy().to_string());
     }
     Ok(path.to_string())
+}
+
+fn required<'a>(input: &'a Value, key: &str) -> Result<&'a Value, VectorError> {
+    input.get(key).ok_or_else(|| VectorError {
+        message: format!("missing {key} input"),
+        payload: None,
+    })
 }
 
 fn vector_temp_label(ctx: &Context) -> String {

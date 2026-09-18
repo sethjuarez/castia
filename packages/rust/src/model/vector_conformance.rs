@@ -855,6 +855,254 @@ null
     }
 }
 
+/// Typed @vector conformance for IntegrationsToolboxRuntime. Pass your real `impl IntegrationsToolboxRuntime`; the
+/// `S: IntegrationsToolboxRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_integrations_toolbox_runtime_conformance(&IntegrationsToolboxRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_integrations_toolbox_runtime_conformance<
+    S: crate::model::IntegrationsToolboxRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: compose-toolbox-endpoint-unversioned
+    {
+        let project_endpoint: String = serde_json::from_str(
+            r####"
+"https://acct.services.ai.azure.com/api/projects/proj/"
+"####,
+        )
+        .expect("projectEndpoint parses");
+        let name: String = serde_json::from_str(
+            r####"
+"hal-smoke"
+"####,
+        )
+        .expect("name parses");
+        let version: Option<String> = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("version parses");
+        let actual = seam.compose_toolbox_endpoint(&project_endpoint, &name, &version);
+        let actual_value =
+            serde_json::to_value(actual).expect("compose-toolbox-endpoint-unversioned: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://acct.services.ai.azure.com/api/projects/proj/toolboxes/hal-smoke/mcp?api-version=v1"
+"####,
+        )
+        .expect("compose-toolbox-endpoint-unversioned: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "compose-toolbox-endpoint-unversioned misrouted"
+        );
+    }
+    // vector: compose-toolbox-endpoint-versioned
+    {
+        let project_endpoint: String = serde_json::from_str(
+            r####"
+"https://acct.services.ai.azure.com/api/projects/proj"
+"####,
+        )
+        .expect("projectEndpoint parses");
+        let name: String = serde_json::from_str(
+            r####"
+"hal-smoke"
+"####,
+        )
+        .expect("name parses");
+        let version: Option<String> = serde_json::from_str(
+            r####"
+"3"
+"####,
+        )
+        .expect("version parses");
+        let actual = seam.compose_toolbox_endpoint(&project_endpoint, &name, &version);
+        let actual_value =
+            serde_json::to_value(actual).expect("compose-toolbox-endpoint-versioned: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://acct.services.ai.azure.com/api/projects/proj/toolboxes/hal-smoke/versions/3/mcp?api-version=v1"
+"####,
+        )
+        .expect("compose-toolbox-endpoint-versioned: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "compose-toolbox-endpoint-versioned misrouted"
+        );
+    }
+    // vector: platform-endpoint-env-normalizes-name
+    {
+        let name: String = serde_json::from_str(
+            r####"
+"My.Box 2"
+"####,
+        )
+        .expect("name parses");
+        let actual = seam.platform_endpoint_env(&name);
+        let actual_value =
+            serde_json::to_value(actual).expect("platform-endpoint-env-normalizes-name: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"TOOLBOX_MY_BOX_2_MCP_ENDPOINT"
+"####,
+        )
+        .expect("platform-endpoint-env-normalizes-name: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "platform-endpoint-env-normalizes-name misrouted"
+        );
+    }
+    // vector: resolve-toolbox-composes-from-project-and-name
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "FOUNDRY_PROJECT_ENDPOINT": "https://acct.services.ai.azure.com/api/projects/proj",
+  "TOOLBOX_NAME": "hal-smoke"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.resolve_toolbox_endpoint(&env);
+        let actual_value = serde_json::to_value(actual)
+            .expect("resolve-toolbox-composes-from-project-and-name: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://acct.services.ai.azure.com/api/projects/proj/toolboxes/hal-smoke/mcp?api-version=v1"
+"####,
+        )
+        .expect("resolve-toolbox-composes-from-project-and-name: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "resolve-toolbox-composes-from-project-and-name misrouted"
+        );
+    }
+    // vector: resolve-toolbox-full-url-wins
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "TOOLBOX_ENDPOINT": "https://explicit/mcp",
+  "FOUNDRY_PROJECT_ENDPOINT": "https://acct.services.ai.azure.com/api/projects/proj",
+  "TOOLBOX_NAME": "ignored"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.resolve_toolbox_endpoint(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("resolve-toolbox-full-url-wins: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://explicit/mcp"
+"####,
+        )
+        .expect("resolve-toolbox-full-url-wins: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "resolve-toolbox-full-url-wins misrouted"
+        );
+    }
+    // vector: resolve-toolbox-mcp-endpoint-alias
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "TOOLBOX_MCP_ENDPOINT": "https://alias/mcp"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.resolve_toolbox_endpoint(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("resolve-toolbox-mcp-endpoint-alias: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://alias/mcp"
+"####,
+        )
+        .expect("resolve-toolbox-mcp-endpoint-alias: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "resolve-toolbox-mcp-endpoint-alias misrouted"
+        );
+    }
+    // vector: resolve-toolbox-none-when-name-empty
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "FOUNDRY_PROJECT_ENDPOINT": "https://acct.services.ai.azure.com/api/projects/proj",
+  "TOOLBOX_NAME": ""
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.resolve_toolbox_endpoint(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("resolve-toolbox-none-when-name-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+null
+"####,
+        )
+        .expect("resolve-toolbox-none-when-name-empty: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "resolve-toolbox-none-when-name-empty misrouted"
+        );
+    }
+    // vector: resolve-toolbox-none-when-unset
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.resolve_toolbox_endpoint(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("resolve-toolbox-none-when-unset: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+null
+"####,
+        )
+        .expect("resolve-toolbox-none-when-unset: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "resolve-toolbox-none-when-unset misrouted"
+        );
+    }
+    // vector: resolve-toolbox-platform-native-before-compose
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "TOOLBOX_NAME": "hal-smoke",
+  "TOOLBOX_HAL_SMOKE_MCP_ENDPOINT": "https://platform/mcp",
+  "FOUNDRY_PROJECT_ENDPOINT": "https://acct.services.ai.azure.com/api/projects/proj"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.resolve_toolbox_endpoint(&env);
+        let actual_value = serde_json::to_value(actual)
+            .expect("resolve-toolbox-platform-native-before-compose: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://platform/mcp"
+"####,
+        )
+        .expect("resolve-toolbox-platform-native-before-compose: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "resolve-toolbox-platform-native-before-compose misrouted"
+        );
+    }
+}
+
 /// Typed @vector conformance for InvocationsRuntime. Pass your real `impl InvocationsRuntime`; the
 /// `S: InvocationsRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_invocations_runtime_conformance(&InvocationsRuntimeImpl).await;` (or without `.await` when sync).

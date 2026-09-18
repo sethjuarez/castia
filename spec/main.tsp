@@ -11,6 +11,7 @@ import "./messaging/invokes.tsp";
 import "./messaging/routing.tsp";
 import "./inference/model.tsp";
 import "./inference/tools.tsp";
+import "./integrations/toolbox.tsp";
 import "./building/preflight.tsp";
 import "./building/scaffold.tsp";
 import "./building/testing.tsp";

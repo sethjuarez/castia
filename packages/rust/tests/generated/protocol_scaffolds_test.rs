@@ -310,6 +310,42 @@ fn identity_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn IdentityRuntime> = Box::new(CompileOnlyIdentityRuntime);
 }
 
+struct CompileOnlyIntegrationsToolboxRuntime;
+
+#[async_trait::async_trait]
+impl IntegrationsToolboxRuntime for CompileOnlyIntegrationsToolboxRuntime {
+    fn compose_toolbox_endpoint(
+        &self,
+        project_endpoint: &String,
+        name: &String,
+        version: &Option<String>,
+    ) -> String {
+        panic!("IntegrationsToolboxRuntime.composeToolboxEndpoint is a compile-only protocol scaffold.")
+    }
+    fn knowledge_base_mcp_tool(&self, config: &serde_json::Value) -> serde_json::Value {
+        panic!(
+            "IntegrationsToolboxRuntime.knowledgeBaseMcpTool is a compile-only protocol scaffold."
+        )
+    }
+    fn platform_endpoint_env(&self, name: &String) -> String {
+        panic!(
+            "IntegrationsToolboxRuntime.platformEndpointEnv is a compile-only protocol scaffold."
+        )
+    }
+    fn resolve_toolbox_endpoint(&self, env: &serde_json::Value) -> Option<String> {
+        panic!("IntegrationsToolboxRuntime.resolveToolboxEndpoint is a compile-only protocol scaffold.")
+    }
+    fn toolbox_mcp_tool(&self, config: &serde_json::Value) -> serde_json::Value {
+        panic!("IntegrationsToolboxRuntime.toolboxMcpTool is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn integrations_toolbox_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn IntegrationsToolboxRuntime> =
+        Box::new(CompileOnlyIntegrationsToolboxRuntime);
+}
+
 struct CompileOnlyInvocationsRuntime;
 
 #[async_trait::async_trait]
