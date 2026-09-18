@@ -756,6 +756,25 @@
               "runtimeCancellable": false,
               "atomic": false,
               "nonFatal": false
+            },
+            {
+              "name": "evaluateOutcomes",
+              "returns": "unknown",
+              "params": {
+                "agent": "unknown",
+                "concurrency": "int32",
+                "dataset": "unknown",
+                "evaluator": "unknown",
+                "outcomes": "unknown",
+                "repeats": "int32",
+                "split": "string",
+                "timeoutSeconds": "float64"
+              },
+              "optional": false,
+              "sync": false,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
             }
           ]
         },

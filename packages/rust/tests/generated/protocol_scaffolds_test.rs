@@ -266,6 +266,22 @@ impl LifecycleOperationsRuntime for CompileOnlyLifecycleOperationsRuntime {
     fn dataset_jsonl(&self, dataset: &serde_json::Value, split: &String) -> String {
         panic!("LifecycleOperationsRuntime.datasetJsonl is a compile-only protocol scaffold.")
     }
+    async fn evaluate_outcomes(
+        &self,
+        agent: &serde_json::Value,
+        dataset: &serde_json::Value,
+        evaluator: &serde_json::Value,
+        outcomes: &serde_json::Value,
+        split: &String,
+        repeats: &i32,
+        concurrency: &i32,
+        timeout_seconds: &f64,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        Err(
+            "LifecycleOperationsRuntime.evaluateOutcomes is a compile-only protocol scaffold."
+                .into(),
+        )
+    }
 }
 
 #[test]

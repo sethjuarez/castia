@@ -1,9 +1,15 @@
 use crate::model::LifecycleOperationsRuntime;
+use futures::{stream::FuturesUnordered, StreamExt};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
+use std::time::{Duration, Instant};
+use tokio::time::timeout;
 
 use super::records::{
-    canonical_json, content_hash, example_id, normalize_record, REFERENCE_ORIGINS, SCHEMA_VERSION,
+    canonical_json, content_hash, example_id, normalize_record, record_id, REFERENCE_ORIGINS,
+    SCHEMA_VERSION,
 };
 
 const REVIEW_APPROVAL: &str =
@@ -31,10 +37,41 @@ impl LifecycleOperationsRuntime for CastiaLifecycleOperationsRuntime {
     fn dataset_jsonl(&self, dataset: &Value, split: &String) -> String {
         dataset_jsonl(dataset, split).unwrap_or_else(|error| panic!("{}", error.0))
     }
+
+    async fn evaluate_outcomes(
+        &self,
+        agent: &Value,
+        dataset: &Value,
+        evaluator: &Value,
+        outcomes: &Value,
+        split: &String,
+        repeats: &i32,
+        concurrency: &i32,
+        timeout_seconds: &f64,
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(evaluate_outcomes(
+            agent,
+            dataset,
+            evaluator,
+            outcomes,
+            split,
+            i64::from(*repeats),
+            i64::from(*concurrency),
+            *timeout_seconds,
+        )
+        .await
+        .map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)?)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct LifecycleOperationsError(String);
+
+impl LifecycleOperationsError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
 
 impl std::fmt::Display for LifecycleOperationsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -268,6 +305,299 @@ pub fn dataset_jsonl(dataset: &Value, split: &str) -> Result<String, LifecycleOp
     Ok(out)
 }
 
+pub async fn evaluate_with_callback<F, Fut>(
+    agent: &Value,
+    dataset: &Value,
+    evaluator: &Value,
+    callback: F,
+    split: &str,
+    repeats: i64,
+    concurrency: i64,
+    timeout_seconds: f64,
+) -> Result<Value, LifecycleOperationsError>
+where
+    F: Fn(Value, Value, i64) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<Value, LifecycleOperationsError>> + Send,
+{
+    let repeats = positive_integer(repeats, "repeats")?;
+    let concurrency = positive_integer(concurrency, "concurrency")?;
+    number(timeout_seconds, "timeout")?;
+    if timeout_seconds <= 0.0 {
+        return Err(LifecycleOperationsError(
+            "timeout must be positive".to_string(),
+        ));
+    }
+    if !matches!(split, "train" | "heldout") {
+        return Err(LifecycleOperationsError(
+            "split must be train or heldout".to_string(),
+        ));
+    }
+
+    let agent = normalize_record(agent).map_err(record_error)?;
+    if agent.get("kind").and_then(Value::as_str) != Some("agent") {
+        return Err(LifecycleOperationsError(
+            "evaluation needs agent and dataset snapshots".to_string(),
+        ));
+    }
+    let dataset = normalize_record(dataset).map_err(record_error)?;
+    if dataset.get("kind").and_then(Value::as_str) != Some("dataset") {
+        return Err(LifecycleOperationsError(
+            "evaluation needs agent and dataset snapshots".to_string(),
+        ));
+    }
+    let evaluator = normalize_evaluator(evaluator)?;
+
+    let ids = dataset
+        .get(if split == "heldout" {
+            "heldout_ids"
+        } else {
+            "train_ids"
+        })
+        .and_then(Value::as_array)
+        .ok_or_else(|| LifecycleOperationsError("malformed evidence record".to_string()))?
+        .iter()
+        .map(|id| {
+            id.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| LifecycleOperationsError("malformed evidence record".to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let examples = dataset
+        .get("examples")
+        .and_then(Value::as_array)
+        .ok_or_else(|| LifecycleOperationsError("malformed evidence record".to_string()))?
+        .iter()
+        .map(|example| Ok((example_id(example).map_err(record_error)?, example.clone())))
+        .collect::<Result<HashMap<_, _>, LifecycleOperationsError>>()?;
+    let mut jobs = ids
+        .iter()
+        .flat_map(|id| (0..repeats).map(move |repetition| (id.clone(), repetition)))
+        .collect::<Vec<_>>()
+        .into_iter();
+    let job_count = (ids.len() as i64).saturating_mul(repeats);
+    let worker_count = concurrency.min(job_count).max(0) as usize;
+    let duration = Duration::try_from_secs_f64(timeout_seconds).unwrap_or(Duration::MAX);
+    let mut active: FuturesUnordered<Pin<Box<dyn Future<Output = Value> + Send + '_>>> =
+        FuturesUnordered::new();
+    for _ in 0..worker_count {
+        if let Some((example_id, repetition)) = jobs.next() {
+            active.push(Box::pin(evaluate_one(
+                &callback, &agent, &examples, example_id, repetition, duration,
+            )));
+        }
+    }
+
+    let mut results = Vec::new();
+    while let Some(result) = active.next().await {
+        results.push(result);
+        if let Some((example_id, repetition)) = jobs.next() {
+            active.push(Box::pin(evaluate_one(
+                &callback, &agent, &examples, example_id, repetition, duration,
+            )));
+        }
+    }
+    results.sort_by_key(|result| {
+        (
+            string_value(result, "example_id").unwrap_or_default(),
+            result
+                .get("repetition")
+                .and_then(Value::as_i64)
+                .unwrap_or_default(),
+        )
+    });
+    normalize_record(&json!({
+        "schema_version": SCHEMA_VERSION,
+        "kind": "run",
+        "agent_id": record_id(&agent).map_err(record_error)?,
+        "dataset_id": record_id(&dataset).map_err(record_error)?,
+        "evaluator": evaluator,
+        "split": split,
+        "expected_ids": ids,
+        "repeats": repeats,
+        "results": results,
+    }))
+    .map_err(record_error)
+}
+
+/// Run one evaluation callback and convert callback failures into safe evidence.
+///
+/// A timeout is failed evidence, not proof that a remote job was cancelled.
+/// Callbacks that launch background service jobs must handle cancellation,
+/// cancel or poll only their owned jobs, and persist terminal status or
+/// cancellation evidence in their own cleanup. This runner has no remote job
+/// ownership. Rust cancellation drops in-flight callback futures; callbacks
+/// that require asynchronous cleanup should use their own explicit cancellation
+/// protocol before dropping the evaluator future. Requires a Tokio runtime with
+/// the time driver enabled.
+async fn evaluate_one<F, Fut>(
+    callback: &F,
+    agent: &Value,
+    examples: &HashMap<String, Value>,
+    example_id: String,
+    repetition: i64,
+    duration: Duration,
+) -> Value
+where
+    F: Fn(Value, Value, i64) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<Value, LifecycleOperationsError>> + Send,
+{
+    let Some(example) = examples.get(&example_id).cloned() else {
+        return evaluation_result(
+            example_id,
+            repetition,
+            Value::Object(Map::new()),
+            Some("callback_error"),
+        );
+    };
+    let start = Instant::now();
+    match timeout(duration, callback(agent.clone(), example, repetition)).await {
+        Err(_) => evaluation_result(
+            example_id,
+            repetition,
+            Value::Object(Map::new()),
+            Some("timeout"),
+        ),
+        Ok(Err(_)) => evaluation_result(
+            example_id,
+            repetition,
+            Value::Object(Map::new()),
+            Some("callback_error"),
+        ),
+        Ok(Ok(metrics)) => {
+            let metrics = finalize_metrics(metrics, start.elapsed().as_secs_f64())
+                .unwrap_or_else(|_| Value::Object(Map::new()));
+            let error = if metrics.as_object().is_some_and(|object| !object.is_empty()) {
+                None
+            } else {
+                Some("invalid_metrics")
+            };
+            evaluation_result(example_id, repetition, metrics, error)
+        }
+    }
+}
+
+pub async fn evaluate_outcomes(
+    agent: &Value,
+    dataset: &Value,
+    evaluator: &Value,
+    outcomes: &Value,
+    split: &str,
+    repeats: i64,
+    concurrency: i64,
+    timeout_seconds: f64,
+) -> Result<Value, LifecycleOperationsError> {
+    let outcomes = outcomes
+        .as_array()
+        .ok_or_else(|| LifecycleOperationsError("outcomes must be an array".to_string()))?
+        .iter()
+        .map(|outcome| {
+            let object = trace_object(outcome)?;
+            Ok((
+                (
+                    string_field(object, "example_id", "example_id")?,
+                    int_field(object, "repetition", "repetition")?,
+                ),
+                outcome.clone(),
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, LifecycleOperationsError>>()?;
+    evaluate_with_callback(
+        agent,
+        dataset,
+        evaluator,
+        move |_, example, repetition| {
+            let outcomes = outcomes.clone();
+            async move {
+                let id = example_id(&example).map_err(record_error)?;
+                let Some(outcome) = outcomes.get(&(id, repetition)) else {
+                    return Err(LifecycleOperationsError("missing outcome".to_string()));
+                };
+                match outcome
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                {
+                    "callback_error" => Err(LifecycleOperationsError("callback_error".to_string())),
+                    "timeout" => {
+                        tokio::time::sleep(
+                            Duration::try_from_secs_f64(timeout_seconds * 2.0)
+                                .unwrap_or(Duration::MAX),
+                        )
+                        .await;
+                        Ok(Value::Object(Map::new()))
+                    }
+                    "" => Ok(outcome.get("metrics").cloned().unwrap_or(Value::Null)),
+                    _ => Ok(outcome.get("metrics").cloned().unwrap_or(Value::Null)),
+                }
+            }
+        },
+        split,
+        repeats,
+        concurrency,
+        timeout_seconds,
+    )
+    .await
+}
+
+fn normalize_evaluator(value: &Value) -> Result<Value, LifecycleOperationsError> {
+    let object = value.as_object().ok_or_else(|| {
+        LifecycleOperationsError("evaluation needs a versioned evaluator".to_string())
+    })?;
+    require_keys(object, &["name", "version", "configuration"])?;
+    let name = string_field(object, "name", "evaluator name")?;
+    let version = string_field(object, "version", "evaluator version")?;
+    let configuration = object
+        .get("configuration")
+        .and_then(Value::as_object)
+        .ok_or_else(|| LifecycleOperationsError("configuration is required".to_string()))?
+        .clone();
+    Ok(json!({"name": name, "version": version, "configuration": configuration}))
+}
+
+fn finalize_metrics(
+    metrics: Value,
+    latency_seconds: f64,
+) -> Result<Value, LifecycleOperationsError> {
+    let mut metrics = metrics
+        .as_object()
+        .ok_or_else(|| LifecycleOperationsError("callback must return metric mapping".to_string()))?
+        .clone();
+    if !metrics.contains_key("latency_seconds") {
+        metrics.insert("latency_seconds".to_string(), finite_json(latency_seconds)?);
+    }
+    for (key, value) in &metrics {
+        text(key, "metric")?;
+        let Some(value) = value.as_f64() else {
+            return Err(LifecycleOperationsError(format!(
+                "{key} must be a finite number"
+            )));
+        };
+        if !value.is_finite() {
+            return Err(LifecycleOperationsError(format!(
+                "{key} must be a finite number"
+            )));
+        }
+        if matches!(key.as_str(), "latency_seconds" | "cost") && value < 0.0 {
+            return Err(LifecycleOperationsError(format!("{key} must be >= 0")));
+        }
+    }
+    Ok(Value::Object(metrics))
+}
+
+fn evaluation_result(
+    example_id: String,
+    repetition: i64,
+    metrics: Value,
+    error: Option<&str>,
+) -> Value {
+    json!({
+        "example_id": example_id,
+        "repetition": repetition,
+        "metrics": metrics,
+        "error": error,
+    })
+}
+
 fn reviewed(trace: &Value) -> Result<(), LifecycleOperationsError> {
     let object = trace_object(trace)?;
     if object.get("approved") != Some(&Value::Bool(true)) {
@@ -301,6 +631,26 @@ fn trace_object(trace: &Value) -> Result<&Map<String, Value>, LifecycleOperation
     trace
         .as_object()
         .ok_or_else(|| LifecycleOperationsError(REVIEW_APPROVAL.to_string()))
+}
+
+fn require_keys(
+    object: &Map<String, Value>,
+    keys: &[&str],
+) -> Result<(), LifecycleOperationsError> {
+    let allowed = keys.iter().copied().collect::<HashSet<_>>();
+    if object.len() != keys.len() || object.keys().any(|key| !allowed.contains(key.as_str())) {
+        return Err(LifecycleOperationsError(
+            "unexpected evidence fields".to_string(),
+        ));
+    }
+    for key in keys {
+        if !object.contains_key(*key) {
+            return Err(LifecycleOperationsError(
+                "unexpected evidence fields".to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reference_origin(object: &Map<String, Value>) -> Result<&str, LifecycleOperationsError> {
@@ -364,6 +714,39 @@ fn number(value: f64, label: &str) -> Result<(), LifecycleOperationsError> {
         return Err(LifecycleOperationsError(format!("{label} must be finite")));
     }
     Ok(())
+}
+
+fn positive_integer(value: i64, label: &str) -> Result<i64, LifecycleOperationsError> {
+    if value < 1 {
+        return Err(LifecycleOperationsError(format!(
+            "{label} must be an integer >= 1"
+        )));
+    }
+    Ok(value)
+}
+
+fn int_field(
+    object: &Map<String, Value>,
+    field: &str,
+    label: &str,
+) -> Result<i64, LifecycleOperationsError> {
+    let Some(value) = object.get(field).and_then(Value::as_i64) else {
+        return Err(LifecycleOperationsError(format!(
+            "{label} must be an integer"
+        )));
+    };
+    Ok(value)
+}
+
+fn finite_json(value: f64) -> Result<Value, LifecycleOperationsError> {
+    if !value.is_finite() {
+        return Err(LifecycleOperationsError(
+            "metric must be a finite number".to_string(),
+        ));
+    }
+    serde_json::Number::from_f64(value)
+        .map(Value::Number)
+        .ok_or_else(|| LifecycleOperationsError("metric must be a finite number".to_string()))
 }
 
 fn record_error(error: impl std::fmt::Display) -> LifecycleOperationsError {

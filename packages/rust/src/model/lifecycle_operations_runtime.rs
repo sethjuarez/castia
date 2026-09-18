@@ -21,4 +21,15 @@ pub trait LifecycleOperationsRuntime: Send + Sync {
         seed: &String,
     ) -> serde_json::Value;
     fn dataset_jsonl(&self, dataset: &serde_json::Value, split: &String) -> String;
+    async fn evaluate_outcomes(
+        &self,
+        agent: &serde_json::Value,
+        dataset: &serde_json::Value,
+        evaluator: &serde_json::Value,
+        outcomes: &serde_json::Value,
+        split: &String,
+        repeats: &i32,
+        concurrency: &i32,
+        timeout_seconds: &f64,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>>;
 }

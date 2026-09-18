@@ -2,7 +2,8 @@ use castia::evaluation::CastiaEvaluationSuiteRuntime;
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::lifecycle::{
     canonical_json, check_public, compare_runs, content_hash, curate_dataset, dataset_jsonl,
-    default_gate, example_id, get_artifact, normalize_record, put_artifact, record_id, safe_path,
+    default_gate, evaluate_outcomes, example_id, get_artifact, normalize_record, put_artifact,
+    record_id, safe_path,
 };
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaEntitiesRuntime, CastiaIdentityRuntime,
@@ -211,6 +212,10 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             sync(lifecycle_dataset_jsonl),
         ),
         (
+            "LifecycleOperationsRuntime.evaluateOutcomes",
+            asynchronous(lifecycle_evaluate_outcomes),
+        ),
+        (
             "ModelRuntime.instructionsParam",
             sync(model_instructions_param),
         ),
@@ -283,6 +288,29 @@ fn sync_with_normalize(invoke: SyncInvoke, normalize: Normalize) -> Adapter {
     Adapter {
         invoke: Invoke::Sync(invoke),
         normalize: Some(normalize),
+    }
+}
+
+fn asynchronous<F, Fut>(invoke: F) -> Adapter
+where
+    F: Fn(Value, Context) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, VectorError>> + Send + 'static,
+{
+    Adapter {
+        invoke: Invoke::Async(Box::new(move |input, ctx| {
+            let input = input.clone();
+            let ctx = Context {
+                contract: ctx.contract.clone(),
+                operation: ctx.operation.clone(),
+                vector: ctx.vector.clone(),
+                provider: ctx.provider.clone(),
+                target_api: ctx.target_api.clone(),
+                doubles: ctx.doubles.clone(),
+                base_dir: ctx.base_dir.clone(),
+            };
+            Box::pin(invoke(input, ctx))
+        })),
+        normalize: None,
     }
 }
 
@@ -661,6 +689,54 @@ fn lifecycle_dataset_jsonl(input: &Value, _: &Context) -> Result<Value, VectorEr
     dataset_jsonl(&dataset, split)
         .map(Value::String)
         .map_err(vector_error)
+}
+
+async fn lifecycle_evaluate_outcomes(input: Value, _: Context) -> Result<Value, VectorError> {
+    let agent = lifecycle_record_to_snake(input.get("agent").unwrap_or(&Value::Null));
+    let dataset = lifecycle_record_to_snake(input.get("dataset").unwrap_or(&Value::Null));
+    let evaluator = lifecycle_record_to_snake(input.get("evaluator").unwrap_or(&Value::Null));
+    let outcomes = lifecycle_record_to_snake(input.get("outcomes").unwrap_or(&Value::Null));
+    let split = input
+        .get("split")
+        .and_then(Value::as_str)
+        .ok_or_else(|| VectorError {
+            message: "missing split input".to_string(),
+            payload: None,
+        })?;
+    let repeats = input
+        .get("repeats")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| VectorError {
+            message: "missing repeats input".to_string(),
+            payload: None,
+        })?;
+    let concurrency = input
+        .get("concurrency")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| VectorError {
+            message: "missing concurrency input".to_string(),
+            payload: None,
+        })?;
+    let timeout_seconds = input
+        .get("timeoutSeconds")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| VectorError {
+            message: "missing timeoutSeconds input".to_string(),
+            payload: None,
+        })?;
+    evaluate_outcomes(
+        &agent,
+        &dataset,
+        &evaluator,
+        &outcomes,
+        split,
+        repeats,
+        concurrency,
+        timeout_seconds,
+    )
+    .await
+    .map(|record| lifecycle_keys(&record, false))
+    .map_err(vector_error)
 }
 
 fn vector_error(error: impl std::fmt::Display) -> VectorError {

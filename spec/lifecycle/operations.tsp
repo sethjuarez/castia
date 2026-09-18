@@ -94,4 +94,66 @@ interface LifecycleOperationsRuntime {
     expectedError: #{ message: "split must be train or heldout" },
   })
   datasetJsonl(dataset: unknown, split: string): string;
+
+  @vector(#{
+    name: "evaluate-outcomes-repeated-heldout-run",
+    stage: "callable",
+    input: #{
+      agent: #{ schemaVersion: 1, kind: "agent", sourceFiles: #[#{ path: "instructions.md", sha256: "5ad131c7cb35b34d24e0110e754475cd7d369fc9b9f3dd0c967aeb35e6fbcb4f", size: 11 }], dependencies: #{ castia: "0.6.0" }, `model`: #{ deployment: "gpt-4o" }, instructions: "Be helpful.", tools: #[] },
+      dataset: #{ schemaVersion: 1, kind: "dataset", examples: #[#{ input: "question-1", reference: "reference-1", group: "group-1", provenance: #["trace-1"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }, #{ input: "question-0", reference: "reference-0", group: "group-0", provenance: #["trace-0"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }], trainIds: #["d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"], heldoutIds: #["bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20"], seed: "castia", redactionVersion: "v1" },
+      evaluator: #{ name: "rubric", version: "v2", configuration: #{ judge: "model", temperature: 0 } },
+      outcomes: #[#{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 0, metrics: #{ quality: 1.0, cost: 0.0, latency_seconds: 0.01 } }, #{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 1, metrics: #{ quality: 1.0, cost: 0.001, latency_seconds: 0.01 } }],
+      split: "heldout",
+      repeats: 2,
+      concurrency: 1,
+      timeoutSeconds: 1.0
+    },
+    expected: #{ schemaVersion: 1, kind: "run", agentId: "ed6976555b4b1cd6947ae5f83a2c2f2402a5eda92fdf5f9d87536d834937378d", datasetId: "1b3464b7c98e0ba2e06fb6ace75ae03a8d35bba035615663b20f603f75c7a152", evaluator: #{ name: "rubric", version: "v2", configuration: #{ judge: "model", temperature: 0 } }, split: "heldout", expectedIds: #["bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20"], repeats: 2, results: #[#{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 0, metrics: #{ cost: 0.0, latency_seconds: 0.01, quality: 1.0 }, error: null }, #{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 1, metrics: #{ cost: 0.001, latency_seconds: 0.01, quality: 1.0 }, error: null }] },
+  })
+  @vector(#{
+    name: "evaluate-outcomes-sanitizes-callback-and-metric-errors",
+    stage: "callable",
+    input: #{
+      agent: #{ schemaVersion: 1, kind: "agent", sourceFiles: #[#{ path: "instructions.md", sha256: "5ad131c7cb35b34d24e0110e754475cd7d369fc9b9f3dd0c967aeb35e6fbcb4f", size: 11 }], dependencies: #{ castia: "0.6.0" }, `model`: #{ deployment: "gpt-4o" }, instructions: "Be helpful.", tools: #[] },
+      dataset: #{ schemaVersion: 1, kind: "dataset", examples: #[#{ input: "question-1", reference: "reference-1", group: "group-1", provenance: #["trace-1"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }, #{ input: "question-0", reference: "reference-0", group: "group-0", provenance: #["trace-0"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }], trainIds: #["d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"], heldoutIds: #["bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20"], seed: "castia", redactionVersion: "v1" },
+      evaluator: #{ name: "rubric", version: "v2", configuration: #{ judge: "model", temperature: 0 } },
+      outcomes: #[#{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 0, error: "callback_error", metrics: #{} }, #{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 1, metrics: #{ quality: "0.8" } }, #{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 2, metrics: #{ quality: 0.5, latency_seconds: 0.01 } }],
+      split: "heldout",
+      repeats: 3,
+      concurrency: 1,
+      timeoutSeconds: 1.0
+    },
+    expected: #{ schemaVersion: 1, kind: "run", agentId: "ed6976555b4b1cd6947ae5f83a2c2f2402a5eda92fdf5f9d87536d834937378d", datasetId: "1b3464b7c98e0ba2e06fb6ace75ae03a8d35bba035615663b20f603f75c7a152", evaluator: #{ name: "rubric", version: "v2", configuration: #{ judge: "model", temperature: 0 } }, split: "heldout", expectedIds: #["bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20"], repeats: 3, results: #[#{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 0, metrics: #{}, error: "callback_error" }, #{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 1, metrics: #{}, error: "invalid_metrics" }, #{ exampleId: "bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20", repetition: 2, metrics: #{ latency_seconds: 0.01, quality: 0.5 }, error: null }] },
+  })
+  @vector(#{
+    name: "evaluate-outcomes-rejects-unknown-split",
+    stage: "callable",
+    input: #{
+      agent: #{ schemaVersion: 1, kind: "agent", sourceFiles: #[#{ path: "instructions.md", sha256: "5ad131c7cb35b34d24e0110e754475cd7d369fc9b9f3dd0c967aeb35e6fbcb4f", size: 11 }], dependencies: #{ castia: "0.6.0" }, `model`: #{ deployment: "gpt-4o" }, instructions: "Be helpful.", tools: #[] },
+      dataset: #{ schemaVersion: 1, kind: "dataset", examples: #[#{ input: "question-1", reference: "reference-1", group: "group-1", provenance: #["trace-1"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }, #{ input: "question-0", reference: "reference-0", group: "group-0", provenance: #["trace-0"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }], trainIds: #["d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"], heldoutIds: #["bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20"], seed: "castia", redactionVersion: "v1" },
+      evaluator: #{ name: "rubric", version: "v2", configuration: #{ judge: "model", temperature: 0 } },
+      outcomes: #[],
+      split: "validation",
+      repeats: 1,
+      concurrency: 1,
+      timeoutSeconds: 1.0
+    },
+    expectedError: #{ message: "split must be train or heldout" },
+  })
+  @vector(#{
+    name: "evaluate-outcomes-rejects-zero-timeout",
+    stage: "callable",
+    input: #{
+      agent: #{ schemaVersion: 1, kind: "agent", sourceFiles: #[#{ path: "instructions.md", sha256: "5ad131c7cb35b34d24e0110e754475cd7d369fc9b9f3dd0c967aeb35e6fbcb4f", size: 11 }], dependencies: #{ castia: "0.6.0" }, `model`: #{ deployment: "gpt-4o" }, instructions: "Be helpful.", tools: #[] },
+      dataset: #{ schemaVersion: 1, kind: "dataset", examples: #[#{ input: "question-1", reference: "reference-1", group: "group-1", provenance: #["trace-1"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }, #{ input: "question-0", reference: "reference-0", group: "group-0", provenance: #["trace-0"], reviewers: #["human-reviewer"], referenceOrigins: #["human"] }], trainIds: #["d3d9fa86e6735affbb18ca08a7306a6fe3cd8f6b335422e44ef85591d5b7ddb1"], heldoutIds: #["bdf737bc87a151c7436de89d535aee9b5dfbc210f912fd1053a7512aa9ba1f20"], seed: "castia", redactionVersion: "v1" },
+      evaluator: #{ name: "rubric", version: "v2", configuration: #{ judge: "model", temperature: 0 } },
+      outcomes: #[],
+      split: "heldout",
+      repeats: 1,
+      concurrency: 1,
+      timeoutSeconds: 0.0
+    },
+    expectedError: #{ message: "timeout must be positive" },
+  })
+  evaluateOutcomes(agent: unknown, dataset: unknown, evaluator: unknown, outcomes: unknown, split: string, repeats: int32, concurrency: int32, timeoutSeconds: float64): unknown;
 }
