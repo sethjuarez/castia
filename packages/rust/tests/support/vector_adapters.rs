@@ -1,14 +1,28 @@
 use castia::model::{
-    Activity, ActivityRuntime, ChatRuntime, InvocationsRuntime, LoadContext, ResponsesRuntime,
-    SaveContext,
+    Activity, ActivityRuntime, AgentConfigResolver, ChatRuntime, InvocationsRuntime, LoadContext,
+    ResponsesRuntime, SaveContext,
 };
+use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
 };
 use serde_json::Value;
 use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::{Mutex, OnceLock};
+
+static OPTIMIZER_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+const OPTIMIZER_ENV: &[&str] = &[
+    "AZURE_AI_MODEL_DEPLOYMENT_NAME",
+    "OPTIMIZATION_CONFIG",
+    "OPTIMIZATION_CANDIDATE_ID",
+    "OPTIMIZATION_RESOLVE_ENDPOINT",
+    "OPTIMIZATION_LOCAL_DIR",
+];
 
 pub struct Context {
     pub contract: String,
@@ -51,6 +65,10 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         ("ActivityRuntime.channel", sync(channel)),
         ("ActivityRuntime.isAgenticRequest", sync(is_agentic_request)),
         ("ActivityRuntime.mentions", sync(mentions)),
+        (
+            "AgentConfigResolver.resolve",
+            sync_with_normalize(agent_config_resolve, normalize_agent_config_source),
+        ),
         ("ChatRuntime.body", sync_with_normalize(chat_body, normalize_generated_id)),
         ("ChatRuntime.lastUserText", sync(chat_last_user_text)),
         ("InvocationsRuntime.body", sync(invocations_body)),
@@ -140,6 +158,34 @@ fn mentions(input: &Value, _: &Context) -> Result<Value, VectorError> {
     ))
 }
 
+fn agent_config_resolve(input: &Value, ctx: &Context) -> Result<Value, VectorError> {
+    let _guard = OPTIMIZER_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let saved_env = save_optimizer_env();
+    let temp = temp_dir(&ctx.operation);
+    let result = (|| {
+        apply_vector_env(&ctx.vector);
+        write_vector_files(&temp, &ctx.vector)?;
+        let config_dir = input
+            .get("configDir")
+            .and_then(Value::as_str)
+            .map(|value| {
+                if value == "$temp" {
+                    temp.to_string_lossy().to_string()
+                } else {
+                    value.to_string()
+                }
+            });
+        let resolution = CastiaAgentConfigResolver.resolve_best_effort(config_dir.as_deref());
+        Ok(resolution.to_value(&SaveContext::default()))
+    })();
+    restore_optimizer_env(saved_env);
+    let _ = fs::remove_dir_all(temp);
+    result
+}
+
 fn responses_input_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(serde_json::json!(
         CastiaResponsesRuntime.input_text(input.get("value").unwrap_or(&Value::Null))
@@ -179,4 +225,92 @@ fn normalize_generated_id(value: &Value, _: &Context) -> Value {
         object.remove("id");
     }
     value
+}
+
+fn normalize_agent_config_source(value: &Value, _: &Context) -> Value {
+    let mut value = value.clone();
+    if let Some(object) = value.as_object_mut() {
+        if let Some(source) = object
+            .get("source")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        {
+            if let Some(last) = source.rsplit(['/', '\\']).next() {
+                if source.starts_with("local:") {
+                    object.insert("source".to_string(), Value::String(format!("local:{last}")));
+                }
+            }
+        }
+    }
+    value
+}
+
+fn save_optimizer_env() -> Vec<(&'static str, Option<String>)> {
+    OPTIMIZER_ENV
+        .iter()
+        .map(|key| (*key, env::var(key).ok()))
+        .collect()
+}
+
+fn restore_optimizer_env(saved: Vec<(&'static str, Option<String>)>) {
+    for key in OPTIMIZER_ENV {
+        env::remove_var(key);
+    }
+    for (key, value) in saved {
+        if let Some(value) = value {
+            env::set_var(key, value);
+        }
+    }
+}
+
+fn apply_vector_env(vector: &Value) {
+    for key in OPTIMIZER_ENV {
+        env::remove_var(key);
+    }
+    let Some(env_values) = vector.get("env").and_then(Value::as_object) else {
+        return;
+    };
+    for (key, value) in env_values {
+        if let Some(value) = value.as_str() {
+            env::set_var(key, value);
+        }
+    }
+}
+
+fn write_vector_files(root: &Path, vector: &Value) -> Result<(), VectorError> {
+    let Some(files) = vector.get("files").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for file in files {
+        let Some(relative) = file.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(contents) = file.get("content").and_then(Value::as_str) else {
+            continue;
+        };
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_error)?;
+        }
+        fs::write(path, contents).map_err(io_error)?;
+    }
+    Ok(())
+}
+
+fn temp_dir(label: &str) -> PathBuf {
+    let root = env::temp_dir().join(format!(
+        "castia-vector-{}-{}",
+        label.replace(|c: char| !c.is_ascii_alphanumeric(), "_"),
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("vector temp dir created");
+    root
+}
+
+fn io_error(error: std::io::Error) -> VectorError {
+    VectorError {
+        message: error.to_string(),
+        payload: None,
+    }
 }

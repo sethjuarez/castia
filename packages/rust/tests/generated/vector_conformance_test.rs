@@ -186,182 +186,217 @@ async fn test_vector_19_activityruntime_mentions_mention_lowercase_entity() {
 }
 
 #[tokio::test]
-async fn test_vector_20_chatruntime_body_chat_body() {
+async fn test_vector_20_agentconfigresolver_resolve_inline_config_wins() {
+    let vector: Value = serde_json::from_str("{\"name\":\"inline-config-wins\",\"stage\":\"callable\",\"env\":{\"AZURE_AI_MODEL_DEPLOYMENT_NAME\":\"gpt-env\",\"OPTIMIZATION_CONFIG\":\"{\\\"model\\\":\\\"gpt-inline\\\",\\\"instructions\\\":\\\"inline instructions\\\",\\\"toolDefinitions\\\":[{\\\"function\\\":{\\\"name\\\":\\\"web\\\"}}]}\"},\"files\":[{\"path\":\"baseline/metadata.yaml\",\"content\":\"model: gpt-local\\ninstruction_file: instructions.md\\n\"},{\"path\":\"baseline/instructions.md\",\"content\":\"local instructions\"}],\"input\":{\"configDir\":\"$temp\"},\"expected\":{\"source\":\"env:OPTIMIZATION_CONFIG\",\"model\":\"gpt-inline\",\"instructions\":\"inline instructions\",\"toolDefinitions\":[{\"function\":{\"name\":\"web\"}}]},\"operation\":\"resolve\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("AgentConfigResolver", "resolve", vector, false, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_21_agentconfigresolver_resolve_local_baseline_with_tools_file_alias() {
+    let vector: Value = serde_json::from_str("{\"name\":\"local-baseline-with-tools-file-alias\",\"stage\":\"callable\",\"env\":{\"AZURE_AI_MODEL_DEPLOYMENT_NAME\":\"gpt-env\"},\"files\":[{\"path\":\"baseline/metadata.yaml\",\"content\":\"model: gpt-local\\ninstruction_file: instructions.md\\ntool_file: missing.json\\ntools_file: tools.json\\n\"},{\"path\":\"baseline/instructions.md\",\"content\":\"local instructions\"},{\"path\":\"baseline/tools.json\",\"content\":\"[{\\\"type\\\":\\\"function\\\",\\\"function\\\":{\\\"name\\\":\\\"search\\\"}}]\"}],\"input\":{\"configDir\":\"$temp\"},\"expected\":{\"source\":\"local:baseline\",\"model\":\"gpt-local\",\"instructions\":\"local instructions\",\"toolDefinitions\":[{\"type\":\"function\",\"function\":{\"name\":\"search\"}}]},\"operation\":\"resolve\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("AgentConfigResolver", "resolve", vector, false, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_22_agentconfigresolver_resolve_local_candidate_wins_over_baseline() {
+    let vector: Value = serde_json::from_str("{\"name\":\"local-candidate-wins-over-baseline\",\"stage\":\"callable\",\"env\":{\"OPTIMIZATION_CANDIDATE_ID\":\"candidate-1\"},\"files\":[{\"path\":\"baseline/metadata.yaml\",\"content\":\"model: gpt-baseline\\ninstruction_file: instructions.md\\n\"},{\"path\":\"baseline/instructions.md\",\"content\":\"baseline instructions\"},{\"path\":\"candidate-1/metadata.yaml\",\"content\":\"model: gpt-candidate\\ninstruction_file: instructions.md\\n\"},{\"path\":\"candidate-1/instructions.md\",\"content\":\"candidate instructions\"}],\"input\":{\"configDir\":\"$temp\"},\"expected\":{\"source\":\"local:candidate-1\",\"model\":\"gpt-candidate\",\"instructions\":\"candidate instructions\"},\"operation\":\"resolve\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("AgentConfigResolver", "resolve", vector, false, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_23_agentconfigresolver_resolve_missing_sources_default() {
+    let vector: Value = serde_json::from_str("{\"name\":\"missing-sources-default\",\"stage\":\"callable\",\"env\":{\"AZURE_AI_MODEL_DEPLOYMENT_NAME\":\"gpt-env\"},\"input\":{\"configDir\":\"$temp\"},\"expected\":{\"source\":\"default\",\"model\":\"gpt-env\"},\"operation\":\"resolve\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("AgentConfigResolver", "resolve", vector, false, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_24_agentconfigresolver_resolve_resolver_api_unsupported_is_loud() {
+    let vector: Value = serde_json::from_str("{\"name\":\"resolver-api-unsupported-is-loud\",\"stage\":\"callable\",\"env\":{\"AZURE_AI_MODEL_DEPLOYMENT_NAME\":\"gpt-env\",\"OPTIMIZATION_CANDIDATE_ID\":\"candidate-1\",\"OPTIMIZATION_RESOLVE_ENDPOINT\":\"https://example.invalid/resolve\"},\"files\":[{\"path\":\"baseline/metadata.yaml\",\"content\":\"model: gpt-local\\ninstruction_file: instructions.md\\n\"},{\"path\":\"baseline/instructions.md\",\"content\":\"local instructions\"}],\"input\":{\"configDir\":\"$temp\"},\"expected\":{\"source\":\"unsupported:resolver_api\",\"model\":\"gpt-env\"},\"operation\":\"resolve\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("AgentConfigResolver", "resolve", vector, false, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_25_chatruntime_body_chat_body() {
     let vector: Value = serde_json::from_str("{\"name\":\"chat-body\",\"stage\":\"callable\",\"input\":{\"text\":\"hello\"},\"expected\":{\"object\":\"chat.completion\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"finish_reason\":\"stop\"}]},\"operation\":\"body\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ChatRuntime", "body", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_21_chatruntime_lastusertext_last_user_turn() {
+async fn test_vector_26_chatruntime_lastusertext_last_user_turn() {
     let vector: Value = serde_json::from_str("{\"name\":\"last-user-turn\",\"stage\":\"callable\",\"input\":{\"messages\":[{\"role\":\"user\",\"content\":\"first\"},{\"role\":\"assistant\",\"content\":\"reply\"},{\"role\":\"user\",\"content\":\"second\"}]},\"expected\":\"second\",\"operation\":\"lastUserText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ChatRuntime", "lastUserText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_22_chatruntime_lastusertext_missing_content_is_empty() {
+async fn test_vector_27_chatruntime_lastusertext_missing_content_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"missing-content-is-empty\",\"stage\":\"callable\",\"input\":{\"messages\":[{\"role\":\"user\"}]},\"expected\":\"\",\"operation\":\"lastUserText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ChatRuntime", "lastUserText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_23_chatruntime_lastusertext_missing_user_turn() {
+async fn test_vector_28_chatruntime_lastusertext_missing_user_turn() {
     let vector: Value = serde_json::from_str("{\"name\":\"missing-user-turn\",\"stage\":\"callable\",\"input\":{\"messages\":[{\"role\":\"assistant\",\"content\":\"reply\"}]},\"expected\":\"\",\"operation\":\"lastUserText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ChatRuntime", "lastUserText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_24_chatruntime_lastusertext_null_messages() {
+async fn test_vector_29_chatruntime_lastusertext_null_messages() {
     let vector: Value = serde_json::from_str("{\"name\":\"null-messages\",\"stage\":\"callable\",\"input\":{\"messages\":null},\"expected\":\"\",\"operation\":\"lastUserText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ChatRuntime", "lastUserText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_25_invocationsruntime_body_invocations_body() {
+async fn test_vector_30_invocationsruntime_body_invocations_body() {
     let vector: Value = serde_json::from_str("{\"name\":\"invocations-body\",\"stage\":\"callable\",\"input\":{\"text\":\"hello\"},\"expected\":{\"output\":\"hello\"},\"operation\":\"body\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "body", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_26_invocationsruntime_inputtext_bare_string() {
+async fn test_vector_31_invocationsruntime_inputtext_bare_string() {
     let vector: Value = serde_json::from_str("{\"name\":\"bare-string\",\"stage\":\"callable\",\"input\":{\"body\":\"hello\"},\"expected\":\"hello\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_27_invocationsruntime_inputtext_input_field() {
+async fn test_vector_32_invocationsruntime_inputtext_input_field() {
     let vector: Value = serde_json::from_str("{\"name\":\"input-field\",\"stage\":\"callable\",\"input\":{\"body\":{\"input\":\"hello\"}},\"expected\":\"hello\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_28_invocationsruntime_inputtext_message_field() {
+async fn test_vector_33_invocationsruntime_inputtext_message_field() {
     let vector: Value = serde_json::from_str("{\"name\":\"message-field\",\"stage\":\"callable\",\"input\":{\"body\":{\"message\":\"hello\"}},\"expected\":\"hello\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_29_invocationsruntime_inputtext_message_wins_over_input() {
+async fn test_vector_34_invocationsruntime_inputtext_message_wins_over_input() {
     let vector: Value = serde_json::from_str("{\"name\":\"message-wins-over-input\",\"stage\":\"callable\",\"input\":{\"body\":{\"message\":\"message\",\"input\":\"input\"}},\"expected\":\"message\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_30_invocationsruntime_inputtext_non_string_fields_are_empty() {
+async fn test_vector_35_invocationsruntime_inputtext_non_string_fields_are_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"non-string-fields-are-empty\",\"stage\":\"callable\",\"input\":{\"body\":{\"message\":42,\"input\":true}},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_31_invocationsruntime_inputtext_null_is_empty() {
+async fn test_vector_36_invocationsruntime_inputtext_null_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"null-is-empty\",\"stage\":\"callable\",\"input\":{\"body\":null},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("InvocationsRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_32_responsesruntime_inputtext_bare_string_items_fall_back_to_last() {
+async fn test_vector_37_responsesruntime_inputtext_bare_string_items_fall_back_to_last() {
     let vector: Value = serde_json::from_str("{\"name\":\"bare-string-items-fall-back-to-last\",\"stage\":\"callable\",\"input\":{\"value\":[\"first\",\"second\"]},\"expected\":\"second\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_33_responsesruntime_inputtext_empty_list_is_empty() {
+async fn test_vector_38_responsesruntime_inputtext_empty_list_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"empty-list-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":[]},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_34_responsesruntime_inputtext_empty_string() {
+async fn test_vector_39_responsesruntime_inputtext_empty_string() {
     let vector: Value = serde_json::from_str("{\"name\":\"empty-string\",\"stage\":\"callable\",\"input\":{\"value\":\"\"},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_35_responsesruntime_inputtext_list_content_parts() {
+async fn test_vector_40_responsesruntime_inputtext_list_content_parts() {
     let vector: Value = serde_json::from_str("{\"name\":\"list-content-parts\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"part one \"},{\"type\":\"input_text\",\"text\":\"part two\"}]}]},\"expected\":\"part one part two\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_36_responsesruntime_inputtext_list_role_string_content() {
+async fn test_vector_41_responsesruntime_inputtext_list_role_string_content() {
     let vector: Value = serde_json::from_str("{\"name\":\"list-role-string-content\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":\"say hi\"}]},\"expected\":\"say hi\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_37_responsesruntime_inputtext_non_list_non_string_is_empty() {
+async fn test_vector_42_responsesruntime_inputtext_non_list_non_string_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"non-list-non-string-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":{\"role\":\"user\"}},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_38_responsesruntime_inputtext_null_is_empty() {
+async fn test_vector_43_responsesruntime_inputtext_null_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"null-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":null},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_39_responsesruntime_inputtext_number_is_empty() {
+async fn test_vector_44_responsesruntime_inputtext_number_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"number-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":42},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_40_responsesruntime_inputtext_output_text_and_text_part_types() {
+async fn test_vector_45_responsesruntime_inputtext_output_text_and_text_part_types() {
     let vector: Value = serde_json::from_str("{\"name\":\"output-text-and-text-part-types\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":[{\"type\":\"output_text\",\"text\":\"a\"},{\"type\":\"text\",\"text\":\"b\"}]}]},\"expected\":\"ab\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_41_responsesruntime_inputtext_plain_string() {
+async fn test_vector_46_responsesruntime_inputtext_plain_string() {
     let vector: Value = serde_json::from_str("{\"name\":\"plain-string\",\"stage\":\"callable\",\"input\":{\"value\":\"hello world\"},\"expected\":\"hello world\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_42_responsesruntime_inputtext_prefers_last_user_turn() {
+async fn test_vector_47_responsesruntime_inputtext_prefers_last_user_turn() {
     let vector: Value = serde_json::from_str("{\"name\":\"prefers-last-user-turn\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":\"first\"},{\"role\":\"assistant\",\"content\":\"reply\"},{\"role\":\"user\",\"content\":\"second\"}]},\"expected\":\"second\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_43_responsesruntime_inputtext_roleless_item_falls_back() {
+async fn test_vector_48_responsesruntime_inputtext_roleless_item_falls_back() {
     let vector: Value = serde_json::from_str("{\"name\":\"roleless-item-falls-back\",\"stage\":\"callable\",\"input\":{\"value\":[{\"content\":\"no role here\"}]},\"expected\":\"no role here\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_44_responsesruntime_inputtext_user_turn_wins_over_later_roleless_without_text() {
+async fn test_vector_49_responsesruntime_inputtext_user_turn_wins_over_later_roleless_without_text() {
     let vector: Value = serde_json::from_str("{\"name\":\"user-turn-wins-over-later-roleless-without-text\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":\"the question\"},{\"role\":\"assistant\",\"content\":\"\"}]},\"expected\":\"the question\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_45_responsesruntime_outputbody_output_body() {
+async fn test_vector_50_responsesruntime_outputbody_output_body() {
     let vector: Value = serde_json::from_str("{\"name\":\"output-body\",\"stage\":\"callable\",\"input\":{\"text\":\"hello\"},\"expected\":{\"object\":\"response\",\"status\":\"completed\",\"output_text\":\"hello\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}]},\"operation\":\"outputBody\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "outputBody", vector, true, vc_seam()).await;
