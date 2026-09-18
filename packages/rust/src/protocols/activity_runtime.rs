@@ -44,7 +44,6 @@ impl ActivityRuntime for CastiaActivityRuntime {
             .recipient
             .as_ref()
             .and_then(|recipient| recipient.agentic_user_id.clone())
-            .filter(|user_id| !user_id.is_empty())
     }
 
     fn channel(&self, activity: &Activity) -> Option<String> {

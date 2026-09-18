@@ -44,6 +44,30 @@ pub fn run_activity_runtime_conformance<S: crate::model::ActivityRuntime + ?Size
         .expect("agentic-instance-id: expected parses");
         assert_eq!(actual_value, expected, "agentic-instance-id misrouted");
     }
+    // vector: agentic-instance-id-empty-string
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "recipient": {
+    "role": "agenticAppInstance",
+    "agenticAppId": ""
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.agentic_instance_id(&activity);
+        let actual_value = serde_json::to_value(actual).expect("agentic-instance-id-empty-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("agentic-instance-id-empty-string: expected parses");
+        assert_eq!(actual_value, expected, "agentic-instance-id-empty-string misrouted");
+    }
     // vector: agentic-recipient-role
     {
         let activity = crate::model::Activity::from_json(
@@ -196,6 +220,30 @@ null
         )
         .expect("agentic-user-id: expected parses");
         assert_eq!(actual_value, expected, "agentic-user-id misrouted");
+    }
+    // vector: agentic-user-id-empty-string
+    {
+        let activity = crate::model::Activity::from_json(
+            r####"
+{
+  "recipient": {
+    "role": "agenticUser",
+    "agenticUserId": ""
+  }
+}
+"####,
+            &ctx,
+        )
+        .expect("activity parses");
+        let actual = seam.agentic_user(&activity);
+        let actual_value = serde_json::to_value(actual).expect("agentic-user-id-empty-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("agentic-user-id-empty-string: expected parses");
+        assert_eq!(actual_value, expected, "agentic-user-id-empty-string misrouted");
     }
     // vector: agentic-user-recipient-role
     {

@@ -32,9 +32,10 @@ impl CastiaAgentConfigResolver {
             .ok()
             .filter(|value| !value.trim().is_empty())
         {
-            return self
-                .resolve_inline(&config)
-                .unwrap_or_else(|| self.default_resolution());
+            return self.resolve_inline(&config).unwrap_or_else(|| {
+                eprintln!("invalid OPTIMIZATION_CONFIG; using env defaults");
+                self.default_resolution()
+            });
         }
 
         if env::var("OPTIMIZATION_CANDIDATE_ID")
@@ -46,11 +47,22 @@ impl CastiaAgentConfigResolver {
                 .filter(|value| !value.trim().is_empty())
                 .is_some()
         {
-            return self.default_resolution();
+            eprintln!(
+                "OPTIMIZATION_RESOLVE_ENDPOINT is configured, but Rust resolver API support is not implemented; using env defaults"
+            );
+            return AgentConfigResolution {
+                source: "unsupported:resolver_api".to_string(),
+                model: Some(default_model()),
+                instructions: None,
+                tool_definitions: Value::Null,
+            };
         }
 
         self.resolve_local(config_dir)
-            .unwrap_or_else(|| self.default_resolution())
+            .unwrap_or_else(|| {
+                eprintln!("no local optimizer config resolved; using env defaults");
+                self.default_resolution()
+            })
     }
 
     fn resolve_inline(&self, raw: &str) -> Option<AgentConfigResolution> {
@@ -139,21 +151,20 @@ fn local_config_root(config_dir: Option<&str>) -> Option<PathBuf> {
 }
 
 fn select_candidate_dir(root: &Path) -> Option<PathBuf> {
-    let mut candidates = Vec::new();
     if let Ok(candidate_id) = env::var("OPTIMIZATION_CANDIDATE_ID") {
         if !candidate_id.trim().is_empty() {
-            candidates.push(root.join(&candidate_id));
-            candidates.push(root.join(".agent_configs").join(&candidate_id));
+            return [root.join(&candidate_id), root.join(".agent_configs").join(&candidate_id)]
+                .into_iter()
+                .find(|candidate| candidate.join("metadata.yaml").is_file());
         }
     }
-    candidates.extend([
+    [
         root.to_path_buf(),
         root.join("baseline"),
         root.join(".agent_configs").join("baseline"),
-    ]);
-    candidates
-        .into_iter()
-        .find(|candidate| candidate.join("metadata.yaml").is_file())
+    ]
+    .into_iter()
+    .find(|candidate| candidate.join("metadata.yaml").is_file())
 }
 
 fn metadata_string(metadata: &Value, key: &str) -> Option<String> {

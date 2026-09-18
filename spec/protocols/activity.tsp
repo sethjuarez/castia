@@ -143,6 +143,16 @@ interface ActivityRuntime {
     expected: "app-1",
   })
   @vector(#{
+    name: "agentic-instance-id-empty-string",
+    stage: "callable",
+    input: #{
+      activity: #{
+        recipient: #{ role: "agenticAppInstance", agenticAppId: "" },
+      },
+    },
+    expected: "",
+  })
+  @vector(#{
     name: "non-agentic-instance-id",
     stage: "callable",
     input: #{ activity: #{ recipient: #{ role: "bot", agenticAppId: "app-1" } } },
@@ -161,6 +171,16 @@ interface ActivityRuntime {
       },
     },
     expected: "agent-user-1",
+  })
+  @vector(#{
+    name: "agentic-user-id-empty-string",
+    stage: "callable",
+    input: #{
+      activity: #{
+        recipient: #{ role: "agenticUser", agenticUserId: "" },
+      },
+    },
+    expected: "",
   })
   @vector(#{
     name: "non-agentic-user-id",

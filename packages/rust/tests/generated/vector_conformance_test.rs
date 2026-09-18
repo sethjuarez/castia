@@ -53,210 +53,224 @@ async fn test_vector_0_activityruntime_agenticinstanceid_agentic_instance_id() {
 }
 
 #[tokio::test]
-async fn test_vector_1_activityruntime_agenticinstanceid_non_agentic_instance_id() {
+async fn test_vector_1_activityruntime_agenticinstanceid_agentic_instance_id_empty_string() {
+    let vector: Value = serde_json::from_str("{\"name\":\"agentic-instance-id-empty-string\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticAppInstance\",\"agenticAppId\":\"\"}}},\"expected\":\"\",\"operation\":\"agenticInstanceId\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("ActivityRuntime", "agenticInstanceId", vector, true, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_2_activityruntime_agenticinstanceid_non_agentic_instance_id() {
     let vector: Value = serde_json::from_str("{\"name\":\"non-agentic-instance-id\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"bot\",\"agenticAppId\":\"app-1\"}}},\"expected\":null,\"operation\":\"agenticInstanceId\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticInstanceId", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_2_activityruntime_agentictenantid_agentic_tenant_falls_back_to_conversation() {
+async fn test_vector_3_activityruntime_agentictenantid_agentic_tenant_falls_back_to_conversation() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-tenant-falls-back-to-conversation\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticAppInstance\"},\"conversation\":{\"tenantId\":\"tenant-conversation\"}}},\"expected\":\"tenant-conversation\",\"operation\":\"agenticTenantId\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticTenantId", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_3_activityruntime_agentictenantid_agentic_tenant_prefers_recipient() {
+async fn test_vector_4_activityruntime_agentictenantid_agentic_tenant_prefers_recipient() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-tenant-prefers-recipient\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticAppInstance\",\"tenantId\":\"tenant-recipient\"},\"conversation\":{\"tenantId\":\"tenant-conversation\"}}},\"expected\":\"tenant-recipient\",\"operation\":\"agenticTenantId\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticTenantId", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_4_activityruntime_agentictenantid_agentic_tenant_skips_empty_conversation() {
+async fn test_vector_5_activityruntime_agentictenantid_agentic_tenant_skips_empty_conversation() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-tenant-skips-empty-conversation\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticAppInstance\"},\"conversation\":{\"tenantId\":\"\"}}},\"expected\":null,\"operation\":\"agenticTenantId\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticTenantId", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_5_activityruntime_agentictenantid_agentic_tenant_skips_empty_recipient() {
+async fn test_vector_6_activityruntime_agentictenantid_agentic_tenant_skips_empty_recipient() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-tenant-skips-empty-recipient\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticAppInstance\",\"tenantId\":\"\"},\"conversation\":{\"tenantId\":\"tenant-conversation\"}}},\"expected\":\"tenant-conversation\",\"operation\":\"agenticTenantId\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticTenantId", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_6_activityruntime_agenticuser_agentic_user_id() {
+async fn test_vector_7_activityruntime_agenticuser_agentic_user_id() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-user-id\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticUser\",\"agenticUserId\":\"agent-user-1\"}}},\"expected\":\"agent-user-1\",\"operation\":\"agenticUser\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticUser", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_7_activityruntime_agenticuser_non_agentic_user_id() {
+async fn test_vector_8_activityruntime_agenticuser_agentic_user_id_empty_string() {
+    let vector: Value = serde_json::from_str("{\"name\":\"agentic-user-id-empty-string\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticUser\",\"agenticUserId\":\"\"}}},\"expected\":\"\",\"operation\":\"agenticUser\"}")
+        .expect("failed to decode vector");
+    vector_runner::vc_run_vector("ActivityRuntime", "agenticUser", vector, true, vc_seam()).await;
+}
+
+#[tokio::test]
+async fn test_vector_9_activityruntime_agenticuser_non_agentic_user_id() {
     let vector: Value = serde_json::from_str("{\"name\":\"non-agentic-user-id\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"bot\",\"agenticUserId\":\"agent-user-1\"}}},\"expected\":null,\"operation\":\"agenticUser\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "agenticUser", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_8_activityruntime_channel_channel_empty_after_trim() {
+async fn test_vector_10_activityruntime_channel_channel_empty_after_trim() {
     let vector: Value = serde_json::from_str("{\"name\":\"channel-empty-after-trim\",\"stage\":\"callable\",\"input\":{\"activity\":{\"channelId\":\"  \"}},\"expected\":null,\"operation\":\"channel\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "channel", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_9_activityruntime_channel_channel_with_suffix() {
+async fn test_vector_11_activityruntime_channel_channel_with_suffix() {
     let vector: Value = serde_json::from_str("{\"name\":\"channel-with-suffix\",\"stage\":\"callable\",\"input\":{\"activity\":{\"channelId\":\"msteams:tenant\"}},\"expected\":\"msteams\",\"operation\":\"channel\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "channel", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_10_activityruntime_channel_channel_without_suffix() {
+async fn test_vector_12_activityruntime_channel_channel_without_suffix() {
     let vector: Value = serde_json::from_str("{\"name\":\"channel-without-suffix\",\"stage\":\"callable\",\"input\":{\"activity\":{\"channelId\":\"msteams\"}},\"expected\":\"msteams\",\"operation\":\"channel\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "channel", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_11_activityruntime_isagenticrequest_agentic_recipient_role() {
+async fn test_vector_13_activityruntime_isagenticrequest_agentic_recipient_role() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-recipient-role\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticAppInstance\"}}},\"expected\":true,\"operation\":\"isAgenticRequest\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "isAgenticRequest", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_12_activityruntime_isagenticrequest_agentic_user_recipient_role() {
+async fn test_vector_14_activityruntime_isagenticrequest_agentic_user_recipient_role() {
     let vector: Value = serde_json::from_str("{\"name\":\"agentic-user-recipient-role\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"agenticUser\"}}},\"expected\":true,\"operation\":\"isAgenticRequest\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "isAgenticRequest", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_13_activityruntime_isagenticrequest_bot_recipient_role() {
+async fn test_vector_15_activityruntime_isagenticrequest_bot_recipient_role() {
     let vector: Value = serde_json::from_str("{\"name\":\"bot-recipient-role\",\"stage\":\"callable\",\"input\":{\"activity\":{\"recipient\":{\"role\":\"bot\"}}},\"expected\":false,\"operation\":\"isAgenticRequest\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "isAgenticRequest", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_14_activityruntime_isagenticrequest_missing_recipient_role() {
+async fn test_vector_16_activityruntime_isagenticrequest_missing_recipient_role() {
     let vector: Value = serde_json::from_str("{\"name\":\"missing-recipient-role\",\"stage\":\"callable\",\"input\":{\"activity\":{}},\"expected\":false,\"operation\":\"isAgenticRequest\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "isAgenticRequest", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_15_activityruntime_mentions_mention_absent_entities() {
+async fn test_vector_17_activityruntime_mentions_mention_absent_entities() {
     let vector: Value = serde_json::from_str("{\"name\":\"mention-absent-entities\",\"stage\":\"callable\",\"input\":{\"activity\":{}},\"expected\":[],\"operation\":\"mentions\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "mentions", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_16_activityruntime_mentions_mention_entities_only() {
+async fn test_vector_18_activityruntime_mentions_mention_entities_only() {
     let vector: Value = serde_json::from_str("{\"name\":\"mention-entities-only\",\"stage\":\"callable\",\"input\":{\"activity\":{\"entities\":[{\"type\":\"Mention\",\"text\":\"<at>Castia</at>\",\"mentioned\":{\"id\":\"bot-1\"}},{\"type\":\"clientInfo\"}]}},\"expected\":[{\"type\":\"Mention\",\"text\":\"<at>Castia</at>\",\"mentioned\":{\"id\":\"bot-1\"}}],\"operation\":\"mentions\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "mentions", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_17_activityruntime_mentions_mention_lowercase_entity() {
+async fn test_vector_19_activityruntime_mentions_mention_lowercase_entity() {
     let vector: Value = serde_json::from_str("{\"name\":\"mention-lowercase-entity\",\"stage\":\"callable\",\"input\":{\"activity\":{\"entities\":[{\"type\":\"mention\",\"text\":\"<at>Castia</at>\",\"mentioned\":{\"id\":\"bot-1\"}}]}},\"expected\":[{\"type\":\"mention\",\"text\":\"<at>Castia</at>\",\"mentioned\":{\"id\":\"bot-1\"}}],\"operation\":\"mentions\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ActivityRuntime", "mentions", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_18_responsesruntime_inputtext_bare_string_items_fall_back_to_last() {
+async fn test_vector_20_responsesruntime_inputtext_bare_string_items_fall_back_to_last() {
     let vector: Value = serde_json::from_str("{\"name\":\"bare-string-items-fall-back-to-last\",\"stage\":\"callable\",\"input\":{\"value\":[\"first\",\"second\"]},\"expected\":\"second\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_19_responsesruntime_inputtext_empty_list_is_empty() {
+async fn test_vector_21_responsesruntime_inputtext_empty_list_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"empty-list-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":[]},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_20_responsesruntime_inputtext_empty_string() {
+async fn test_vector_22_responsesruntime_inputtext_empty_string() {
     let vector: Value = serde_json::from_str("{\"name\":\"empty-string\",\"stage\":\"callable\",\"input\":{\"value\":\"\"},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_21_responsesruntime_inputtext_list_content_parts() {
+async fn test_vector_23_responsesruntime_inputtext_list_content_parts() {
     let vector: Value = serde_json::from_str("{\"name\":\"list-content-parts\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"part one \"},{\"type\":\"input_text\",\"text\":\"part two\"}]}]},\"expected\":\"part one part two\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_22_responsesruntime_inputtext_list_role_string_content() {
+async fn test_vector_24_responsesruntime_inputtext_list_role_string_content() {
     let vector: Value = serde_json::from_str("{\"name\":\"list-role-string-content\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":\"say hi\"}]},\"expected\":\"say hi\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_23_responsesruntime_inputtext_non_list_non_string_is_empty() {
+async fn test_vector_25_responsesruntime_inputtext_non_list_non_string_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"non-list-non-string-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":{\"role\":\"user\"}},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_24_responsesruntime_inputtext_null_is_empty() {
+async fn test_vector_26_responsesruntime_inputtext_null_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"null-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":null},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_25_responsesruntime_inputtext_number_is_empty() {
+async fn test_vector_27_responsesruntime_inputtext_number_is_empty() {
     let vector: Value = serde_json::from_str("{\"name\":\"number-is-empty\",\"stage\":\"callable\",\"input\":{\"value\":42},\"expected\":\"\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_26_responsesruntime_inputtext_output_text_and_text_part_types() {
+async fn test_vector_28_responsesruntime_inputtext_output_text_and_text_part_types() {
     let vector: Value = serde_json::from_str("{\"name\":\"output-text-and-text-part-types\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":[{\"type\":\"output_text\",\"text\":\"a\"},{\"type\":\"text\",\"text\":\"b\"}]}]},\"expected\":\"ab\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_27_responsesruntime_inputtext_plain_string() {
+async fn test_vector_29_responsesruntime_inputtext_plain_string() {
     let vector: Value = serde_json::from_str("{\"name\":\"plain-string\",\"stage\":\"callable\",\"input\":{\"value\":\"hello world\"},\"expected\":\"hello world\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_28_responsesruntime_inputtext_prefers_last_user_turn() {
+async fn test_vector_30_responsesruntime_inputtext_prefers_last_user_turn() {
     let vector: Value = serde_json::from_str("{\"name\":\"prefers-last-user-turn\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":\"first\"},{\"role\":\"assistant\",\"content\":\"reply\"},{\"role\":\"user\",\"content\":\"second\"}]},\"expected\":\"second\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_29_responsesruntime_inputtext_roleless_item_falls_back() {
+async fn test_vector_31_responsesruntime_inputtext_roleless_item_falls_back() {
     let vector: Value = serde_json::from_str("{\"name\":\"roleless-item-falls-back\",\"stage\":\"callable\",\"input\":{\"value\":[{\"content\":\"no role here\"}]},\"expected\":\"no role here\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;
 }
 
 #[tokio::test]
-async fn test_vector_30_responsesruntime_inputtext_user_turn_wins_over_later_roleless_without_text() {
+async fn test_vector_32_responsesruntime_inputtext_user_turn_wins_over_later_roleless_without_text() {
     let vector: Value = serde_json::from_str("{\"name\":\"user-turn-wins-over-later-roleless-without-text\",\"stage\":\"callable\",\"input\":{\"value\":[{\"role\":\"user\",\"content\":\"the question\"},{\"role\":\"assistant\",\"content\":\"\"}]},\"expected\":\"the question\",\"operation\":\"inputText\"}")
         .expect("failed to decode vector");
     vector_runner::vc_run_vector("ResponsesRuntime", "inputText", vector, true, vc_seam()).await;

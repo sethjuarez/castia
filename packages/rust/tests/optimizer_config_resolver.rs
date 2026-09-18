@@ -91,7 +91,7 @@ async fn resolver_api_env_is_terminal_and_does_not_fall_through_to_local() {
         .await
         .expect("resolution succeeds");
 
-    assert_eq!(resolution.source, "default");
+    assert_eq!(resolution.source, "unsupported:resolver_api");
     assert_eq!(resolution.model.as_deref(), Some("gpt-env"));
     assert_eq!(resolution.instructions, None);
 }
@@ -179,6 +179,43 @@ async fn malformed_inline_config_is_terminal_and_degrades_to_defaults() {
     write_baseline(&temp, "gpt-local", "local instructions", None);
     env::set_var("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-env");
     env::set_var("OPTIMIZATION_CONFIG", "{not-json");
+
+    let resolution = CastiaAgentConfigResolver
+        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .await
+        .expect("resolution succeeds");
+
+    assert_eq!(resolution.source, "default");
+    assert_eq!(resolution.model.as_deref(), Some("gpt-env"));
+    assert_eq!(resolution.instructions, None);
+}
+
+#[tokio::test]
+async fn missing_requested_local_candidate_does_not_fall_back_to_baseline() {
+    let _guard = env_guard();
+    let temp = temp_root("missing_local_candidate");
+    write_baseline(&temp, "gpt-local", "local instructions", None);
+    env::set_var("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-env");
+    env::set_var("OPTIMIZATION_CANDIDATE_ID", "missing-candidate");
+
+    let resolution = CastiaAgentConfigResolver
+        .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))
+        .await
+        .expect("resolution succeeds");
+
+    assert_eq!(resolution.source, "default");
+    assert_eq!(resolution.model.as_deref(), Some("gpt-env"));
+    assert_eq!(resolution.instructions, None);
+}
+
+#[tokio::test]
+async fn malformed_local_metadata_degrades_to_defaults() {
+    let _guard = env_guard();
+    let temp = temp_root("malformed_local_metadata");
+    fs::create_dir_all(temp.join("baseline")).expect("baseline dir created");
+    fs::write(temp.join("baseline").join("metadata.yaml"), "model: [")
+        .expect("metadata written");
+    env::set_var("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-env");
 
     let resolution = CastiaAgentConfigResolver
         .resolve(&Some(temp.path().to_string_lossy().to_string()), &AtomicBool::new(false))

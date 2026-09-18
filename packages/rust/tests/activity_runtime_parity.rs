@@ -79,6 +79,16 @@ fn activity_runtime_helpers_match_python_activity_semantics() {
         runtime.agentic_user(&activity).as_deref(),
         Some("agent-user-1")
     );
+
+    let empty_agentic_user = Activity {
+        recipient: Some(ChannelAccount {
+            role: Some("agenticUser".to_string()),
+            agentic_user_id: Some(String::new()),
+            ..ChannelAccount::default()
+        }),
+        ..Activity::default()
+    };
+    assert_eq!(runtime.agentic_user(&empty_agentic_user).as_deref(), Some(""));
     assert_eq!(
         runtime.agentic_tenant_id(&activity).as_deref(),
         Some("tenant-from-conversation")

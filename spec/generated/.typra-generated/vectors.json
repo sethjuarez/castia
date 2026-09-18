@@ -38,6 +38,31 @@
       "returns": "string?",
       "sync": true,
       "vector": {
+        "name": "agentic-instance-id-empty-string",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticAppInstance",
+              "agenticAppId": ""
+            }
+          }
+        },
+        "expected": "",
+        "operation": "agenticInstanceId"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticInstanceId",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
         "name": "non-agentic-instance-id",
         "stage": "callable",
         "input": {
@@ -184,6 +209,31 @@
           }
         },
         "expected": "agent-user-1",
+        "operation": "agenticUser"
+      }
+    },
+    {
+      "contract": "ActivityRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "agenticUser",
+      "params": {
+        "activity": "Activity"
+      },
+      "returns": "string?",
+      "sync": true,
+      "vector": {
+        "name": "agentic-user-id-empty-string",
+        "stage": "callable",
+        "input": {
+          "activity": {
+            "recipient": {
+              "role": "agenticUser",
+              "agenticUserId": ""
+            }
+          }
+        },
+        "expected": "",
         "operation": "agenticUser"
       }
     },
