@@ -49,6 +49,7 @@
         "DeliveryManifestRuntime",
         "EntitiesRuntime",
         "EvaluationSuiteRuntime",
+        "HostingCredentialsRuntime",
         "IdentityRuntime",
         "IntegrationsGraphRuntime",
         "IntegrationsToolboxRuntime",
@@ -182,6 +183,13 @@
           "kind": "type",
           "group": "",
           "source": "evaluation_suite_runtime",
+          "protocol": true
+        },
+        {
+          "name": "HostingCredentialsRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "hosting_credentials_runtime",
           "protocol": true
         },
         {
@@ -911,6 +919,127 @@
               "returns": "unknown",
               "params": {
                 "path": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "HostingCredentialsRuntime",
+          "group": "",
+          "symbol": "HostingCredentialsRuntime",
+          "source": "hosting_credentials_runtime",
+          "methods": [
+            {
+              "name": "agenticIdentityFromEnv",
+              "returns": "unknown",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "bearer",
+              "returns": "string",
+              "params": {
+                "token": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "botConnectorCredential",
+              "returns": "unknown",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "hostingScopes",
+              "returns": "unknown",
+              "params": {},
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "instanceTokenRequest",
+              "returns": "unknown",
+              "params": {
+                "agentAssertion": "string",
+                "instanceClientId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "isLocalRun",
+              "returns": "boolean",
+              "params": {
+                "env": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "tenantTokenEndpoint",
+              "returns": "string",
+              "params": {
+                "tenantId": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "tokenResponseAccessToken",
+              "returns": "string",
+              "params": {
+                "body": "unknown",
+                "status": "int32",
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "userFicTokenRequest",
+              "returns": "unknown",
+              "params": {
+                "agentAssertion": "string",
+                "agenticUserId": "string",
+                "instanceClientId": "string",
+                "instanceToken": "string",
+                "scope": "string"
               },
               "optional": false,
               "sync": true,
@@ -2102,6 +2231,7 @@
         "delivery_manifest_runtime",
         "entities_runtime",
         "evaluation_suite_runtime",
+        "hosting_credentials_runtime",
         "identity_runtime",
         "integrations_graph_runtime",
         "integrations_toolbox_runtime",

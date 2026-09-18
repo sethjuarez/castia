@@ -834,6 +834,210 @@ pub fn run_delivery_manifest_runtime_conformance<
     }
 }
 
+/// Typed @vector conformance for HostingCredentialsRuntime. Pass your real `impl HostingCredentialsRuntime`; the
+/// `S: HostingCredentialsRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_hosting_credentials_runtime_conformance(&HostingCredentialsRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_hosting_credentials_runtime_conformance<
+    S: crate::model::HostingCredentialsRuntime + ?Sized,
+>(
+    seam: &S,
+) {
+    // vector: bearer-prefixes-token
+    {
+        let token: String = serde_json::from_str(
+            r####"
+"abc123"
+"####,
+        )
+        .expect("token parses");
+        let actual = seam.bearer(&token);
+        let actual_value = serde_json::to_value(actual).expect("bearer-prefixes-token: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"Bearer abc123"
+"####,
+        )
+        .expect("bearer-prefixes-token: expected parses");
+        assert_eq!(actual_value, expected, "bearer-prefixes-token misrouted");
+    }
+    // vector: local-run-when-digital-worker-flag-present
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "AGENT_DIGITAL_WORKER": "1",
+  "FOUNDRY_AGENT_TENANT_ID": "tenant"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.is_local_run(&env);
+        let actual_value = serde_json::to_value(actual)
+            .expect("local-run-when-digital-worker-flag-present: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("local-run-when-digital-worker-flag-present: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "local-run-when-digital-worker-flag-present misrouted"
+        );
+    }
+    // vector: local-run-when-hosted-tenant-absent
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.is_local_run(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("local-run-when-hosted-tenant-absent: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("local-run-when-hosted-tenant-absent: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "local-run-when-hosted-tenant-absent misrouted"
+        );
+    }
+    // vector: not-local-when-digital-worker-flag-empty-and-tenant-present
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "AGENT_DIGITAL_WORKER": "",
+  "FOUNDRY_AGENT_TENANT_ID": "tenant"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.is_local_run(&env);
+        let actual_value = serde_json::to_value(actual)
+            .expect("not-local-when-digital-worker-flag-empty-and-tenant-present: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("not-local-when-digital-worker-flag-empty-and-tenant-present: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "not-local-when-digital-worker-flag-empty-and-tenant-present misrouted"
+        );
+    }
+    // vector: not-local-when-hosted-tenant-present
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "FOUNDRY_AGENT_TENANT_ID": "tenant"
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.is_local_run(&env);
+        let actual_value =
+            serde_json::to_value(actual).expect("not-local-when-hosted-tenant-present: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("not-local-when-hosted-tenant-present: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "not-local-when-hosted-tenant-present misrouted"
+        );
+    }
+    // vector: not-local-when-hosted-tenant-present-but-empty
+    {
+        let env: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "FOUNDRY_AGENT_TENANT_ID": ""
+}
+"####,
+        )
+        .expect("env parses");
+        let actual = seam.is_local_run(&env);
+        let actual_value = serde_json::to_value(actual)
+            .expect("not-local-when-hosted-tenant-present-but-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+false
+"####,
+        )
+        .expect("not-local-when-hosted-tenant-present-but-empty: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "not-local-when-hosted-tenant-present-but-empty misrouted"
+        );
+    }
+    // vector: tenant-token-endpoint
+    {
+        let tenant_id: String = serde_json::from_str(
+            r####"
+"contoso"
+"####,
+        )
+        .expect("tenantId parses");
+        let actual = seam.tenant_token_endpoint(&tenant_id);
+        let actual_value = serde_json::to_value(actual).expect("tenant-token-endpoint: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"https://login.microsoftonline.com/contoso/oauth2/v2.0/token"
+"####,
+        )
+        .expect("tenant-token-endpoint: expected parses");
+        assert_eq!(actual_value, expected, "tenant-token-endpoint misrouted");
+    }
+    // vector: token-response-extracts-access-token
+    {
+        let status: i32 = serde_json::from_str(
+            r####"
+200
+"####,
+        )
+        .expect("status parses");
+        let body: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "access_token": "token"
+}
+"####,
+        )
+        .expect("body parses");
+        let text: String = serde_json::from_str(
+            r####"
+"{\"access_token\":\"token\"}"
+"####,
+        )
+        .expect("text parses");
+        let actual = seam.token_response_access_token(&status, &body, &text);
+        let actual_value =
+            serde_json::to_value(actual).expect("token-response-extracts-access-token: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"token"
+"####,
+        )
+        .expect("token-response-extracts-access-token: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "token-response-extracts-access-token misrouted"
+        );
+    }
+    // skipped: token-response-rejects-missing-access-token — expectedError on a @sync op has no typed error channel
+    // skipped: token-response-rejects-non-200-with-truncated-text — expectedError on a @sync op has no typed error channel
+}
+
 /// Typed @vector conformance for IdentityRuntime. Pass your real `impl IdentityRuntime`; the
 /// `S: IdentityRuntime` bound makes the compiler prove every op is implemented. Call
 /// from a test, e.g. `run_identity_runtime_conformance(&IdentityRuntimeImpl).await;` (or without `.await` when sync).

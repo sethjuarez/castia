@@ -3,6 +3,10 @@ use castia::delivery::{
     plan_manifest as build_manifest_plan, CastiaDeliveryAzdRuntime, CastiaDeliveryManifestRuntime,
 };
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
+use castia::hosting::{
+    token_response_access_token as build_token_response_access_token,
+    user_fic_token_request as build_user_fic_token_request, CastiaHostingCredentialsRuntime,
+};
 use castia::inference::{try_reasoning_param, CastiaModelRuntime, CastiaToolCatalogRuntime};
 use castia::integrations::{
     knowledge_base_mcp_tool as build_knowledge_base_mcp_tool,
@@ -21,12 +25,12 @@ use castia::messaging::{
 use castia::model::{
     Activity, ActivityRuntime, AgentConfigResolver, BuildPreflightRuntime, BuildTestingRuntime,
     CardsRuntime, ChatRuntime, DeliveryAzdRuntime, DeliveryManifestRuntime, EntitiesRuntime,
-    EvaluationSuiteRuntime, IdentityRuntime, IntegrationsGraphRuntime, IntegrationsToolboxRuntime,
-    InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime, LifecycleOperationsRuntime,
-    LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext, ModelRuntime,
-    ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime, ObserveTelemetryRuntime,
-    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, RuntimeDispatchRuntime,
-    RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
+    EvaluationSuiteRuntime, HostingCredentialsRuntime, IdentityRuntime, IntegrationsGraphRuntime,
+    IntegrationsToolboxRuntime, InvocationsRuntime, InvokesRuntime, LifecycleAcceptanceRuntime,
+    LifecycleOperationsRuntime, LifecycleRecordsRuntime, LifecycleStorageRuntime, LoadContext,
+    ModelRuntime, ObserveLiveRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
+    ObserveTelemetryRuntime, ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime,
+    RuntimeDispatchRuntime, RuntimeRouterRuntime, SaveContext, ToolCatalogRuntime,
 };
 use castia::observe::{
     CastiaObserveLiveRuntime, CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime,
@@ -237,6 +241,39 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "EvaluationSuiteRuntime.validateSuite",
             sync(evaluation_validate_suite),
+        ),
+        ("HostingCredentialsRuntime.bearer", sync(hosting_bearer)),
+        (
+            "HostingCredentialsRuntime.isLocalRun",
+            sync(hosting_is_local_run),
+        ),
+        (
+            "HostingCredentialsRuntime.agenticIdentityFromEnv",
+            sync(hosting_agentic_identity_from_env),
+        ),
+        (
+            "HostingCredentialsRuntime.tenantTokenEndpoint",
+            sync(hosting_tenant_token_endpoint),
+        ),
+        (
+            "HostingCredentialsRuntime.instanceTokenRequest",
+            sync(hosting_instance_token_request),
+        ),
+        (
+            "HostingCredentialsRuntime.userFicTokenRequest",
+            sync(hosting_user_fic_token_request),
+        ),
+        (
+            "HostingCredentialsRuntime.botConnectorCredential",
+            sync(hosting_bot_connector_credential),
+        ),
+        (
+            "HostingCredentialsRuntime.hostingScopes",
+            sync(hosting_scopes),
+        ),
+        (
+            "HostingCredentialsRuntime.tokenResponseAccessToken",
+            sync(hosting_token_response_access_token),
         ),
         (
             "IdentityRuntime.agenticUserId",
@@ -796,6 +833,69 @@ fn evaluation_validate_suite(input: &Value, ctx: &Context) -> Result<Value, Vect
     })();
     let _ = fs::remove_dir_all(temp);
     result
+}
+
+fn hosting_bearer(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(
+        CastiaHostingCredentialsRuntime.bearer(&string_input(input, "token")?),
+    ))
+}
+
+fn hosting_is_local_run(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::Bool(
+        CastiaHostingCredentialsRuntime.is_local_run(input.get("env").unwrap_or(&Value::Null)),
+    ))
+}
+
+fn hosting_agentic_identity_from_env(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaHostingCredentialsRuntime
+        .agentic_identity_from_env(input.get("env").unwrap_or(&Value::Null)))
+}
+
+fn hosting_tenant_token_endpoint(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(Value::String(
+        CastiaHostingCredentialsRuntime.tenant_token_endpoint(&string_input(input, "tenantId")?),
+    ))
+}
+
+fn hosting_instance_token_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaHostingCredentialsRuntime.instance_token_request(
+        &string_input(input, "instanceClientId")?,
+        &string_input(input, "agentAssertion")?,
+    ))
+}
+
+fn hosting_user_fic_token_request(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_user_fic_token_request(
+        &string_input(input, "instanceClientId")?,
+        &string_input(input, "agentAssertion")?,
+        &string_input(input, "instanceToken")?,
+        &string_input(input, "agenticUserId")?,
+        &string_input(input, "scope")?,
+    )
+    .map_err(vector_error)
+}
+
+fn hosting_bot_connector_credential(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaHostingCredentialsRuntime
+        .bot_connector_credential(input.get("env").unwrap_or(&Value::Null)))
+}
+
+fn hosting_scopes(_: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaHostingCredentialsRuntime.hosting_scopes())
+}
+
+fn hosting_token_response_access_token(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    build_token_response_access_token(
+        input
+            .get("status")
+            .and_then(Value::as_i64)
+            .unwrap_or_default() as i32,
+        input.get("body").unwrap_or(&Value::Null),
+        &string_input(input, "text")?,
+    )
+    .map(Value::String)
+    .map_err(vector_error)
 }
 
 fn identity_agentic_user_id(input: &Value, _: &Context) -> Result<Value, VectorError> {

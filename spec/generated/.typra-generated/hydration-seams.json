@@ -93,6 +93,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "HostingCredentialsRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "HostingCredentialsRuntime",
+      "generatedSource": "hosting_credentials_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "IdentityRuntime",
       "target": "rust",
       "group": "",

@@ -1,6 +1,7 @@
 pub mod building;
 pub mod delivery;
 pub mod evaluation;
+pub mod hosting;
 pub mod inference;
 pub mod integrations;
 pub mod lifecycle;

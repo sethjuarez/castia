@@ -322,6 +322,67 @@ fn evaluation_suite_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn EvaluationSuiteRuntime> = Box::new(CompileOnlyEvaluationSuiteRuntime);
 }
 
+struct CompileOnlyHostingCredentialsRuntime;
+
+#[async_trait::async_trait]
+impl HostingCredentialsRuntime for CompileOnlyHostingCredentialsRuntime {
+    fn agentic_identity_from_env(&self, env: &serde_json::Value) -> serde_json::Value {
+        panic!(
+            "HostingCredentialsRuntime.agenticIdentityFromEnv is a compile-only protocol scaffold."
+        )
+    }
+    fn bearer(&self, token: &String) -> String {
+        panic!("HostingCredentialsRuntime.bearer is a compile-only protocol scaffold.")
+    }
+    fn bot_connector_credential(&self, env: &serde_json::Value) -> serde_json::Value {
+        panic!(
+            "HostingCredentialsRuntime.botConnectorCredential is a compile-only protocol scaffold."
+        )
+    }
+    fn hosting_scopes(&self) -> serde_json::Value {
+        panic!("HostingCredentialsRuntime.hostingScopes is a compile-only protocol scaffold.")
+    }
+    fn instance_token_request(
+        &self,
+        instance_client_id: &String,
+        agent_assertion: &String,
+    ) -> serde_json::Value {
+        panic!(
+            "HostingCredentialsRuntime.instanceTokenRequest is a compile-only protocol scaffold."
+        )
+    }
+    fn is_local_run(&self, env: &serde_json::Value) -> bool {
+        panic!("HostingCredentialsRuntime.isLocalRun is a compile-only protocol scaffold.")
+    }
+    fn tenant_token_endpoint(&self, tenant_id: &String) -> String {
+        panic!("HostingCredentialsRuntime.tenantTokenEndpoint is a compile-only protocol scaffold.")
+    }
+    fn token_response_access_token(
+        &self,
+        status: &i32,
+        body: &serde_json::Value,
+        text: &String,
+    ) -> String {
+        panic!("HostingCredentialsRuntime.tokenResponseAccessToken is a compile-only protocol scaffold.")
+    }
+    fn user_fic_token_request(
+        &self,
+        instance_client_id: &String,
+        agent_assertion: &String,
+        instance_token: &String,
+        agentic_user_id: &String,
+        scope: &String,
+    ) -> serde_json::Value {
+        panic!("HostingCredentialsRuntime.userFicTokenRequest is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn hosting_credentials_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn HostingCredentialsRuntime> =
+        Box::new(CompileOnlyHostingCredentialsRuntime);
+}
+
 struct CompileOnlyIdentityRuntime;
 
 #[async_trait::async_trait]
