@@ -15,7 +15,7 @@ Castia keeps lifecycle work in separate packages. Existing imports such as
 | `castia.optimizing` | Candidate configuration, baseline generation, and optimizer jobs |
 | `castia.lifecycle` | Snapshots, datasets, evaluations, candidate evidence, and promotion records |
 | `castia.delivery` | Manifest generation and explicit deployment of a named service through azd |
-| `castia.finetuning` | RFT preparation/submission and inspection of existing training jobs |
+| `castia.finetuning` | SFT/DPO/RFT preparation/submission and inspection of existing training jobs |
 
 Runtime helpers load without initializing lifecycle tooling or cloud clients.
 Azure and OpenAI clients are created only by operations that need them. The
@@ -313,9 +313,10 @@ reconciliation before the journal can be opened for another write.
 
 ## Fine-tuning stays explicit
 
-`castia.finetuning.rft` builds graders and datasets and supports the explicit
-submission command. Its RFT submission contract remains provisional until a
-real training job validates it.
+`castia.finetuning.sft`, `castia.finetuning.dpo`, and
+`castia.finetuning.rft` build datasets and request payloads for explicit
+submission commands. Their submission contracts remain provisional until real
+training jobs validate them. RFT additionally builds graders.
 
 `FineTuningClient`, exported by `castia.finetuning`, manages existing jobs.
 That client has no training submission method.

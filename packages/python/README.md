@@ -45,7 +45,7 @@ Implementation code lives in capability packages under `src/castia`.
 | `evaluation` | Evaluation-suite configuration, rubric validation, azd evaluation commands |
 | `observe` | Telemetry configuration and tracing, execution records, queries, drift checks |
 | `optimizing` | Candidate configuration, baseline generation, optimizer jobs |
-| `finetuning` | RFT preparation/submission and existing-job management |
+| `finetuning` | SFT/DPO/RFT preparation/submission and existing-job management |
 | `lifecycle` | Snapshots, datasets, evaluation evidence, acceptance and promotion records |
 | `delivery` | Manifest generation and guarded azd deployment |
 
@@ -396,12 +396,12 @@ it anchored to your app root so the baseline resolves the same under
 `python app.py` and `python -m castia`. That contract is pinned for every SDK in
 [`spec/conformance/optimization/`](https://github.com/sethjuarez/castia/tree/main/spec/conformance/optimization).
 
-### Switching to a reasoning (or RFT-tuned) model
+### Switching to a fine-tuned model
 
 The optimizer's model search can land on a **reasoning** model — an o-series or
-GPT-5 deployment, or one you mint yourself with reinforcement fine-tuning (RFT).
-Those models take a `reasoning.effort` control that plain chat models don't.
-`Model` exposes it as `reasoning_effort` (`minimal|low|medium|high`):
+GPT-5 deployment, or one you mint yourself with fine-tuning. Reasoning models
+take a `reasoning.effort` control that plain chat models don't. `Model` exposes
+it as `reasoning_effort` (`minimal|low|medium|high`):
 
 ```python
 from castia import use_model
@@ -424,45 +424,62 @@ override flows through to the resolved candidate automatically.
 > the winning `.agent_configs` candidate back to your live agent.
 
 The runtime resolver and reconciler need the optimizer extra,
-`uv pip install --prerelease=allow "castia[optimize]"`.
+`uv pip install --prerelease=allow "castia[optimize]"`. Fine-tuning remains a
+separate build-time operation: train, deploy the resulting model, evaluate the
+deployment, then include that deployment in optimizer model search if desired.
 
-## Reinforcement fine-tuning (RFT)
+## Fine-tuning: SFT, DPO, and RFT
 
-RFT is an optional, separately authorized training operation. It trains a
-reasoning model against a grader. A resulting model still needs a separate
-deployment before an application or optimizer search can use it.
-Castia supplies builders, offline validators, and an explicit billable submit
-command. Passing an offline check does not authorize training or checkpoint
-deployment.
+Fine-tuning is an optional, separately authorized training operation. A
+resulting model still needs a separate deployment before an application or
+optimizer search can use it. Castia supplies builders, offline validators, and
+an explicit billable submit command. Passing an offline check does not authorize
+training or checkpoint deployment.
 
 ```bash
-# Offline gate — validate an RFT dataset (+ grader), no Azure, free in CI:
-python -m castia finetune check --dataset train.jsonl --validation val.jsonl --grader grader.json
+# Offline gates — validate datasets, no Azure, free in CI:
+python -m castia finetune check --type sft --dataset train.jsonl --validation val.jsonl
+python -m castia finetune check --type dpo --dataset train.jsonl
+python -m castia finetune check --type rft --dataset train.jsonl --validation val.jsonl --grader grader.json
 
 # Bridge an eval rubric into a score_model grader (offline):
 python -m castia finetune grader --rubric rubric.json --model gpt-4o --out grader.json
 
-# Preview the RFT payload without uploads or submission:
+# Preview payloads without uploads or submission:
 # Removing --dry-run starts billable training and needs separate approval.
+python -m castia finetune submit --type sft --model gpt-4.1-mini \
+  --dataset train.jsonl --validation val.jsonl --n-epochs 2 --dry-run
+python -m castia finetune submit --type dpo --model gpt-4.1 \
+  --dataset train.jsonl --beta 0.1 --dry-run
 python -m castia finetune submit --model o4-mini --dataset train.jsonl \
   --validation val.jsonl --grader grader.json --reasoning-effort high --dry-run
 ```
 
-A grader is one of `string_check`, `text_similarity`, `score_model`, `python`,
-`multi`, or `endpoint` (preview); templates reference two namespaces only —
-`{{ sample.output_text }}` and `{{ item.<field> }}`. Datasets are JSONL chat
+SFT datasets are JSONL chat `messages[]` rows with at least one `user` and one
+`assistant` turn, and the **final message role must be `assistant`**. SFT accepts
+optional `n_epochs`, `batch_size`, and `learning_rate_multiplier`
+hyperparameters.
+
+DPO datasets are JSONL preference rows with `input.messages`,
+`preferred_output`, and `non_preferred_output`. The output arrays may contain
+`assistant` or `tool` messages and must include at least one `assistant`
+message. DPO accepts the SFT hyperparameters plus `beta` and `l2_multiplier`.
+
+RFT trains a reasoning model against a grader. Its datasets are JSONL chat
 `messages[]` rows whose **final message role must be `user`**, with extra
 top-level keys as the `item.*` ground truth; **both** train and validation
-splits are required. `rubric_to_score_model()` bridges an eval rubric straight
-into a `score_model` grader — the natural tie between the *evaluate* and
-*switch-models* steps.
+splits are required. A grader is one of `string_check`, `text_similarity`,
+`score_model`, `python`, `multi`, or `endpoint` (preview); templates reference
+two namespaces only — `{{ sample.output_text }}` and `{{ item.<field> }}`.
+`rubric_to_score_model()` bridges an eval rubric straight into a `score_model`
+grader — the natural tie between the *evaluate* and *switch-models* steps.
 
 > ⚠️ **Provisional / doc-derived.** The grader JSON schema, the RFT
-> hyperparameter names, and that `fine_tuning.jobs.create` accepts this payload
-> are derived from the Foundry RFT how-to and **have not been confirmed against a
-> live RFT job**. The builders and validators are fully offline-tested; treat the
-> submitted wire shape as provisional until a real submission validates it. The
-> language-neutral contract is pinned in `spec/conformance/graders/`.
+> hyperparameter names, and the SFT/DPO/RFT `fine_tuning.jobs.create` payload
+> shapes are doc-derived and **have not been confirmed against live Castia
+> training jobs**. The builders and validators are fully offline-tested; treat
+> submitted wire shapes as provisional until real submissions validate them. The
+> RFT language-neutral contract is pinned in `spec/conformance/graders/`.
 
 ## Design
 

@@ -5,21 +5,21 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/pages.yml"
-      - "astro.config.mjs"
-      - "package.json"
-      - "package-lock.json"
-      - "public/**"
-      - "src/**"
+      - "docs/astro.config.mjs"
+      - "docs/package.json"
+      - "docs/package-lock.json"
+      - "docs/public/**"
+      - "docs/src/**"
       - "docs/**"
       - ".github/prompts/**"
   pull_request:
     paths:
       - ".github/workflows/pages.yml"
-      - "astro.config.mjs"
-      - "package.json"
-      - "package-lock.json"
-      - "public/**"
-      - "src/**"
+      - "docs/astro.config.mjs"
+      - "docs/package.json"
+      - "docs/package-lock.json"
+      - "docs/public/**"
+      - "docs/src/**"
       - "docs/**"
       - ".github/prompts/**"
   workflow_dispatch:
@@ -41,14 +41,17 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: docs/package-lock.json
 
       - run: npm ci
+        working-directory: docs
 
       - run: npm run build
+        working-directory: docs
 
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: docs/dist
 
   deploy:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')

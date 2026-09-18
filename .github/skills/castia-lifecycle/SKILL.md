@@ -193,7 +193,7 @@ upstream schema, and candidate guidance constraints.
 | Evaluate | `eval check`, `eval generate/run --dry-run` | `eval generate/run` submit billable work; `eval update` mutates remote assets |
 | Optimize | `optimize --check`, `optimize run --dry-run` | `optimize run` submits a billable job; apply writes a fetched candidate locally |
 | Record evidence | `lifecycle snapshot`, dataset and comparison records | Reviewed callbacks can execute code or live work; promotion is explicit |
-| Prepare RFT | `finetune check/grader`, `finetune submit --dry-run` | Training and checkpoint deployment each need separate authorization |
+| Prepare SFT/DPO/RFT | `finetune check/grader`, `finetune submit --dry-run` | Training and checkpoint deployment each need separate authorization |
 
 Offline commands that import the user's app or a callback execute that code.
 Keep registration and tool providers free of network side effects.

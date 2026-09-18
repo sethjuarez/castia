@@ -10,20 +10,21 @@ import sys
 def register_commands(sub: argparse._SubParsersAction) -> None:
     ft = sub.add_parser(
         "finetune",
-        help="reinforcement fine-tuning (RFT) -- prepare/validate/submit a job",
+        help="fine-tuning -- prepare/validate/submit SFT, DPO, or RFT jobs",
     )
     ftsub = ft.add_subparsers(dest="finetune_command", required=True)
 
     ft_check = ftsub.add_parser(
         "check",
-        help="validate an RFT dataset (+ optional grader) offline, no Azure",
+        help="validate an SFT, DPO, or RFT dataset offline, no Azure",
     )
+    ft_check.add_argument("--type", choices=("sft", "dpo", "rft"), default="rft")
     ft_check.add_argument("--dataset", required=True,
-                          help="training split JSONL (messages, final role=user)")
+                          help="training split JSONL")
     ft_check.add_argument("--validation", default=None,
-                          help="validation split JSONL (RFT requires both splits)")
+                          help="validation split JSONL (required for RFT)")
     ft_check.add_argument("--grader", default=None,
-                          help="grader JSON to cross-check item.* references against")
+                          help="RFT grader JSON to cross-check item.* references against")
     ft_check.set_defaults(func=_cmd_finetune_check)
 
     ft_grader = ftsub.add_parser(
@@ -40,13 +41,24 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
 
     ft_submit = ftsub.add_parser(
         "submit",
-        help="fine_tuning.jobs.create -- start a billable RFT job",
+        help="fine_tuning.jobs.create -- start a billable fine-tuning job",
     )
-    ft_submit.add_argument("--model", required=True,
-                           help="base reasoning model to fine-tune (e.g. o4-mini)")
+    ft_submit.add_argument("--type", choices=("sft", "dpo", "rft"), default="rft")
+    ft_submit.add_argument("--model", required=True, help="base model to fine-tune")
     ft_submit.add_argument("--dataset", required=True, help="training split JSONL")
-    ft_submit.add_argument("--validation", required=True, help="validation split JSONL")
-    ft_submit.add_argument("--grader", required=True, help="grader JSON")
+    ft_submit.add_argument("--validation", default=None, help="validation split JSONL")
+    ft_submit.add_argument("--grader", default=None, help="RFT grader JSON")
+    ft_submit.add_argument("--project-endpoint")
+    ft_submit.add_argument("--n-epochs", dest="n_epochs", type=int, default=None)
+    ft_submit.add_argument("--batch-size", dest="batch_size", default=None)
+    ft_submit.add_argument(
+        "--learning-rate-multiplier", dest="learning_rate_multiplier", type=float,
+        default=None,
+    )
+    ft_submit.add_argument("--beta", type=float, default=None,
+                           help="DPO beta hyperparameter")
+    ft_submit.add_argument("--l2-multiplier", dest="l2_multiplier", type=float,
+                           default=None, help="DPO l2_multiplier hyperparameter")
     ft_submit.add_argument("--reasoning-effort", dest="reasoning_effort", default=None,
                            choices=("low", "medium", "high"),
                            help="RFT reasoning_effort hyperparameter")
@@ -60,12 +72,7 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
 
 
 def _cmd_finetune_check(args: argparse.Namespace) -> int:
-    from castia.finetuning.rft import (
-        load_grader,
-        load_jsonl,
-        validate_rft_dataset,
-        validate_rft_splits,
-    )
+    from castia.finetuning.rft import load_grader, load_jsonl
 
     try:
         train = load_jsonl(args.dataset)
@@ -80,12 +87,11 @@ def _cmd_finetune_check(args: argparse.Namespace) -> int:
         print(f"validation    : {args.validation}  ({len(validation)} examples)")
     if args.grader:
         print(f"grader        : {args.grader}  (type: {grader.get('type')!r})")
+    print(f"type          : {args.type}")
 
-    if validation is not None:
-        problems = validate_rft_splits(train, validation, grader=grader)
-    else:
-        print("note          : no --validation split given (RFT requires both splits)")
-        problems = validate_rft_dataset(train, grader=grader, split="training")
+    problems = _validate_splits(
+        args.type, train, validation, grader=grader, require_rft_grader=False,
+    )
 
     for problem in problems:
         print(f"problem       : {problem}")
@@ -131,42 +137,60 @@ def _cmd_finetune_grader(args: argparse.Namespace) -> int:
     return 0
 
 def _cmd_finetune_submit(args: argparse.Namespace) -> int:
-    from castia.finetuning.rft import (
-        build_rft_job,
-        load_grader,
-        load_jsonl,
-        validate_rft_splits,
-    )
+    from castia.finetuning.rft import load_grader, load_jsonl
 
     try:
-        grader = load_grader(args.grader)
+        grader = load_grader(args.grader) if args.grader else None
         train = load_jsonl(args.dataset)
-        validation = load_jsonl(args.validation)
+        validation = load_jsonl(args.validation) if args.validation else None
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    problems = validate_rft_splits(train, validation, grader=grader)
+    problems = _validate_splits(
+        args.type, train, validation, grader=grader, require_rft_grader=True,
+    )
     for problem in problems:
         print(f"problem       : {problem}", file=sys.stderr)
     if problems:
         print("result        : PROBLEMS FOUND (nothing submitted)", file=sys.stderr)
         return 1
 
-    hyperparameters = None
-    if args.reasoning_effort or args.eval_interval is not None:
-        hyperparameters = {}
-        if args.reasoning_effort:
-            hyperparameters["reasoning_effort"] = args.reasoning_effort
-        if args.eval_interval is not None:
-            hyperparameters["eval_interval"] = args.eval_interval
+    hyperparameters = _hyperparameters(args)
 
     if args.dry_run:
         # Dry-run stays offline: build the payload from file *paths* (uploads and
         # the real file ids only happen on a live submit) so nothing is stored.
         import json as _json
 
-        job = build_rft_job(
+        try:
+            job = _build_job(
+                args.type,
+                model=args.model,
+                training_file=args.dataset,
+                validation_file=args.validation,
+                grader=grader,
+                hyperparameters=hyperparameters,
+                suffix=args.suffix,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"type          : {args.type}")
+        print(f"model         : {args.model}")
+        print(f"training      : {args.dataset}  ({len(train)} examples)")
+        if validation is not None:
+            print(f"validation    : {args.validation}  ({len(validation)} examples)")
+        print("payload       :")
+        print(_json.dumps(job, indent=2))
+        print("result        : dry-run (nothing uploaded or submitted)")
+        return 0
+
+    from castia.finetuning.rft import upload_file
+
+    try:
+        _build_job(
+            args.type,
             model=args.model,
             training_file=args.dataset,
             validation_file=args.validation,
@@ -174,20 +198,13 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
             hyperparameters=hyperparameters,
             suffix=args.suffix,
         )
-        print(f"model         : {args.model}")
-        print(f"training      : {args.dataset}  ({len(train)} examples)")
-        print(f"validation    : {args.validation}  ({len(validation)} examples)")
-        print("payload       :")
-        print(_json.dumps(job, indent=2))
-        print("result        : dry-run (nothing uploaded or submitted)")
-        return 0
-
-    from castia.finetuning.rft import submit_rft_job, upload_file
-
-    try:
-        train_id = upload_file(args.dataset)
-        val_id = upload_file(args.validation)
-        job = build_rft_job(
+        train_id = upload_file(args.dataset, endpoint=args.project_endpoint)
+        val_id = (
+            upload_file(args.validation, endpoint=args.project_endpoint)
+            if args.validation else None
+        )
+        job = _build_job(
+            args.type,
             model=args.model,
             training_file=train_id,
             validation_file=val_id,
@@ -195,14 +212,128 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
             hyperparameters=hyperparameters,
             suffix=args.suffix,
         )
-        created = submit_rft_job(job)
-    except (RuntimeError, OSError) as exc:
+        created = _submit_job(args.type, job, endpoint=args.project_endpoint)
+    except (RuntimeError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
     print(f"job           : {getattr(created, 'id', created)}")
-    print("result        : submitted (billable RFT job)")
+    print(f"result        : submitted (billable {args.type.upper()} job)")
     return 0
+
+
+def _validate_splits(
+    training_type: str,
+    train: list[dict],
+    validation: list[dict] | None,
+    *,
+    grader: dict | None,
+    require_rft_grader: bool,
+) -> list[str]:
+    if training_type == "sft":
+        if grader is not None:
+            return ["--grader is only valid with --type rft"]
+        from castia.finetuning.sft import validate_sft_splits
+
+        return validate_sft_splits(train, validation)
+    if training_type == "dpo":
+        if grader is not None:
+            return ["--grader is only valid with --type rft"]
+        from castia.finetuning.dpo import validate_dpo_splits
+
+        return validate_dpo_splits(train, validation)
+
+    if validation is None:
+        from castia.finetuning.rft import validate_rft_dataset
+
+        problems = ["RFT requires --validation"] if require_rft_grader else []
+        if grader is not None:
+            from castia.finetuning.rft import validate_grader
+
+            problems.extend(f"grader: {p}" for p in validate_grader(grader))
+        problems.extend(validate_rft_dataset(train, grader=grader, split="training"))
+        return problems
+    if grader is None and require_rft_grader:
+        return ["RFT requires --grader"]
+    from castia.finetuning.rft import validate_rft_splits
+
+    return validate_rft_splits(train, validation, grader=grader)
+
+
+def _hyperparameters(args: argparse.Namespace) -> dict | None:
+    hyperparameters = {}
+    for name in ("n_epochs", "learning_rate_multiplier", "beta", "l2_multiplier"):
+        value = getattr(args, name)
+        if value is not None:
+            hyperparameters[name] = value
+    if args.batch_size is not None:
+        try:
+            hyperparameters["batch_size"] = int(args.batch_size)
+        except ValueError:
+            hyperparameters["batch_size"] = args.batch_size
+    if args.reasoning_effort:
+        hyperparameters["reasoning_effort"] = args.reasoning_effort
+    if args.eval_interval is not None:
+        hyperparameters["eval_interval"] = args.eval_interval
+    return hyperparameters or None
+
+
+def _build_job(
+    training_type: str,
+    *,
+    model: str,
+    training_file: str,
+    validation_file: str | None,
+    grader: dict | None,
+    hyperparameters: dict | None,
+    suffix: str | None,
+) -> dict:
+    if training_type == "sft":
+        from castia.finetuning.sft import build_sft_job
+
+        return build_sft_job(
+            model=model,
+            training_file=training_file,
+            validation_file=validation_file,
+            hyperparameters=hyperparameters,
+            suffix=suffix,
+        )
+    if training_type == "dpo":
+        from castia.finetuning.dpo import build_dpo_job
+
+        return build_dpo_job(
+            model=model,
+            training_file=training_file,
+            validation_file=validation_file,
+            hyperparameters=hyperparameters,
+            suffix=suffix,
+        )
+    from castia.finetuning.rft import build_rft_job
+
+    if validation_file is None or grader is None:
+        raise ValueError("RFT requires validation_file and grader")
+    return build_rft_job(
+        model=model,
+        training_file=training_file,
+        validation_file=validation_file,
+        grader=grader,
+        hyperparameters=hyperparameters,
+        suffix=suffix,
+    )
+
+
+def _submit_job(training_type: str, job: dict, *, endpoint: str | None = None):
+    if training_type == "sft":
+        from castia.finetuning.sft import submit_sft_job
+
+        return submit_sft_job(job, endpoint=endpoint)
+    if training_type == "dpo":
+        from castia.finetuning.dpo import submit_dpo_job
+
+        return submit_dpo_job(job, endpoint=endpoint)
+    from castia.finetuning.rft import submit_rft_job
+
+    return submit_rft_job(job, endpoint=endpoint)
 
 
 def _register_management_commands(subparsers: argparse._SubParsersAction) -> None:
