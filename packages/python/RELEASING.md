@@ -51,9 +51,9 @@ See [LIFECYCLE.md](LIFECYCLE.md) for the live runner.
 Do not describe a local consumer calling Foundry as a new hosted deployment,
 or controlled candidate fixtures as optimizer-generated improvements.
 
-RFT submission remains provisional until a real training job validates its
-wire contract. A release check must not submit training or deploy a trained
-checkpoint as an incidental smoke test.
+SFT, DPO, and RFT submission remain provisional until real training jobs
+validate their wire contracts. A release check must not submit training or
+deploy a trained checkpoint as an incidental smoke test.
 
 ## Reproduce the checks on Windows
 

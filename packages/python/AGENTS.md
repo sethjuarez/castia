@@ -363,12 +363,12 @@ quality improvement, or RFT training.
 | Inference, `eval generate/run`, `optimize run`, `observe ... --live` | Live calls; model, tool, evaluator, or optimizer work can be billable | Same guides; approve the target and limits first |
 | Optimizer status/apply/cancel, `eval update`, trace queries | Remote reads or mutations; not offline and not a new optimizer submission | Inspect effects and permissions before calling |
 | `lifecycle` snapshots, datasets, comparisons, promotion | Local evidence; callbacks can execute arbitrary code and live operations | [Lifecycle evidence](LIFECYCLE.md#keep-evaluation-evidence-together) |
-| `finetune check/grader`, `finetune submit --dry-run` | Offline only; RFT wire contract remains provisional | [RFT](README.md#reinforcement-fine-tuning-rft) |
+| `finetune check/grader`, `finetune submit --dry-run` | Offline only; SFT/DPO/RFT wire contracts remain provisional | [Fine-tuning](README.md#fine-tuning-sft-dpo-and-rft) |
 
 `--live` does not authorize optimizer submission in observe; that also needs
-`--allow-optimizer-submit`. Neither authorizes training. RFT submission and
-checkpoint deployment require separate approval. No observation command trains
-a model.
+`--allow-optimizer-submit`. Neither authorizes training. SFT, DPO, or RFT
+submission and checkpoint deployment require separate approval. No observation
+command trains a model.
 
 ## Import and feature boundaries
 
