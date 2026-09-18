@@ -437,6 +437,29 @@ fn observe_suite_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn ObserveSuiteRuntime> = Box::new(CompileOnlyObserveSuiteRuntime);
 }
 
+struct CompileOnlyObserveTracingRuntime;
+
+#[async_trait::async_trait]
+impl ObserveTracingRuntime for CompileOnlyObserveTracingRuntime {
+    fn execute_tool_span(&self, name: &String, system: &Option<String>) -> serde_json::Value {
+        panic!("ObserveTracingRuntime.executeToolSpan is a compile-only protocol scaffold.")
+    }
+    fn invoke_agent_span(
+        &self,
+        name: &Option<String>,
+        env_name: &Option<String>,
+        env_version: &Option<String>,
+        system: &Option<String>,
+    ) -> serde_json::Value {
+        panic!("ObserveTracingRuntime.invokeAgentSpan is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn observe_tracing_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ObserveTracingRuntime> = Box::new(CompileOnlyObserveTracingRuntime);
+}
+
 struct CompileOnlyResponsesRuntime;
 
 #[async_trait::async_trait]

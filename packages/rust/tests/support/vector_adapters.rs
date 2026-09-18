@@ -14,9 +14,11 @@ use castia::model::{
     EvaluationSuiteRuntime, IdentityRuntime, InvocationsRuntime, InvokesRuntime,
     LifecycleAcceptanceRuntime, LifecycleOperationsRuntime, LifecycleRecordsRuntime,
     LifecycleStorageRuntime, LoadContext, ModelRuntime, ObserveRecordsRuntime, ObserveSuiteRuntime,
-    ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
+    ObserveTracingRuntime, ResponsesRuntime, RoutingRuntime, SaveContext, ToolCatalogRuntime,
 };
-use castia::observe::{CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime};
+use castia::observe::{
+    CastiaObserveRecordsRuntime, CastiaObserveSuiteRuntime, CastiaObserveTracingRuntime,
+};
 use castia::optimizing::CastiaAgentConfigResolver;
 use castia::protocols::{
     CastiaActivityRuntime, CastiaChatRuntime, CastiaInvocationsRuntime, CastiaResponsesRuntime,
@@ -253,6 +255,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             sync_with_normalize(observe_compare_reports, observe_suite_to_camel),
         ),
         ("ObserveSuiteRuntime.runSuite", sync(observe_run_suite)),
+        (
+            "ObserveTracingRuntime.invokeAgentSpan",
+            sync_with_normalize(observe_invoke_agent_span, observe_tracing_to_camel),
+        ),
+        (
+            "ObserveTracingRuntime.executeToolSpan",
+            sync_with_normalize(observe_execute_tool_span, observe_tracing_to_camel),
+        ),
         ("ModelRuntime.publicToolSpec", sync(model_public_tool_spec)),
         ("ModelRuntime.reasoningParam", sync(model_reasoning_param)),
         ("InvocationsRuntime.body", sync(invocations_body)),
@@ -930,6 +940,41 @@ fn observe_run_suite(input: &Value, context: &Context) -> Result<Value, VectorEr
     Ok(Value::Object(actual))
 }
 
+fn observe_invoke_agent_span(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaObserveTracingRuntime.invoke_agent_span(
+        &input
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        &input
+            .get("envName")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        &input
+            .get("envVersion")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        &input
+            .get("system")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    ))
+}
+
+fn observe_execute_tool_span(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(CastiaObserveTracingRuntime.execute_tool_span(
+        &input
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        &input
+            .get("system")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    ))
+}
+
 fn model_instructions_param(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaModelRuntime.instructions_param(
         &input
@@ -1131,6 +1176,30 @@ fn observe_record_to_snake(value: &Value) -> Value {
 
 fn observe_suite_to_camel(value: &Value, _: &Context) -> Value {
     observe_suite_keys(value, false)
+}
+
+fn observe_tracing_to_camel(value: &Value, _: &Context) -> Value {
+    observe_tracing_keys(value)
+}
+
+fn observe_tracing_keys(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let translated = match key.as_str() {
+                        "tracer_name" => "tracerName",
+                        "span_name" => "spanName",
+                        _ => key,
+                    };
+                    (translated.to_string(), observe_tracing_keys(value))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(observe_tracing_keys).collect()),
+        _ => value.clone(),
+    }
 }
 
 fn observe_suite_to_snake(value: &Value) -> Value {

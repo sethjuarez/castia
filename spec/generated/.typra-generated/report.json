@@ -3,7 +3,7 @@
   "version": 1,
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "summary": {
-    "emittedFiles": 43,
+    "emittedFiles": 44,
     "skippedFiles": 0,
     "staleMarkerOwnedRemovals": 0,
     "preservedUnmarkedSkippedFiles": 0,
@@ -123,6 +123,11 @@
     {
       "outputRoot": "../packages/rust/src/model",
       "path": "../packages/rust/src/model/observe_suite_runtime.rs",
+      "marker": true
+    },
+    {
+      "outputRoot": "../packages/rust/src/model",
+      "path": "../packages/rust/src/model/observe_tracing_runtime.rs",
       "marker": true
     },
     {

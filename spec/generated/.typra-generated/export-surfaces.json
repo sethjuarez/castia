@@ -55,6 +55,7 @@
         "ModelRuntime",
         "ObserveRecordsRuntime",
         "ObserveSuiteRuntime",
+        "ObserveTracingRuntime",
         "ResponsesRuntime",
         "RoutingRuntime",
         "ToolCatalogRuntime"
@@ -212,6 +213,13 @@
           "kind": "type",
           "group": "",
           "source": "observe_suite_runtime",
+          "protocol": true
+        },
+        {
+          "name": "ObserveTracingRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "observe_tracing_runtime",
           "protocol": true
         },
         {
@@ -1098,6 +1106,42 @@
           ]
         },
         {
+          "name": "ObserveTracingRuntime",
+          "group": "",
+          "symbol": "ObserveTracingRuntime",
+          "source": "observe_tracing_runtime",
+          "methods": [
+            {
+              "name": "executeToolSpan",
+              "returns": "unknown",
+              "params": {
+                "name": "string",
+                "system": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "invokeAgentSpan",
+              "returns": "unknown",
+              "params": {
+                "envName": "string?",
+                "envVersion": "string?",
+                "name": "string?",
+                "system": "string?"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "ResponsesRuntime",
           "group": "",
           "symbol": "ResponsesRuntime",
@@ -1248,6 +1292,7 @@
         "model_runtime",
         "observe_records_runtime",
         "observe_suite_runtime",
+        "observe_tracing_runtime",
         "responses_runtime",
         "routing_runtime",
         "tool_catalog_runtime"

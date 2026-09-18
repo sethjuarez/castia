@@ -64,6 +64,9 @@ pub use observe_records_runtime::*;
 pub mod observe_suite_runtime;
 pub use observe_suite_runtime::*;
 
+pub mod observe_tracing_runtime;
+pub use observe_tracing_runtime::*;
+
 pub mod responses_runtime;
 pub use responses_runtime::*;
 
