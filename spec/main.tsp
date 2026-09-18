@@ -1,5 +1,6 @@
 import "@typra/emitter";
 import "./protocols/activity.tsp";
+import "./protocols/responses.tsp";
 import "./optimizing/config.tsp";
 
 namespace Castia.Spec;

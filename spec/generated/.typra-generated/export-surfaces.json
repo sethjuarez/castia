@@ -40,7 +40,8 @@
         "CastiaContracts",
         "ChannelAccount",
         "ConversationAccount",
-        "Mention"
+        "Mention",
+        "ResponsesRuntime"
       ],
       "exports": [
         {
@@ -98,6 +99,13 @@
           "group": "",
           "source": "mention",
           "protocol": false
+        },
+        {
+          "name": "ResponsesRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "responses_runtime",
+          "protocol": true
         }
       ],
       "groups": [],
@@ -201,6 +209,26 @@
               "nonFatal": false
             }
           ]
+        },
+        {
+          "name": "ResponsesRuntime",
+          "group": "",
+          "symbol": "ResponsesRuntime",
+          "source": "responses_runtime",
+          "methods": [
+            {
+              "name": "inputText",
+              "returns": "string",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
         }
       ],
       "modules": [
@@ -212,7 +240,8 @@
         "channel_account",
         "context",
         "conversation_account",
-        "mention"
+        "mention",
+        "responses_runtime"
       ]
     }
   ]

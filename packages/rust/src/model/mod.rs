@@ -15,6 +15,9 @@ pub use activity_runtime::*;
 pub mod agent_config_resolver;
 pub use agent_config_resolver::*;
 
+pub mod responses_runtime;
+pub use responses_runtime::*;
+
 pub mod optimizing;
 pub use optimizing::*;
 

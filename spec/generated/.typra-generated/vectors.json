@@ -468,6 +468,330 @@
         ],
         "operation": "mentions"
       }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "bare-string-items-fall-back-to-last",
+        "stage": "callable",
+        "input": {
+          "value": [
+            "first",
+            "second"
+          ]
+        },
+        "expected": "second",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "empty-list-is-empty",
+        "stage": "callable",
+        "input": {
+          "value": []
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "empty-string",
+        "stage": "callable",
+        "input": {
+          "value": ""
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "list-content-parts",
+        "stage": "callable",
+        "input": {
+          "value": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "input_text",
+                  "text": "part one "
+                },
+                {
+                  "type": "input_text",
+                  "text": "part two"
+                }
+              ]
+            }
+          ]
+        },
+        "expected": "part one part two",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "list-role-string-content",
+        "stage": "callable",
+        "input": {
+          "value": [
+            {
+              "role": "user",
+              "content": "say hi"
+            }
+          ]
+        },
+        "expected": "say hi",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "non-list-non-string-is-empty",
+        "stage": "callable",
+        "input": {
+          "value": {
+            "role": "user"
+          }
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "null-is-empty",
+        "stage": "callable",
+        "input": {
+          "value": null
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "number-is-empty",
+        "stage": "callable",
+        "input": {
+          "value": 42
+        },
+        "expected": "",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "output-text-and-text-part-types",
+        "stage": "callable",
+        "input": {
+          "value": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "a"
+                },
+                {
+                  "type": "text",
+                  "text": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "expected": "ab",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "plain-string",
+        "stage": "callable",
+        "input": {
+          "value": "hello world"
+        },
+        "expected": "hello world",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "prefers-last-user-turn",
+        "stage": "callable",
+        "input": {
+          "value": [
+            {
+              "role": "user",
+              "content": "first"
+            },
+            {
+              "role": "assistant",
+              "content": "reply"
+            },
+            {
+              "role": "user",
+              "content": "second"
+            }
+          ]
+        },
+        "expected": "second",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "roleless-item-falls-back",
+        "stage": "callable",
+        "input": {
+          "value": [
+            {
+              "content": "no role here"
+            }
+          ]
+        },
+        "expected": "no role here",
+        "operation": "inputText"
+      }
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "namespace": "Castia.Spec.Protocols",
+      "group": "",
+      "operation": "inputText",
+      "params": {
+        "value": "unknown"
+      },
+      "returns": "string",
+      "sync": true,
+      "vector": {
+        "name": "user-turn-wins-over-later-roleless-without-text",
+        "stage": "callable",
+        "input": {
+          "value": [
+            {
+              "role": "user",
+              "content": "the question"
+            },
+            {
+              "role": "assistant",
+              "content": ""
+            }
+          ]
+        },
+        "expected": "the question",
+        "operation": "inputText"
+      }
     }
   ],
   "serializedTypes": [

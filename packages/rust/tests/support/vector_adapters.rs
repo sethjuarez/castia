@@ -1,5 +1,5 @@
-use castia::model::{Activity, ActivityRuntime, LoadContext, SaveContext};
-use castia::protocols::CastiaActivityRuntime;
+use castia::model::{Activity, ActivityRuntime, LoadContext, ResponsesRuntime, SaveContext};
+use castia::protocols::{CastiaActivityRuntime, CastiaResponsesRuntime};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
@@ -46,6 +46,7 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         ("ActivityRuntime.channel", sync(channel)),
         ("ActivityRuntime.isAgenticRequest", sync(is_agentic_request)),
         ("ActivityRuntime.mentions", sync(mentions)),
+        ("ResponsesRuntime.inputText", sync(responses_input_text)),
     ])
 }
 
@@ -116,5 +117,11 @@ fn mentions(input: &Value, _: &Context) -> Result<Value, VectorError> {
             .iter()
             .map(|mention| mention.to_value(&SaveContext::default()))
             .collect(),
+    ))
+}
+
+fn responses_input_text(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(serde_json::json!(
+        CastiaResponsesRuntime.input_text(input.get("value").unwrap_or(&Value::Null))
     ))
 }

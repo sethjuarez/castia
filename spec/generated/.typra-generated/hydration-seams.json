@@ -19,6 +19,14 @@
       "symbol": "AgentConfigResolver",
       "generatedSource": "agent_config_resolver",
       "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "ResponsesRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "ResponsesRuntime",
+      "generatedSource": "responses_runtime",
+      "seamKind": "protocol-adapter"
     }
   ]
 }

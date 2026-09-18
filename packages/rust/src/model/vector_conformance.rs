@@ -488,3 +488,307 @@ null
         assert_eq!(actual_value, expected, "non-agentic-user-id misrouted");
     }
 }
+
+/// Typed @vector conformance for ResponsesRuntime. Pass your real `impl ResponsesRuntime`; the
+/// `S: ResponsesRuntime` bound makes the compiler prove every op is implemented. Call
+/// from a test, e.g. `run_responses_runtime_conformance(&ResponsesRuntimeImpl).await;` (or without `.await` when sync).
+pub fn run_responses_runtime_conformance<S: crate::model::ResponsesRuntime + ?Sized>(seam: &S) {
+    // vector: bare-string-items-fall-back-to-last
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  "first",
+  "second"
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("bare-string-items-fall-back-to-last: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"second"
+"####,
+        )
+        .expect("bare-string-items-fall-back-to-last: expected parses");
+        assert_eq!(actual_value, expected, "bare-string-items-fall-back-to-last misrouted");
+    }
+    // vector: empty-list-is-empty
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("empty-list-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("empty-list-is-empty: expected parses");
+        assert_eq!(actual_value, expected, "empty-list-is-empty misrouted");
+    }
+    // vector: empty-string
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("empty-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("empty-string: expected parses");
+        assert_eq!(actual_value, expected, "empty-string misrouted");
+    }
+    // vector: list-content-parts
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "part one "
+      },
+      {
+        "type": "input_text",
+        "text": "part two"
+      }
+    ]
+  }
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("list-content-parts: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"part one part two"
+"####,
+        )
+        .expect("list-content-parts: expected parses");
+        assert_eq!(actual_value, expected, "list-content-parts misrouted");
+    }
+    // vector: list-role-string-content
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user",
+    "content": "say hi"
+  }
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("list-role-string-content: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"say hi"
+"####,
+        )
+        .expect("list-role-string-content: expected parses");
+        assert_eq!(actual_value, expected, "list-role-string-content misrouted");
+    }
+    // vector: non-list-non-string-is-empty
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{
+  "role": "user"
+}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("non-list-non-string-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("non-list-non-string-is-empty: expected parses");
+        assert_eq!(actual_value, expected, "non-list-non-string-is-empty misrouted");
+    }
+    // vector: null-is-empty
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+{}
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("null-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("null-is-empty: expected parses");
+        assert_eq!(actual_value, expected, "null-is-empty misrouted");
+    }
+    // vector: number-is-empty
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+42
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("number-is-empty: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+""
+"####,
+        )
+        .expect("number-is-empty: expected parses");
+        assert_eq!(actual_value, expected, "number-is-empty misrouted");
+    }
+    // vector: output-text-and-text-part-types
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "output_text",
+        "text": "a"
+      },
+      {
+        "type": "text",
+        "text": "b"
+      }
+    ]
+  }
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("output-text-and-text-part-types: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"ab"
+"####,
+        )
+        .expect("output-text-and-text-part-types: expected parses");
+        assert_eq!(actual_value, expected, "output-text-and-text-part-types misrouted");
+    }
+    // vector: plain-string
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+"hello world"
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("plain-string: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"hello world"
+"####,
+        )
+        .expect("plain-string: expected parses");
+        assert_eq!(actual_value, expected, "plain-string misrouted");
+    }
+    // vector: prefers-last-user-turn
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user",
+    "content": "first"
+  },
+  {
+    "role": "assistant",
+    "content": "reply"
+  },
+  {
+    "role": "user",
+    "content": "second"
+  }
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("prefers-last-user-turn: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"second"
+"####,
+        )
+        .expect("prefers-last-user-turn: expected parses");
+        assert_eq!(actual_value, expected, "prefers-last-user-turn misrouted");
+    }
+    // vector: roleless-item-falls-back
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "content": "no role here"
+  }
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("roleless-item-falls-back: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"no role here"
+"####,
+        )
+        .expect("roleless-item-falls-back: expected parses");
+        assert_eq!(actual_value, expected, "roleless-item-falls-back misrouted");
+    }
+    // vector: user-turn-wins-over-later-roleless-without-text
+    {
+        let value: serde_json::Value = serde_json::from_str(
+            r####"
+[
+  {
+    "role": "user",
+    "content": "the question"
+  },
+  {
+    "role": "assistant",
+    "content": ""
+  }
+]
+"####,
+        )
+        .expect("value parses");
+        let actual = seam.input_text(&value);
+        let actual_value = serde_json::to_value(actual).expect("user-turn-wins-over-later-roleless-without-text: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+"the question"
+"####,
+        )
+        .expect("user-turn-wins-over-later-roleless-without-text: expected parses");
+        assert_eq!(actual_value, expected, "user-turn-wins-over-later-roleless-without-text misrouted");
+    }
+}

@@ -48,3 +48,17 @@ impl AgentConfigResolver for CompileOnlyAgentConfigResolver {
 fn agent_config_resolver_compile_only_conformance() {
     let _scaffold: Box<dyn AgentConfigResolver> = Box::new(CompileOnlyAgentConfigResolver);
 }
+
+struct CompileOnlyResponsesRuntime;
+
+#[async_trait::async_trait]
+impl ResponsesRuntime for CompileOnlyResponsesRuntime {
+    fn input_text(&self, value: &serde_json::Value) -> String {
+        panic!("ResponsesRuntime.inputText is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn responses_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn ResponsesRuntime> = Box::new(CompileOnlyResponsesRuntime);
+}
