@@ -5,8 +5,8 @@ description: "Use Castia's Foundry Agent Optimizer lifecycle, canonical .agent_c
 
 # Castia optimizer usage
 
-Read the [consumer agent guide](../../../packages/python/AGENTS.md) for the
-complete runnable application. The [Python README](../../../packages/python/README.md#optimizer-readiness)
+Read the [consumer agent guide](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md)
+for the complete runnable application. The [Python README](https://github.com/sethjuarez/castia/blob/main/packages/python/README.md#optimizer-readiness)
 owns the detailed optimizer commands. This skill records the constraints to
 check before calling them.
 
@@ -64,7 +64,7 @@ def web_tools():
 At request time, rebuild the same spec with `token=await toolbox_token()` or
 the configured project connection. Pass it through `Model.respond_with_tools`.
 Registering it with `app.tools` alone does not attach it to a model request.
-The [consumer example](../../../packages/python/AGENTS.md#write-a-complete-responses-agent)
+The [consumer example](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#write-a-complete-responses-agent)
 shows both paths without putting a bearer in baseline files.
 
 Tool guidance changes `server_description`; it does not replace the remote
@@ -111,7 +111,7 @@ Verify both deployment state and actual runtime behavior before promotion.
 
 ## Drift checks and training boundary
 
-[LIFECYCLE.md](../../../packages/python/LIFECYCLE.md#inspect-traces-and-run-a-drift-suite)
+[LIFECYCLE.md](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md#inspect-traces-and-run-a-drift-suite)
 describes local observation suites, limits, and cleanup reporting.
 `observe drift --dry-run` is offline. `--live` permits configured live probes;
 optimizer submission additionally needs `--allow-optimizer-submit`.

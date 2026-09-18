@@ -1,3 +1,8 @@
+---
+name: foundry-story-flow
+description: "Build and verify the local to Foundry to Teams story flow for a Castia-based Microsoft Foundry hosted agent, with approval gates for live work."
+---
+
 # Foundry Story Flow
 
 Use this repo-local playbook when exercising the simplest hosted-agent story:

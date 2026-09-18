@@ -62,7 +62,7 @@ async def reply(text: str, model: Model = Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8088)
+    app.run(host="0.0.0.0", port=8088)
 ```
 
 Use `pyproject.toml` as the local app contract and keep `requirements.txt` as
@@ -164,7 +164,7 @@ agent memory are not shipped.
 Register a complete `Agent`, use `@app.responses()`, and guard `app.run()` with
 `if __name__ == "__main__"`. The local adapter accepts
 `POST /responses` with `{"input": "..."}` and returns `output_text`.
-The guide binds to loopback; hosted processes need `0.0.0.0`.
+Set `HOST=127.0.0.1` for local-only runs. Hosted processes need `0.0.0.0`.
 
 `Model` reads `FOUNDRY_PROJECT_ENDPOINT` and, absent an explicit deployment,
 `AZURE_AI_MODEL_DEPLOYMENT_NAME`. Its `DefaultAzureCredential` can use a local

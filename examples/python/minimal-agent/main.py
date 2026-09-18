@@ -41,7 +41,7 @@ def resolved_agent_config():
 
 def validate_startup() -> None:
     load_local_env()
-    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "").strip()
+    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "").strip().rstrip("/")
     deployment = os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "").strip()
     missing = [
         name for name, value in {
@@ -61,6 +61,7 @@ def validate_startup() -> None:
             "FOUNDRY_PROJECT_ENDPOINT must look like "
             "https://<account>.services.ai.azure.com/api/projects/<project>."
         )
+    os.environ["FOUNDRY_PROJECT_ENDPOINT"] = endpoint
     resolved_agent_config()
 
 
@@ -91,4 +92,6 @@ if hasattr(app, "responses_stream"):
 
 if __name__ == "__main__":
     validate_startup()
-    app.run(host="127.0.0.1", port=8088)
+    host = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
+    port = int(os.environ.get("PORT", "8088"))
+    app.run(host=host, port=port)

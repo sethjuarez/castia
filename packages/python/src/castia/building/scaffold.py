@@ -80,7 +80,7 @@ def resolved_agent_config():
 
 def validate_startup() -> None:
     load_local_env()
-    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "").strip()
+    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "").strip().rstrip("/")
     deployment = os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "").strip()
     missing = []
     if not endpoint or endpoint.startswith("<"):
@@ -98,6 +98,7 @@ def validate_startup() -> None:
             "FOUNDRY_PROJECT_ENDPOINT must look like "
             "https://<account>.services.ai.azure.com/api/projects/<project>."
         )
+    os.environ["FOUNDRY_PROJECT_ENDPOINT"] = endpoint
     resolved_agent_config()
 
 
@@ -117,7 +118,9 @@ async def reply(text: str, model=Depends(model_provider)) -> str:
 
 if __name__ == "__main__":
     validate_startup()
-    app.run(host="127.0.0.1", port=8088)
+    host = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
+    port = int(os.environ.get("PORT", "8088"))
+    app.run(host=host, port=port)
 '''
     smoke = '''"""Offline protocol contract; no model, identity, or Azure calls."""
 
@@ -212,10 +215,13 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "`AZURE_AI_MODEL_DEPLOYMENT_NAME`, then run the app from the agent root:\n\n"
             "```powershell\n"
             "uv sync --project .\n"
+            "$env:HOST = \"127.0.0.1\"\n"
             "uv run --directory . python main.py\n"
             "```\n\n"
             "The entrypoint validates `.env` and `.agent_configs/baseline` before "
-            "serving. Use the Foundry Agent Playground health check against "
+            "serving. The app binds to `0.0.0.0` by default so hosted ingress "
+            "can reach it. Set `HOST=127.0.0.1` for local-only runs. Use the "
+            "Foundry Agent Playground health check against "
             "`http://localhost:8088` before sending a model prompt.\n\n"
             "Before code deployment, select your existing azd environment and populate "
             "its context with values verified against that existing project:\n\n"

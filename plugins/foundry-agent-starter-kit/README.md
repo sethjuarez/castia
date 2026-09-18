@@ -13,7 +13,8 @@ package underneath the flow.
 | `skills/castia-lifecycle` | Build, test, evaluate, optimize, and deploy on the Castia rails. |
 | `skills/castia-optimizer` | Keep optimizer work separate from azd deployment. |
 | `skills/foundry-story-flow` | Run the local -> Foundry -> Teams demo path with approval gates. |
-| `prompts/` | Build and test prompts for scenario repos. |
+| `com.github.copilot/commands` | Build and test commands installed with the plugin. |
+| `prompts/` | Build and test prompts for manual repo setup. |
 | `com.github.copilot/extensions/foundry-agent-playground` | Playground canvas for local and hosted agent tests. |
 
 ## Install
