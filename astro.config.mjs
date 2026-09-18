@@ -26,7 +26,7 @@ export default defineConfig({
           items: [
             { label: "Install", slug: "install" },
             { label: "Starter kit", slug: "starter-kit" },
-            { label: "Scenario repo setup", slug: "copilot-extras" },
+            { label: "Manual repo setup", slug: "copilot-extras" },
             { label: "Copilot App", slug: "copilot-app" },
           ],
         },

@@ -1,0 +1,32 @@
+{
+  "name": "castia",
+  "metadata": {
+    "description": "Copilot plugins for building Microsoft Foundry agents with Castia.",
+    "version": "1.0.0"
+  },
+  "owner": {
+    "name": "Castia contributors",
+    "email": "sethjuarez@users.noreply.github.com"
+  },
+  "plugins": [
+    {
+      "name": "foundry-agent-starter-kit",
+      "description": "Build, test, and deploy Microsoft Foundry agents from Python repos.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Castia contributors",
+        "url": "https://github.com/sethjuarez/castia"
+      },
+      "homepage": "https://sethjuarez.github.io/castia/starter-kit/",
+      "repository": "https://github.com/sethjuarez/castia",
+      "keywords": [
+        "foundry",
+        "agents",
+        "castia",
+        "copilot",
+        "canvas"
+      ],
+      "source": "plugins/foundry-agent-starter-kit"
+    }
+  ]
+}

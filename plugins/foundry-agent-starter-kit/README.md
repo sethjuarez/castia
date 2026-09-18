@@ -2,7 +2,7 @@
 
 Build, test, and deploy Microsoft Foundry agents from Python repos.
 
-This plugin packages the reusable Copilot guidance for Castia-backed Foundry
+This package collects the reusable Copilot guidance for Foundry
 agents. It is named for the user job, not for the SDK. Castia remains the Python
 package underneath the flow.
 
@@ -14,29 +14,33 @@ package underneath the flow.
 | `skills/castia-optimizer` | Keep optimizer work separate from azd deployment. |
 | `skills/foundry-story-flow` | Run the local -> Foundry -> Teams demo path with approval gates. |
 | `prompts/` | Build and test prompts for scenario repos. |
-| `extensions/foundry-agent-playground` | Source for the playground canvas used to test local and hosted agents. |
+| `com.github.copilot/extensions/foundry-agent-playground` | Playground canvas for local and hosted agent tests. |
 
 ## Install
 
-For a plugin install:
+Install from the Castia marketplace in Copilot App:
+
+1. Open **Customize**.
+2. Open **Plugins**.
+3. Add the `sethjuarez/castia` marketplace if it is not listed.
+4. Install **Foundry Agent Starter Kit**.
+
+For command line setup, install the plugin from the repository subdirectory:
 
 ```powershell
-agency plugin install github:sethjuarez/castia:plugins/foundry-agent-starter-kit --engine copilot
+copilot plugin marketplace add sethjuarez/castia
+copilot plugin install foundry-agent-starter-kit@castia
 ```
 
-For repo-local use, copy the skills and prompts into the scenario repo:
+## Manual repo setup
+
+Use this only when you want the prompts and skills committed to a scenario repo
+instead of installed as a plugin:
 
 ```powershell
 New-Item -ItemType Directory -Force .github\prompts, .github\skills
 Copy-Item ..\castia\plugins\foundry-agent-starter-kit\prompts\*.prompt.md .github\prompts\
 Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -Recurse
-```
-
-Install the playground canvas from the extension folder or a shared extension
-gist:
-
-```text
-https://github.com/sethjuarez/castia/tree/main/plugins/foundry-agent-starter-kit/extensions/foundry-agent-playground
 ```
 
 ## Use

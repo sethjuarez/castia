@@ -1930,7 +1930,7 @@ function renderHtml() {
           <div class="teams-gates">
             <div class="teams-gate">
               <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-service-AI-Foundry.svg" alt="" /></span>
-              <div><div class="gate-title">Publish in Foundry</div><div class="gate-meta">Confirm the active hosted version, then use Publish → Teams and Microsoft 365 Copilot. Review name, version, descriptions, developer, and scope.</div></div>
+              <div><div class="gate-title">Publish in Foundry</div><div class="gate-meta">Confirm the active hosted version, then use Publish to Teams and Microsoft 365 Copilot. Review name, version, descriptions, developer, and scope.</div></div>
             </div>
             <div class="teams-gate">
               <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-a365-agents.svg" alt="" /></span>
