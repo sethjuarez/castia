@@ -17,6 +17,7 @@ from castia.observe import configuration as observability
 
 _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
+_TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 
 
@@ -121,7 +122,8 @@ def test_genai_tracing_default_instruments_and_sets_env(monkeypatch):
     assert observability.os.environ[_GENAI_ENV] == "true"
 
 
-def test_configure_observability_suppresses_asgi_send_spans_by_default(monkeypatch):
+def test_configure_observability_suppresses_asgi_internal_spans_by_default(monkeypatch):
+    monkeypatch.delenv(_TRACE_ASGI_INTERNAL_ENV, raising=False)
     monkeypatch.delenv(_TRACE_ASGI_SEND_ENV, raising=False)
     monkeypatch.delenv("APPLICATIONINSIGHTS_CONNECTION_STRING", raising=False)
     with (
@@ -134,11 +136,27 @@ def test_configure_observability_suppresses_asgi_send_spans_by_default(monkeypat
         observability.configure_observability()
 
     options = use_otel.call_args.kwargs["instrumentation_options"]
-    assert options["fastapi"] == {"exclude_spans": ["send"]}
+    assert options["fastapi"] == {"exclude_spans": ["send", "receive"]}
     assert options["openai_agents"] == {"enabled": False}
 
 
-def test_configure_observability_can_trace_asgi_send_spans(monkeypatch):
+def test_configure_observability_can_trace_asgi_internal_spans(monkeypatch):
+    monkeypatch.setenv(_TRACE_ASGI_INTERNAL_ENV, "true")
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,
+        mock.patch.object(
+            observability, "_build_agent_identity_processors", return_value=[]
+        ),
+        mock.patch.object(observability, "_enable_genai_tracing"),
+    ):
+        observability.configure_observability()
+
+    options = use_otel.call_args.kwargs["instrumentation_options"]
+    assert options["fastapi"] == {}
+
+
+def test_configure_observability_accepts_asgi_send_compat_flag(monkeypatch):
+    monkeypatch.delenv(_TRACE_ASGI_INTERNAL_ENV, raising=False)
     monkeypatch.setenv(_TRACE_ASGI_SEND_ENV, "true")
     with (
         mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,

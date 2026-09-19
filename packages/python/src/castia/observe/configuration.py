@@ -12,6 +12,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanProcessor
 
 _logger = logging.getLogger("agent")
+_TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 
 
@@ -98,18 +99,21 @@ def _resolve_flag(explicit: bool | None, env_var: str, default: bool) -> bool:
 
 
 def _fastapi_instrumentation_options() -> dict[str, list[str]]:
-    """Keep framework traces readable by hiding per-chunk ASGI send spans.
+    """Keep framework traces readable by hiding internal ASGI event spans.
 
     OpenTelemetry's FastAPI instrumentation delegates to the ASGI middleware,
-    which can emit a child span for every ``send`` event. Streaming Responses
-    turns produce many near-zero-duration ``POST /responses http send`` spans;
-    they obscure the meaningful server, model, and tool spans without adding
-    useful latency signal. Operators can opt back in when debugging the ASGI
-    transport itself.
+    which can emit a child span for every ``send`` and ``receive`` event.
+    Streaming Responses turns produce many near-zero-duration ``POST /responses
+    http send`` spans, and ``receive`` spans describe framework event handling
+    rather than bounded agent work. They obscure the meaningful server, model,
+    and tool spans without adding useful latency signal. Operators can opt back
+    in when debugging the ASGI transport itself.
     """
-    if _resolve_flag(None, _TRACE_ASGI_SEND_ENV, False):
+    if _resolve_flag(None, _TRACE_ASGI_INTERNAL_ENV, False) or _resolve_flag(
+        None, _TRACE_ASGI_SEND_ENV, False
+    ):
         return {}
-    return {"exclude_spans": ["send"]}
+    return {"exclude_spans": ["send", "receive"]}
 
 
 def _build_agent_identity_processors() -> list[SpanProcessor]:
