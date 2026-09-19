@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/sethjuarez/castia/compare/python-v0.7.2...python-v0.7.3) (2026-09-19)
+
+
+### Bug Fixes
+
+* **python:** use editable requirements shim for scaffold ([157c524](https://github.com/sethjuarez/castia/commit/157c5240025d465804ce16c35fa15d27b1809193))
+
 ## [0.7.2](https://github.com/sethjuarez/castia/compare/python-v0.7.1...python-v0.7.2) (2026-09-18)
 
 
