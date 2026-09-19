@@ -1,28 +1,25 @@
 # Deployment intent only. No infrastructure is created by this scaffold.
-name: minimal-agent
+name: prompty-agent
 services:
-  minimal-agent:
+  prompty-agent:
     project: .
     host: azure.ai.agent
     language: python
     kind: hosted
-    name: minimal-agent
-    description: A Castia agent serving Responses, Invocations and Teams.
+    name: prompty-agent
+    description: A Castia agent using the optional Prompty runtime harness.
     codeConfiguration:
       runtime: python_3_13
       entryPoint: main.py
       dependencyResolution: remote_build
-    # Optional Docker alternative: remove codeConfiguration, set language: docker,
-    # and add docker: {path: ./Dockerfile, context: ., remoteBuild: true}.
     protocols:
-      - protocol: activity
-        version: 2.0.0
       - protocol: responses
-        version: 2.0.0
-      - protocol: invocations
         version: 2.0.0
     env:
       AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+      PROMPTY_TOOLBOX_ALLOWED_TOOLS: ${PROMPTY_TOOLBOX_ALLOWED_TOOLS}
+      AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED: "true"
+      FOUNDRY_PROJECT_RESOURCE_ID: ${AZURE_AI_PROJECT_ID}
       CASTIA_DEPLOYMENT_STAMP: ${CASTIA_DEPLOYMENT_STAMP}
     container:
       resources:

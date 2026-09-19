@@ -14,6 +14,8 @@ from opentelemetry.sdk.trace import SpanProcessor
 _logger = logging.getLogger("agent")
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
+_TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
+_MSI_TOKEN_FAST_THRESHOLD_MS = 2000
 
 
 def configure_observability(
@@ -61,6 +63,7 @@ def configure_observability(
     if agent_version:
         attributes["service.version"] = agent_version
 
+    _configure_azure_core_tracing()
     identity_processors = _build_agent_identity_processors()
 
     use_microsoft_opentelemetry(
@@ -76,6 +79,7 @@ def configure_observability(
             "openai_agents": {"enabled": False},
         },
     )
+    _install_msi_token_span_filter()
 
     _enable_genai_tracing(
         enable_content_recording=enable_content_recording,
@@ -143,7 +147,11 @@ def _build_agent_identity_processors() -> list[SpanProcessor]:
     try:
         name = os.environ.get("FOUNDRY_AGENT_NAME", "castia-agent")
         version = os.environ.get("FOUNDRY_AGENT_VERSION")
-        project_id = os.environ.get("FOUNDRY_PROJECT_RESOURCE_ID")
+        project_id = (
+            os.environ.get("FOUNDRY_PROJECT_RESOURCE_ID")
+            or os.environ.get("AZURE_AI_PROJECT_RESOURCE_ID")
+            or os.environ.get("AZURE_AI_PROJECT_ID")
+        )
 
         span_attributes: dict[str, str] = {}
         if name:
@@ -219,6 +227,29 @@ class _AgentIdentitySpanProcessor(SpanProcessor):
             _logger.debug("Failed to stamp agent identity on span", exc_info=True)
 
 
+class _MsiTokenFilteringSpanProcessor(SpanProcessor):
+    """Skip export for ordinary successful managed-identity token calls."""
+
+    _castia_msi_filter = True
+
+    def __init__(self, delegate: SpanProcessor) -> None:
+        self._delegate = delegate
+
+    def on_start(self, span: Any, parent_context: Any = None) -> None:
+        self._delegate.on_start(span, parent_context=parent_context)
+
+    def on_end(self, span: Any) -> None:
+        if _should_suppress_msi_token_span(span):
+            return
+        self._delegate.on_end(span)
+
+    def shutdown(self) -> None:
+        self._delegate.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._delegate.force_flush(timeout_millis=timeout_millis)
+
+
 def _enable_genai_tracing(
     *,
     enable_content_recording: bool | None = None,
@@ -253,17 +284,7 @@ def _enable_genai_tracing(
             _logger.info("GenAI tracing instrumentor disabled")
             return
 
-        # The instrumentor creates spans through azure-core's tracing
-        # abstraction, which must point at the OpenTelemetry span implementation.
-        # use_microsoft_opentelemetry sets this when Azure Monitor is enabled;
-        # set it explicitly so tracing also works with only the Agent 365
-        # exporter active, and so ordering can never leave it unset.
-        from azure.core.settings import settings
-        from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
-
-        if settings.tracing_implementation() is None:
-            settings.tracing_implementation = OpenTelemetrySpan
-
+        _configure_azure_core_tracing()
         from azure.ai.projects.telemetry import AIProjectInstrumentor
 
         # Whether the model call's input/output *content* is recorded onto the
@@ -315,6 +336,116 @@ def _guard_instrumentor_recording() -> None:
         cls._append_to_message_attribute = _guarded
     except Exception:  # pragma: no cover - telemetry must never break startup
         _logger.warning("Failed to guard GenAI instrumentor", exc_info=True)
+
+
+def _azure_core_tracing_implementation():
+    """Return the Azure SDK OTel span implementation Castia wants by default."""
+    from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
+
+    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False):
+        return OpenTelemetrySpan
+
+    from opentelemetry import trace
+    from opentelemetry.trace import NonRecordingSpan
+
+    class CastiaOpenTelemetrySpan(OpenTelemetrySpan):
+        def __init__(self, span: Any = None, name: str | None = "span", **kwargs: Any) -> None:
+            if span is None and _is_msi_token_span_name(name):
+                self._current_ctxt_manager = None
+                self._span_instance = NonRecordingSpan(
+                    trace.get_current_span().get_span_context()
+                )
+                return
+            super().__init__(span=span, name=name, **kwargs)
+
+    return CastiaOpenTelemetrySpan
+
+
+def _install_msi_token_span_filter() -> None:
+    """Drop successful/fast managed-identity token spans before export."""
+    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False):
+        return
+    try:
+        from opentelemetry import trace
+
+        provider = trace.get_tracer_provider()
+        active_processor = getattr(provider, "_active_span_processor", None)
+        processors = getattr(active_processor, "_span_processors", None)
+        if not processors:
+            return
+        filtered_processors = tuple(
+            processor
+            if getattr(processor, "_castia_msi_filter", False)
+            else _MsiTokenFilteringSpanProcessor(processor)
+            for processor in processors
+        )
+        active_processor._span_processors = filtered_processors
+    except Exception:  # pragma: no cover - telemetry must never break startup
+        _logger.debug("Failed to install MSI token span filter", exc_info=True)
+
+
+def _should_suppress_msi_token_span(span: Any) -> bool:
+    if not _is_msi_token_export_span(span):
+        return False
+    status_code = _span_http_status_code(span)
+    if status_code is None or status_code >= 400:
+        return False
+    duration_ms = _span_duration_ms(span)
+    return duration_ms is not None and duration_ms <= _MSI_TOKEN_FAST_THRESHOLD_MS
+
+
+def _is_msi_token_export_span(span: Any) -> bool:
+    name = str(getattr(span, "name", "") or "").lower()
+    attributes = getattr(span, "attributes", {}) or {}
+    fields = [
+        name,
+        str(attributes.get("http.url", "") or "").lower(),
+        str(attributes.get("url.full", "") or "").lower(),
+        str(attributes.get("http.target", "") or "").lower(),
+    ]
+    return any("/msi/token" in field for field in fields)
+
+
+def _span_http_status_code(span: Any) -> int | None:
+    attributes = getattr(span, "attributes", {}) or {}
+    for key in ("http.status_code", "http.response.status_code"):
+        value = attributes.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _span_duration_ms(span: Any) -> float | None:
+    start_time = getattr(span, "start_time", None)
+    end_time = getattr(span, "end_time", None)
+    if start_time is None or end_time is None:
+        return None
+    return (end_time - start_time) / 1_000_000
+
+
+def _configure_azure_core_tracing() -> None:
+    """Install Castia's Azure SDK tracing implementation before SDK clients run."""
+    from azure.core.settings import settings
+
+    current_tracing = settings.tracing_implementation()
+    if current_tracing is None or _is_stock_azure_otel_span(current_tracing):
+        settings.tracing_implementation = _azure_core_tracing_implementation()
+
+
+def _is_msi_token_span_name(name: str | None) -> bool:
+    return "/msi/token" in str(name or "").lower()
+
+
+def _is_stock_azure_otel_span(implementation: Any) -> bool:
+    return (
+        getattr(implementation, "__name__", "") == "OpenTelemetrySpan"
+        and getattr(implementation, "__module__", "")
+        == "azure.core.tracing.ext.opentelemetry_span"
+    )
 
 
 def flush_telemetry(timeout_millis: int = 3000) -> None:

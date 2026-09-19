@@ -31,9 +31,9 @@ export function isStartupReadinessPending(state) {
 }
 
 export function responseDetailsKey(turn, index = 0) {
+    if (turn?.createdAt) return "created:" + String(turn.createdAt) + ":" + String(turn.target || "local");
     const responseId = turn?.response?.id || turn?.response?.body?.id || turn?.id;
     if (responseId) return "response:" + String(responseId);
-    if (turn?.createdAt) return "created:" + String(turn.createdAt) + ":" + String(turn.target || "local");
     return "index:" + String(index);
 }
 
@@ -144,6 +144,7 @@ export const rendererClientScript = `
     let hostedWaitTimer = null;
     let deployRefreshTimer = null;
     const expandedResponseDetails = new Set();
+    const responseDetailsScroll = new Map();
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
@@ -458,6 +459,11 @@ export const rendererClientScript = `
         transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
         return;
       }
+      transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
+        const panel = pre.closest(".details-panel[data-details-key]");
+        if (panel?.dataset?.detailsKey) responseDetailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
+      });
+      const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => {
         const detailsKey = responseDetailsKey(turn, index);
         const detailsId = responseDetailsPanelId(detailsKey);
@@ -480,12 +486,26 @@ export const rendererClientScript = `
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
           '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button></div>' +
-          '<div id="' + escapeHtml(detailsId) + '" class="details-panel" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
+          '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
       }).join("");
-      transcript.scrollTop = transcript.scrollHeight;
+      const restoreDetailsScroll = () => transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
+        const panel = pre.closest(".details-panel[data-details-key]");
+        const top = panel?.dataset?.detailsKey ? responseDetailsScroll.get(panel.dataset.detailsKey) : undefined;
+        if (top !== undefined) pre.scrollTop = top;
+      });
+      restoreDetailsScroll();
+      if (shouldStickToBottom) transcript.scrollTop = transcript.scrollHeight;
+      requestAnimationFrame(restoreDetailsScroll);
     }
+
+    transcript.addEventListener("scroll", (event) => {
+      const pre = event.target?.closest?.(".details-panel[data-details-key] pre");
+      if (!pre) return;
+      const panel = pre.closest(".details-panel[data-details-key]");
+      if (panel?.dataset?.detailsKey) responseDetailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
+    }, true);
 
     transcript.addEventListener("click", (event) => {
       const toggle = event.target.closest(".details-toggle");
@@ -575,9 +595,36 @@ export const rendererClientScript = `
 
     function responseText(body) {
       if (body && typeof body === "object") {
-        return body.output_text ?? body.output ?? JSON.stringify(body, null, 2);
+        const direct = textOrEmpty(body.output_text);
+        if (direct) return direct;
+        const output = textFromResponsesOutput(body.output);
+        if (output) return output;
+        return body.output ?? JSON.stringify(body, null, 2);
       }
       return body ?? "";
+    }
+
+    function textOrEmpty(value) {
+      return typeof value === "string" && value.trim() ? value : "";
+    }
+
+    function textFromResponsesOutput(output) {
+      if (!Array.isArray(output)) return "";
+      const parts = [];
+      for (const item of output) {
+        if (!item || typeof item !== "object") continue;
+        if (typeof item.text === "string") {
+          parts.push(item.text);
+        }
+        const content = item.content;
+        if (!Array.isArray(content)) continue;
+        for (const part of content) {
+          if (part && typeof part === "object" && typeof part.text === "string") {
+            parts.push(part.text);
+          }
+        }
+      }
+      return parts.join("").trim();
     }
 
     function renderMarkdown(value) {
@@ -1103,7 +1150,14 @@ export const rendererClientScript = `
             renderSnapshot(JSON.parse(dataLine.slice(6)));
           }
         }
-        setStatus((latestState?.deployment?.exitCode ?? 1) === 0 ? "ok" : "fail", (latestState?.deployment?.exitCode ?? 1) === 0 ? successText : failureText);
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          const dataLine = buffer.split("\\n").find((line) => line.startsWith("data: "));
+          if (dataLine) renderSnapshot(JSON.parse(dataLine.slice(6)));
+        }
+        const finalState = await request("/api/state");
+        renderSnapshot(finalState);
+        setStatus(finalState.deployment?.exitCode === 0 ? "ok" : "fail", finalState.deployment?.exitCode === 0 ? successText : failureText);
       } catch (error) {
         setStatus("fail", error.message);
       } finally {

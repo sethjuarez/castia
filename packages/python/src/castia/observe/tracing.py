@@ -25,6 +25,8 @@ as a first-class step in the portal. The model call already emits its own
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -36,12 +38,48 @@ from typing import Any
 PROVIDER = "microsoft.foundry"
 
 _TRACER_NAME = "castia"
+_CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
+_logger = logging.getLogger("agent")
 
 
 def _get_tracer():
     from opentelemetry import trace
 
     return trace.get_tracer(_TRACER_NAME)
+
+
+def content_recording_enabled() -> bool:
+    """Whether content-bearing trace attributes may be emitted."""
+    return os.environ.get(_CONTENT_RECORDING_ENV, "").strip().lower() == "true"
+
+
+def record_turn_input(span: Any, text: str) -> None:
+    """Attach the external user turn text when content recording is enabled."""
+    if not content_recording_enabled() or not text:
+        return
+    _set_json_attribute(
+        span,
+        "gen_ai.input.messages",
+        [{"role": "user", "content": text}],
+    )
+
+
+def record_turn_output(span: Any, text: str) -> None:
+    """Attach the final agent answer when content recording is enabled."""
+    if not content_recording_enabled() or not text:
+        return
+    _set_json_attribute(
+        span,
+        "gen_ai.output.messages",
+        [{"role": "assistant", "content": text}],
+    )
+
+
+def _set_json_attribute(span: Any, key: str, value: object) -> None:
+    try:
+        span.set_attribute(key, json.dumps(value, ensure_ascii=False))
+    except Exception:
+        _logger.debug("Failed to set content trace attribute", exc_info=True)
 
 
 class OperationName:

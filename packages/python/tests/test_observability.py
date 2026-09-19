@@ -19,6 +19,7 @@ _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
+_TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
 
 
 @pytest.mark.parametrize("helper", ["invoke_agent", "execute_tool"])
@@ -169,6 +170,112 @@ def test_configure_observability_accepts_asgi_send_compat_flag(monkeypatch):
 
     options = use_otel.call_args.kwargs["instrumentation_options"]
     assert options["fastapi"] == {}
+
+
+def test_azure_core_tracing_filters_msi_token_spans_by_default(monkeypatch):
+    from opentelemetry.trace import NonRecordingSpan
+
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    implementation = observability._azure_core_tracing_implementation()
+
+    span = implementation(name="GET /msi/token")
+
+    assert isinstance(span.span_instance, NonRecordingSpan)
+    assert implementation.__name__ == "CastiaOpenTelemetrySpan"
+
+
+def test_azure_core_tracing_can_keep_msi_token_spans(monkeypatch):
+    from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
+
+    monkeypatch.setenv(_TRACE_MSI_TOKEN_ENV, "true")
+
+    assert observability._azure_core_tracing_implementation() is OpenTelemetrySpan
+
+
+def _http_span(
+    *,
+    name: str = "GET /msi/token",
+    status_code: int = 200,
+    duration_ms: int = 371,
+):
+    return mock.MagicMock(
+        name=name,
+        attributes={"http.status_code": status_code, "url.full": "http://100.64.100.2/msi/token"},
+        start_time=0,
+        end_time=duration_ms * 1_000_000,
+    )
+
+
+def test_msi_token_filter_suppresses_successful_fast_spans(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    processor.on_end(_http_span(status_code=200, duration_ms=371))
+
+    delegate.on_end.assert_not_called()
+
+
+def test_msi_token_filter_keeps_failures_and_slow_spans(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    failed = _http_span(status_code=400, duration_ms=350)
+    slow = _http_span(status_code=200, duration_ms=2500)
+
+    processor.on_end(failed)
+    processor.on_end(slow)
+
+    assert delegate.on_end.call_args_list == [mock.call(failed), mock.call(slow)]
+
+
+def test_msi_token_span_filter_wraps_existing_processors(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    processor = object()
+    active_processor = mock.MagicMock(_span_processors=(processor,))
+    provider = mock.MagicMock(_active_span_processor=active_processor)
+
+    with mock.patch("opentelemetry.trace.get_tracer_provider", return_value=provider):
+        observability._install_msi_token_span_filter()
+
+    wrapped = active_processor._span_processors
+    assert len(wrapped) == 1
+    assert isinstance(wrapped[0], observability._MsiTokenFilteringSpanProcessor)
+
+
+def test_msi_token_span_filter_preserves_operator_opt_in(monkeypatch):
+    monkeypatch.setenv(_TRACE_MSI_TOKEN_ENV, "true")
+    processor = mock.MagicMock()
+    active_processor = mock.MagicMock(_span_processors=(processor,))
+    provider = mock.MagicMock(_active_span_processor=active_processor)
+
+    with mock.patch("opentelemetry.trace.get_tracer_provider", return_value=provider):
+        observability._install_msi_token_span_filter()
+
+    assert active_processor._span_processors == (processor,)
+
+
+def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
+    monkeypatch.setenv("FOUNDRY_AGENT_NAME", "prompty-agent")
+    monkeypatch.setenv("FOUNDRY_AGENT_VERSION", "2")
+    monkeypatch.delenv("FOUNDRY_PROJECT_RESOURCE_ID", raising=False)
+    monkeypatch.delenv("AZURE_AI_PROJECT_RESOURCE_ID", raising=False)
+    monkeypatch.setenv("AZURE_AI_PROJECT_ID", "/subscriptions/123/projects/demo")
+
+    processors = observability._build_agent_identity_processors()
+
+    assert len(processors) == 1
+    span = mock.MagicMock()
+    processors[0].on_start(span)
+    span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.agent.name": "prompty-agent",
+            "gen_ai.agent.version": "2",
+            "gen_ai.agent.id": "prompty-agent:2",
+            "microsoft.foundry.project.id": "/subscriptions/123/projects/demo",
+            "gen_ai.azure_ai_project.id": "/subscriptions/123/projects/demo",
+        }
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -9,9 +9,36 @@ export function configureAgentClient({ runCommand }) {
 
 export function responseText(body) {
     if (body && typeof body === "object") {
-        return body.output_text ?? body.output ?? JSON.stringify(body, null, 2);
+        const direct = textOrEmpty(body.output_text);
+        if (direct) return direct;
+        const output = textFromResponsesOutput(body.output);
+        if (output) return output;
+        return body.output ?? JSON.stringify(body, null, 2);
     }
     return body ?? "";
+}
+
+function textOrEmpty(value) {
+    return typeof value === "string" && value.trim() ? value : "";
+}
+
+function textFromResponsesOutput(output) {
+    if (!Array.isArray(output)) return "";
+    const parts = [];
+    for (const item of output) {
+        if (!item || typeof item !== "object") continue;
+        if (typeof item.text === "string") {
+            parts.push(item.text);
+        }
+        const content = item.content;
+        if (!Array.isArray(content)) continue;
+        for (const part of content) {
+            if (part && typeof part === "object" && typeof part.text === "string") {
+                parts.push(part.text);
+            }
+        }
+    }
+    return parts.join("").trim();
 }
 
 export function isLoopbackEndpoint(endpoint) {
@@ -106,9 +133,9 @@ export function parseReadinessResponse(responseOk, status, text) {
     return { ok: responseOk, body: readinessText(body) };
 }
 
-export async function azureAccessToken(resource) {
+export async function azureAccessToken(resource, { forceRefresh = false } = {}) {
     const cached = tokenCache.get(resource);
-    if (cached && cached.expiresAt > Date.now() + 60000) {
+    if (!forceRefresh && cached && cached.expiresAt > Date.now() + 60000) {
         return cached.token;
     }
     if (!commandRunner) {
@@ -135,15 +162,28 @@ export async function azureAccessToken(resource) {
     return token;
 }
 
-export async function requestHeadersForEndpoint(endpoint, accept) {
+export async function requestHeadersForEndpoint(endpoint, accept, { forceRefresh = false } = {}) {
     const headers = {
         "Content-Type": "application/json",
         ...(accept ? { Accept: accept } : {}),
     };
     if (/^https:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint)) {
-        headers.Authorization = `Bearer ${await azureAccessToken("https://ai.azure.com")}`;
+        headers.Authorization = `Bearer ${await azureAccessToken("https://ai.azure.com", { forceRefresh })}`;
     }
     return headers;
+}
+
+function shouldRetryWithFreshToken(endpoint, response) {
+    return /^https:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint) && (response.status === 401 || response.status === 403);
+}
+
+async function fetchAgent(endpoint, url, { accept, body, timeoutMs = 60000, forceRefresh = false } = {}) {
+    return fetch(url, {
+        method: "POST",
+        headers: await requestHeadersForEndpoint(endpoint, accept, { forceRefresh }),
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+    });
 }
 
 function readinessHeaders(endpoint, expectsIdentity) {
@@ -156,12 +196,18 @@ function readinessHeaders(endpoint, expectsIdentity) {
 export async function callAgentStream(endpoint, payload, onDelta) {
     const started = Date.now();
     try {
-        const response = await fetch(responsesUrl(endpoint), {
-            method: "POST",
-            headers: await requestHeadersForEndpoint(endpoint, "text/event-stream"),
-            body: JSON.stringify({ ...payload, stream: true }),
-            signal: AbortSignal.timeout(60000),
+        const requestBody = JSON.stringify({ ...payload, stream: true });
+        let response = await fetchAgent(endpoint, responsesUrl(endpoint), {
+            accept: "text/event-stream",
+            body: requestBody,
         });
+        if (shouldRetryWithFreshToken(endpoint, response)) {
+            response = await fetchAgent(endpoint, responsesUrl(endpoint), {
+                accept: "text/event-stream",
+                body: requestBody,
+                forceRefresh: true,
+            });
+        }
         const contentType = response.headers.get("content-type") || "";
         if (!response.ok || !contentType.includes("text/event-stream") || !response.body) {
             const text = await response.text();
@@ -257,12 +303,11 @@ export async function callAgent(endpoint, path, payload) {
     const started = Date.now();
     try {
         const url = path === "/responses" ? responsesUrl(endpoint) : `${endpoint}${path}`;
-        const response = await fetch(url, {
-            method: "POST",
-            headers: await requestHeadersForEndpoint(endpoint),
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(60000),
-        });
+        const requestBody = JSON.stringify(payload);
+        let response = await fetchAgent(endpoint, url, { body: requestBody });
+        if (shouldRetryWithFreshToken(endpoint, response)) {
+            response = await fetchAgent(endpoint, url, { body: requestBody, forceRefresh: true });
+        }
         const text = await response.text();
         let body = text;
         try {

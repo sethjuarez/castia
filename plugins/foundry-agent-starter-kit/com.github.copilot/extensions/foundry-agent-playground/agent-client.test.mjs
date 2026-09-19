@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+    callAgent,
     checkReadiness,
     configureAgentClient,
     parseReadinessResponse,
@@ -35,6 +36,41 @@ test("requestHeadersForEndpoint adds Azure auth only for hosted endpoints", asyn
     const headers = await requestHeadersForEndpoint("https://acct.services.ai.azure.com/api/projects/proj/agents/a/endpoint/protocols/openai/responses");
     assert.equal(headers.Authorization, "Bearer token");
     assert.equal(calls, 1);
+});
+
+test("callAgent refreshes hosted Azure token once after auth failure", async () => {
+    const previousFetch = globalThis.fetch;
+    const endpoint = "https://acct.services.ai.azure.com/api/projects/proj/agents/a/endpoint/protocols/openai/responses?api-version=v1";
+    const commandOutputs = ["stale-token\n", "fresh-token\n"];
+    const authorizations = [];
+    configureAgentClient({
+        runCommand: async () => ({ code: 0, output: commandOutputs.shift() }),
+    });
+    await requestHeadersForEndpoint(endpoint, null, { forceRefresh: true });
+    globalThis.fetch = async (_url, options) => {
+        authorizations.push(options.headers.Authorization);
+        if (authorizations.length === 1) {
+            return new Response(JSON.stringify({ error: "forbidden" }), { status: 403 });
+        }
+        return new Response(JSON.stringify({ output_text: "ok" }), { status: 200 });
+    };
+    try {
+        const result = await callAgent(
+            endpoint,
+            "/responses",
+            { input: "hello" },
+        );
+
+        assert.equal(result.ok, true);
+        assert.equal(result.status, 200);
+        assert.deepEqual(result.body, { output_text: "ok" });
+        assert.equal(authorizations.length, 2);
+        assert.match(authorizations[0], /^Bearer /);
+        assert.match(authorizations[1], /^Bearer /);
+        assert.notEqual(authorizations[0], authorizations[1]);
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
 });
 
 test("checkReadiness treats hosted Responses endpoints as ready without probing /readiness", async () => {
@@ -239,4 +275,21 @@ test("readinessText preserves useful non-Castia readiness bodies", () => {
 test("responseText prefers Responses output_text", () => {
     assert.equal(responseText({ output_text: "hello", output: "fallback" }), "hello");
     assert.equal(responseText("plain"), "plain");
+});
+
+test("responseText falls back to nested Responses message content when output_text is blank", () => {
+    assert.equal(
+        responseText({
+            output_text: "",
+            output: [
+                {
+                    type: "message",
+                    content: [
+                        { type: "output_text", text: "nested answer" },
+                    ],
+                },
+            ],
+        }),
+        "nested answer",
+    );
 });

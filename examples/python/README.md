@@ -72,3 +72,32 @@ For hosted deployment, follow
 [`minimal-agent\DEPLOYMENT.md`](minimal-agent/DEPLOYMENT.md). Deployment
 uses an existing Foundry project and model deployment; the example does not
 provision cloud resources.
+
+## Prompty agent
+
+[`prompty-agent`](prompty-agent) is a Responses-only agent that exercises the
+optional Prompty runtime harness added by `castia[prompty]`. It keeps
+`.agent_configs` as the optimizer contract, projects that config into a Prompty
+runner, and includes optional host-side toolbox MCP wiring for Prompty function
+tools.
+
+From the repository root:
+
+```powershell
+Set-Location packages\python
+uv venv --python 3.13
+$python = (Resolve-Path .\.venv\Scripts\python.exe).Path
+uv pip install --python $python --prerelease=allow -e ".[deploy,optimize,prompty,test]"
+Set-Location ..\..\examples\python\prompty-agent
+```
+
+Run the offline tests:
+
+```powershell
+& $python -m pytest -q
+```
+
+The tests monkeypatch the Prompty runner and toolbox client, so they validate
+the Castia protocol/wiring shape without Azure credentials, model access, or
+network calls. For a live run, copy `.env.example` to `.env`, fill the Foundry
+endpoint and deployment name, and start `main.py` from the example directory.

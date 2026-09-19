@@ -114,14 +114,21 @@ test("local readiness reports stopped agent before stale health can enable send"
     });
 });
 
-test("response details keys prefer response identity and fall back to createdAt", () => {
+test("response details keys prefer stable turn identity across response updates", () => {
     assert.equal(
         responseDetailsKey({ response: { id: "resp-1" }, createdAt: "2026-09-19T00:00:00Z", target: "local" }, 3),
-        "response:resp-1",
+        "created:2026-09-19T00:00:00Z:local",
     );
     assert.equal(
-        responseDetailsKey({ createdAt: "2026-09-19T00:00:00Z", target: "hosted" }, 3),
-        "created:2026-09-19T00:00:00Z:hosted",
+        responseDetailsKey({ response: { id: "resp-1" } }, 3),
+        "response:resp-1",
+    );
+});
+
+test("response details panel ids are stable attribute-safe ids", () => {
+    assert.equal(
+        responseDetailsPanelId("created:2026-09-19T00:00:00Z:hosted"),
+        "response-details-created-2026-09-19T00-00-00Z-hosted",
     );
 });
 
