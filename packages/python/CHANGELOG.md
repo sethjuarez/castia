@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/sethjuarez/castia/compare/python-v0.7.3...python-v0.7.4) (2026-09-19)
+
+
+### Bug Fixes
+
+* harden local agent playground startup ([88b3b6d](https://github.com/sethjuarez/castia/commit/88b3b6d030293e4f298be105e11be1ac55ddb6d8))
+
 ## [0.7.3](https://github.com/sethjuarez/castia/compare/python-v0.7.2...python-v0.7.3) (2026-09-19)
 
 
