@@ -1712,9 +1712,10 @@ function renderHtml() {
       width: 10px;
       height: 10px;
       border-radius: 999px;
-      background: var(--cp-warning);
+      background: var(--cp-text-muted);
     }
     .dot.ok { background: var(--cp-success); }
+    .dot.warn { background: var(--cp-warning); }
     .dot.fail { background: var(--cp-danger); }
     .foundry-status {
       display: grid;
@@ -3157,7 +3158,13 @@ function renderHtml() {
         body: JSON.stringify({ target: "local" }),
       });
       renderSnapshot(state);
-      setStatus("", "Local target selected.");
+      if (state.lastHealth?.ok) {
+        setStatus("ok", "Local agent ready.");
+      } else if (state.localRun?.running) {
+        setStatus("", "Local agent starting.");
+      } else {
+        setStatus("", "Local target selected. Start local when ready.");
+      }
     }
 
     async function showFoundryChat() {
