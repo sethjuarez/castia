@@ -37,6 +37,14 @@ export function responseDetailsKey(turn, index = 0) {
     return "index:" + String(index);
 }
 
+export function responseDetailsPanelId(detailsKey) {
+    const normalized = String(detailsKey || "details")
+        .trim()
+        .replace(/[^A-Za-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    return "response-details-" + (normalized || "details");
+}
+
 export function composerGate(state, { activeView = "chat", inFlight = false } = {}) {
     if (activeView !== "chat") {
         return { canSend: false, inputDisabled: true, disabledReason: "Open chat to send a prompt." };
@@ -68,6 +76,7 @@ export const rendererClientScript = `
     const isStartupReadinessPending = ${isStartupReadinessPending.toString()};
     const localReadinessState = ${localReadinessState.toString()};
     const responseDetailsKey = ${responseDetailsKey.toString()};
+    const responseDetailsPanelId = ${responseDetailsPanelId.toString()};
     const composerGate = ${composerGate.toString()};
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
@@ -451,6 +460,7 @@ export const rendererClientScript = `
       }
       transcript.innerHTML = messages.map((turn, index) => {
         const detailsKey = responseDetailsKey(turn, index);
+        const detailsId = responseDetailsPanelId(detailsKey);
         const detailsOpen = expandedResponseDetails.has(detailsKey);
         const ok = turn.response?.ok;
         const streaming = turn.response?.streaming;
@@ -469,8 +479,8 @@ export const rendererClientScript = `
           '<section class="bubble agent">' +
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
-          '<button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '">Details</button>' +
-          '<div class="details-panel" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
+          '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button></div>' +
+          '<div id="' + escapeHtml(detailsId) + '" class="details-panel" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
       }).join("");
