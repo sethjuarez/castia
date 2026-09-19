@@ -623,6 +623,7 @@ async function startLocalAgent(state) {
     const port = endpointPort(endpoint);
     clearMessagesForTarget(state, "local");
     const runId = `${agent.id}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const readinessDeadlineAt = new Date(Date.now() + 15000).toISOString();
     state.localRun = {
         running: true,
         command: `${local.command} ${local.args.join(" ")}`,
@@ -636,6 +637,7 @@ async function startLocalAgent(state) {
         agentName: agent.serviceName,
         endpoint,
         runId,
+        readiness: { status: "starting", deadlineAt: readinessDeadlineAt },
     };
     addLocalEvent(state, "", `Starting local agent on ${endpoint}.`);
     const envValues = localEnvFoundryProjectValues(await readAgentEnv(agent));
@@ -676,6 +678,9 @@ async function startLocalAgent(state) {
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = 1;
+        state.localRun.readiness = state.localRun.readiness?.status === "starting"
+            ? { ...state.localRun.readiness, status: "failed", completedAt: new Date().toISOString() }
+            : state.localRun.readiness;
         state.lastHealth = null;
         state.localRun.log.push(`${error.name}: ${error.message}\n`);
         addLocalEvent(state, "fail", error.message);
@@ -685,16 +690,24 @@ async function startLocalAgent(state) {
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = code ?? 0;
+        state.localRun.readiness = state.localRun.readiness?.status === "starting"
+            ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
+            : state.localRun.readiness;
         state.lastHealth = null;
         addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
         delete state.localRun.process;
     });
     waitForLocalReadiness(state, { agent, endpoint, runId }).then((health) => {
-        if (state.localRun?.runId !== runId) return;
-        state.lastHealth = health;
+        if (state.localRun?.runId !== runId || !state.localRun?.running) return;
+        state.lastHealth = { ...health, source: "startup" };
         if (health.ok) {
             state.localEndpoints[agent.id] = endpoint;
         }
+        state.localRun.readiness = {
+            ...(state.localRun.readiness || {}),
+            status: health.ok ? "ready" : "failed",
+            completedAt: new Date().toISOString(),
+        };
         addLocalEvent(state, health.ok ? "ok" : "fail", health.ok ? `Local agent ready at ${endpoint}.` : `Local readiness failed: ${health.body || health.status}`);
     }).catch((error) => {
         if (state.localRun?.runId !== runId) return;
@@ -778,6 +791,9 @@ function stopLocalAgent(state) {
         events: [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }].slice(-5),
         process: null,
         runId: null,
+        readiness: state.localRun?.readiness?.status === "starting"
+            ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
+            : state.localRun?.readiness || null,
     };
     state.lastHealth = null;
 }
@@ -1191,9 +1207,12 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/health") {
-            state.lastHealth = await checkReadiness(activeEndpoint(state), {
-                expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
-            });
+            state.lastHealth = {
+                ...(await checkReadiness(activeEndpoint(state), {
+                    expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+                })),
+                source: "manual",
+            };
             sendJson(res, 200, stateSnapshot(state));
             return;
         }

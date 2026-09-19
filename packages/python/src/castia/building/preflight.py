@@ -358,25 +358,36 @@ def preflight(
         except Exception as exc:  # noqa: BLE001 - YAML errors must be redacted diagnostics
             add("evaluation", "fail", f"Invalid or missing eval suite ({type(exc).__name__}).")
 
-        build_files = ("requirements.txt",) if code_mode else ("Dockerfile", "requirements.txt")
+        build_files = ("pyproject.toml",) if code_mode else ("Dockerfile", "pyproject.toml")
         for filename in build_files:
             try:
                 content = _local_file(root, filename).read_text(encoding="utf-8").strip()
                 if not content:
                     raise ValueError("Empty build artifact.")
-                if filename == "requirements.txt" and content == "-e .":
-                    pyproject = _local_file(root, "pyproject.toml").read_text(encoding="utf-8")
-                    if "dependencies" not in pyproject:
-                        raise ValueError("Editable requirements shim needs pyproject dependencies.")
-                    add(
-                        f"build.{filename}",
-                        "pass",
-                        "Foundry remote-build shim installs local pyproject dependencies.",
-                    )
-                else:
-                    add(f"build.{filename}", "pass", "Local build artifact is present.")
+                add(f"build.{filename}", "pass", "Local build artifact is present.")
             except (OSError, ValueError):
                 add(f"build.{filename}", "fail", "Required build artifact is missing or empty.")
+        requirements_path = root / "requirements.txt"
+        if requirements_path.exists():
+            try:
+                requirements = _local_file(root, "requirements.txt").read_text(encoding="utf-8").strip()
+                pyproject = _local_file(root, "pyproject.toml").read_text(encoding="utf-8")
+                if requirements == "-e ." and "package = false" in pyproject:
+                    add(
+                        "build.requirements.txt",
+                        "fail",
+                        "Remove stale editable requirements shim; package=false remote build resolves pyproject dependencies directly.",
+                    )
+                elif requirements:
+                    add(
+                        "build.requirements.txt",
+                        "pass",
+                        "Compatibility requirements file is present with explicit runtime entries.",
+                    )
+                else:
+                    add("build.requirements.txt", "fail", "Compatibility requirements file is empty.")
+            except (OSError, ValueError):
+                add("build.requirements.txt", "fail", "Compatibility requirements file is unreadable.")
         if code_mode:
             add("build.Dockerfile", "skipped", "Dockerfile is optional for code deployment.")
         add("container", "skipped", "Remote build, image build and cloud deployment were not run.")

@@ -139,6 +139,7 @@ test("emptyLocalRun has no agent ownership", () => {
         agentName: null,
         endpoint: null,
         runId: null,
+        readiness: null,
     });
 });
 

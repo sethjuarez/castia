@@ -29,7 +29,6 @@ Create this minimum file set under the agent root:
 <agent-root>\
   main.py
   pyproject.toml
-  requirements.txt
   .env.example
   .gitignore
   azure.yaml
@@ -65,8 +64,9 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8088)
 ```
 
-Use `pyproject.toml` as the canonical dependency source. Keep
-`requirements.txt` only as the Foundry remote-build shim:
+Use `pyproject.toml` as the canonical dependency source. Current Foundry remote
+build resolves this `package = false` app directly from `pyproject.toml`; do not
+add a runtime `requirements.txt` containing `-e .`.
 
 ```toml
 [project]
@@ -92,14 +92,8 @@ py-modules = ["main"]
 package = false
 ```
 
-```text
-# requirements.txt
--e .
-```
-
-Foundry/pip remote build needs a requirements entrypoint. The editable install
-points pip back at this local project, so dependency pins stay in
-`pyproject.toml` instead of being duplicated in two files.
+If a `requirements.txt` is present for compatibility with other tooling, mirror
+the runtime dependencies explicitly instead of using `-e .`.
 
 Use this `.env.example`:
 

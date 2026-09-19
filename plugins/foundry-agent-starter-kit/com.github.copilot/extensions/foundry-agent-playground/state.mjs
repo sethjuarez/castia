@@ -118,6 +118,7 @@ export function emptyLocalRun() {
         agentName: null,
         endpoint: null,
         runId: null,
+        readiness: null,
     };
 }
 
