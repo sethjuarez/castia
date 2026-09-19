@@ -153,7 +153,22 @@ def test_prompty_otel_registration_uses_active_provider(monkeypatch):
     assert callable(calls[0][2])
     with calls[0][2]("prepare_async"):
         pass
+    assert provider.tracer_names == []
+
+
+def test_prompty_otel_registration_traces_internal_spans_when_enabled(monkeypatch):
+    calls = []
+    provider = FakeProvider()
+
+    monkeypatch.setenv("CASTIA_PROMPTY_TRACE_INTERNAL", "true")
+    monkeypatch.setattr(prompty.Tracer, "add", lambda name, tracer: calls.append(("add", name, tracer)))
+
+    assert register_prompty_otel_tracing(tracer_name="castia-prompty", provider=provider) is True
+    with calls[0][2]("prepare_async"):
+        pass
+
     assert provider.tracer_names == ["castia-prompty"]
+    assert provider.spans[0].name == "prompty prepare_async"
 
 
 class FakeProvider:

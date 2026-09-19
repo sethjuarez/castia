@@ -26,6 +26,8 @@ from castia.optimizing.config import AgentConfig, load_agent_config
 DEFAULT_FOUNDRY_CONNECTION = "foundry-default"
 DEFAULT_TOOLBOX_CONNECTION = "contract-toolbox"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
+_TRACE_INTERNAL_ENV = "CASTIA_PROMPTY_TRACE_INTERNAL"
+_DEFAULT_PROMPTY_SPANS = {"turn_async", "run_async"}
 _logger = logging.getLogger("agent")
 
 TokenProvider = Callable[[], str | Awaitable[str]]
@@ -71,6 +73,7 @@ def register_prompty_otel_tracing(
     binds to the active Microsoft OTel provider.
     """
     include_content = _content_recording_enabled() if enable_content_recording is None else enable_content_recording
+    include_internal = os.environ.get(_TRACE_INTERNAL_ENV, "").strip().lower() == "true"
     prompty = _prompty()
     from opentelemetry import trace as otel_trace
 
@@ -80,12 +83,19 @@ def register_prompty_otel_tracing(
             tracer_name=tracer_name,
             provider=provider or otel_trace.get_tracer_provider(),
             include_content=include_content,
+            include_internal=include_internal,
         ),
     )
     return True
 
 
-def _prompty_otel_backend(*, tracer_name: str, provider: object, include_content: bool):
+def _prompty_otel_backend(
+    *,
+    tracer_name: str,
+    provider: object,
+    include_content: bool,
+    include_internal: bool,
+):
     import traceback
 
     from opentelemetry.trace import SpanKind, Status, StatusCode
@@ -96,6 +106,9 @@ def _prompty_otel_backend(*, tracer_name: str, provider: object, include_content
 
     @contextmanager
     def tracer(span_name: str):
+        if not _should_trace_prompty_span(span_name, include_internal=include_internal):
+            yield _prompty_noop_add
+            return
         otel_tracer = provider.get_tracer(tracer_name)
         with otel_tracer.start_as_current_span(
             f"prompty {span_name}",
@@ -127,6 +140,14 @@ def _prompty_otel_backend(*, tracer_name: str, provider: object, include_content
                 raise
 
     return tracer
+
+
+def _should_trace_prompty_span(span_name: str, *, include_internal: bool) -> bool:
+    return include_internal or span_name in _DEFAULT_PROMPTY_SPANS
+
+
+def _prompty_noop_add(_key: str, _value: Any) -> None:
+    return None
 
 
 def _set_prompty_span_attribute(span: Any, key: str, value: Any, *, to_dict: Callable[[Any], Any]) -> None:

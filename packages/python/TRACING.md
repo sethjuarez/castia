@@ -157,9 +157,23 @@ If those rows are correct but the UI badge reads **Other**, it is the portal
 Hosted agents can emit `GET /msi/token` dependency spans beneath model calls.
 Those spans come from platform managed-identity token acquisition in the Azure
 SDK transport, not from Castia's agent loop. They make the default trace tree
-noisy, so Castia suppresses the stock Azure SDK `GET /msi/token` span by default
-before it reaches Azure Monitor.
+noisy, so Castia suppresses ordinary successful/fast `GET /msi/token` spans by
+default before export. Failed token calls and unusually slow calls remain visible
+because they are useful auth and latency diagnostics.
 
 Set `CASTIA_OTEL_TRACE_MSI_TOKEN=true` when debugging managed-identity
 authentication or token-acquisition latency. That opt-in restores the normal
 Azure SDK token dependency spans for the process.
+
+## Prompty inner spans
+
+Castia's Prompty integration records an aggregate `prompty turn_async` span by
+default, plus the Castia `execute_tool ...` spans for local/toolbox functions.
+The lower-level Prompty lifecycle spans (`prepare_async`, `render_async`,
+`parse_async`, repeated model-wrapper `execute_async` / `responses.create`,
+and `process_async`) are useful when debugging Prompty itself, but they add deep
+nesting to ordinary agent trajectories.
+
+Set `CASTIA_PROMPTY_TRACE_INTERNAL=true` to restore those lower-level Prompty
+pipeline spans for a process. Content on Prompty spans still follows the normal
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true` privacy gate.

@@ -15,7 +15,7 @@ _logger = logging.getLogger("agent")
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
-_MSI_TOKEN_EXCLUDED_URL = r".*/msi/token.*"
+_MSI_TOKEN_FAST_THRESHOLD_MS = 2000
 
 
 def configure_observability(
@@ -51,7 +51,6 @@ def configure_observability(
     # span recording so model calls both surface in the portal and stay safe.
     # setdefault keeps it operator-overridable via the environment.
     os.environ.setdefault("OTEL_TRACES_SAMPLER", "always_on")
-    _configure_msi_token_http_filter()
 
     attributes = {
         "service.name": os.environ.get(
@@ -80,6 +79,7 @@ def configure_observability(
             "openai_agents": {"enabled": False},
         },
     )
+    _install_msi_token_span_filter()
 
     _enable_genai_tracing(
         enable_content_recording=enable_content_recording,
@@ -227,6 +227,29 @@ class _AgentIdentitySpanProcessor(SpanProcessor):
             _logger.debug("Failed to stamp agent identity on span", exc_info=True)
 
 
+class _MsiTokenFilteringSpanProcessor(SpanProcessor):
+    """Skip export for ordinary successful managed-identity token calls."""
+
+    _castia_msi_filter = True
+
+    def __init__(self, delegate: SpanProcessor) -> None:
+        self._delegate = delegate
+
+    def on_start(self, span: Any, parent_context: Any = None) -> None:
+        self._delegate.on_start(span, parent_context=parent_context)
+
+    def on_end(self, span: Any) -> None:
+        if _should_suppress_msi_token_span(span):
+            return
+        self._delegate.on_end(span)
+
+    def shutdown(self) -> None:
+        self._delegate.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._delegate.force_flush(timeout_millis=timeout_millis)
+
+
 def _enable_genai_tracing(
     *,
     enable_content_recording: bool | None = None,
@@ -338,23 +361,70 @@ def _azure_core_tracing_implementation():
     return CastiaOpenTelemetrySpan
 
 
-def _configure_msi_token_http_filter() -> None:
-    """Exclude managed-identity token HTTP calls from default auto-instrumentation."""
+def _install_msi_token_span_filter() -> None:
+    """Drop successful/fast managed-identity token spans before export."""
     if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False):
         return
-    for env_var in (
-        "OTEL_PYTHON_REQUESTS_EXCLUDED_URLS",
-        "OTEL_PYTHON_URLLIB3_EXCLUDED_URLS",
-        "OTEL_PYTHON_AIOHTTP_CLIENT_EXCLUDED_URLS",
-    ):
-        os.environ[env_var] = _append_excluded_url(os.environ.get(env_var), _MSI_TOKEN_EXCLUDED_URL)
+    try:
+        from opentelemetry import trace
+
+        provider = trace.get_tracer_provider()
+        active_processor = getattr(provider, "_active_span_processor", None)
+        processors = getattr(active_processor, "_span_processors", None)
+        if not processors:
+            return
+        filtered_processors = tuple(
+            processor
+            if getattr(processor, "_castia_msi_filter", False)
+            else _MsiTokenFilteringSpanProcessor(processor)
+            for processor in processors
+        )
+        active_processor._span_processors = filtered_processors
+    except Exception:  # pragma: no cover - telemetry must never break startup
+        _logger.debug("Failed to install MSI token span filter", exc_info=True)
 
 
-def _append_excluded_url(existing: str | None, pattern: str) -> str:
-    values = [value.strip() for value in (existing or "").split(",") if value.strip()]
-    if pattern not in values:
-        values.append(pattern)
-    return ",".join(values)
+def _should_suppress_msi_token_span(span: Any) -> bool:
+    if not _is_msi_token_export_span(span):
+        return False
+    status_code = _span_http_status_code(span)
+    if status_code is None or status_code >= 400:
+        return False
+    duration_ms = _span_duration_ms(span)
+    return duration_ms is not None and duration_ms <= _MSI_TOKEN_FAST_THRESHOLD_MS
+
+
+def _is_msi_token_export_span(span: Any) -> bool:
+    name = str(getattr(span, "name", "") or "").lower()
+    attributes = getattr(span, "attributes", {}) or {}
+    fields = [
+        name,
+        str(attributes.get("http.url", "") or "").lower(),
+        str(attributes.get("url.full", "") or "").lower(),
+        str(attributes.get("http.target", "") or "").lower(),
+    ]
+    return any("/msi/token" in field for field in fields)
+
+
+def _span_http_status_code(span: Any) -> int | None:
+    attributes = getattr(span, "attributes", {}) or {}
+    for key in ("http.status_code", "http.response.status_code"):
+        value = attributes.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _span_duration_ms(span: Any) -> float | None:
+    start_time = getattr(span, "start_time", None)
+    end_time = getattr(span, "end_time", None)
+    if start_time is None or end_time is None:
+        return None
+    return (end_time - start_time) / 1_000_000
 
 
 def _configure_azure_core_tracing() -> None:

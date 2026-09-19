@@ -192,29 +192,67 @@ def test_azure_core_tracing_can_keep_msi_token_spans(monkeypatch):
     assert observability._azure_core_tracing_implementation() is OpenTelemetrySpan
 
 
-def test_msi_token_http_filter_sets_excluded_urls(monkeypatch):
-    for env_var in (
-        "OTEL_PYTHON_REQUESTS_EXCLUDED_URLS",
-        "OTEL_PYTHON_URLLIB3_EXCLUDED_URLS",
-        "OTEL_PYTHON_AIOHTTP_CLIENT_EXCLUDED_URLS",
-    ):
-        monkeypatch.delenv(env_var, raising=False)
+def _http_span(
+    *,
+    name: str = "GET /msi/token",
+    status_code: int = 200,
+    duration_ms: int = 371,
+):
+    return mock.MagicMock(
+        name=name,
+        attributes={"http.status_code": status_code, "url.full": "http://100.64.100.2/msi/token"},
+        start_time=0,
+        end_time=duration_ms * 1_000_000,
+    )
+
+
+def test_msi_token_filter_suppresses_successful_fast_spans(monkeypatch):
     monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
 
-    observability._configure_msi_token_http_filter()
+    processor.on_end(_http_span(status_code=200, duration_ms=371))
 
-    assert observability.os.environ["OTEL_PYTHON_REQUESTS_EXCLUDED_URLS"] == r".*/msi/token.*"
-    assert observability.os.environ["OTEL_PYTHON_URLLIB3_EXCLUDED_URLS"] == r".*/msi/token.*"
-    assert observability.os.environ["OTEL_PYTHON_AIOHTTP_CLIENT_EXCLUDED_URLS"] == r".*/msi/token.*"
+    delegate.on_end.assert_not_called()
 
 
-def test_msi_token_http_filter_preserves_operator_opt_in(monkeypatch):
+def test_msi_token_filter_keeps_failures_and_slow_spans(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    failed = _http_span(status_code=400, duration_ms=350)
+    slow = _http_span(status_code=200, duration_ms=2500)
+
+    processor.on_end(failed)
+    processor.on_end(slow)
+
+    assert delegate.on_end.call_args_list == [mock.call(failed), mock.call(slow)]
+
+
+def test_msi_token_span_filter_wraps_existing_processors(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    processor = object()
+    active_processor = mock.MagicMock(_span_processors=(processor,))
+    provider = mock.MagicMock(_active_span_processor=active_processor)
+
+    with mock.patch("opentelemetry.trace.get_tracer_provider", return_value=provider):
+        observability._install_msi_token_span_filter()
+
+    wrapped = active_processor._span_processors
+    assert len(wrapped) == 1
+    assert isinstance(wrapped[0], observability._MsiTokenFilteringSpanProcessor)
+
+
+def test_msi_token_span_filter_preserves_operator_opt_in(monkeypatch):
     monkeypatch.setenv(_TRACE_MSI_TOKEN_ENV, "true")
-    monkeypatch.setenv("OTEL_PYTHON_REQUESTS_EXCLUDED_URLS", "https://example.invalid")
+    processor = mock.MagicMock()
+    active_processor = mock.MagicMock(_span_processors=(processor,))
+    provider = mock.MagicMock(_active_span_processor=active_processor)
 
-    observability._configure_msi_token_http_filter()
+    with mock.patch("opentelemetry.trace.get_tracer_provider", return_value=provider):
+        observability._install_msi_token_span_filter()
 
-    assert observability.os.environ["OTEL_PYTHON_REQUESTS_EXCLUDED_URLS"] == "https://example.invalid"
+    assert active_processor._span_processors == (processor,)
 
 
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
