@@ -22,6 +22,19 @@ cross-SDK protocol facts are pinned under `spec/`.
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the full policy and the release
 flow.
 
+## Copilot plugin update lifecycle
+
+- Treat plugin changes under `plugins/foundry-agent-starter-kit/` as installed
+  product updates, not just repo source edits.
+- When changing plugin behavior, update `plugins/foundry-agent-starter-kit/plugin.json`
+  `version` in the same change.
+- Validate the plugin change, then commit with a Conventional Commit message and
+  land it on `main`.
+- After the change is on `main`, update the plugin in the Copilot App so the
+  installed copy is refreshed. Open canvases/sessions that are already using the
+  old installed plugin may need an extension reload or reopen to pick up the new
+  version.
+
 ## Python package conventions
 
 - Tooling is `uv` + `hatchling`. There is no `pip` in the venvs — use `uv pip`.
