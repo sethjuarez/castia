@@ -1099,7 +1099,14 @@ export const rendererClientScript = `
             renderSnapshot(JSON.parse(dataLine.slice(6)));
           }
         }
-        setStatus((latestState?.deployment?.exitCode ?? 1) === 0 ? "ok" : "fail", (latestState?.deployment?.exitCode ?? 1) === 0 ? successText : failureText);
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          const dataLine = buffer.split("\\n").find((line) => line.startsWith("data: "));
+          if (dataLine) renderSnapshot(JSON.parse(dataLine.slice(6)));
+        }
+        const finalState = await request("/api/state");
+        renderSnapshot(finalState);
+        setStatus(finalState.deployment?.exitCode === 0 ? "ok" : "fail", finalState.deployment?.exitCode === 0 ? successText : failureText);
       } catch (error) {
         setStatus("fail", error.message);
       } finally {
