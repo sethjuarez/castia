@@ -107,9 +107,9 @@ test("checkReadiness accepts structured readiness for the selected agent", async
     globalThis.fetch = async (_url, options = {}) => {
         calls.push(options);
         return new Response(JSON.stringify({
-        status: "ok",
-        agent: { name: "contract-policy-expert" },
-        protocols: ["responses"],
+            status: "ok",
+            agent: { name: "contract-policy-expert" },
+            protocols: ["responses"],
         }), { status: 200 });
     };
     try {
