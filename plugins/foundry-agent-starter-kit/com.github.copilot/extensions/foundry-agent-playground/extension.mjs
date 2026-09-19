@@ -22,13 +22,14 @@ import {
     clearMessagesForTarget,
     emptyFoundryConnection,
     emptyHostedContext,
+    emptyLocalRun,
     endpointPort,
     endpointWithPort,
     hasFoundryProjectValues,
     normalizeEndpoint,
     selectedAgent,
     selectedLocalEndpoint,
-    setSelectedAgent,
+    switchSelectedAgent,
     stateSnapshot,
 } from "./state.mjs";
 import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
@@ -613,16 +614,15 @@ async function startLocalAgent(state) {
     if (!local) {
         throw new CanvasError("local_start_unsupported", "No local start command was discovered for this agent.");
     }
-    const initialEndpoint = selectedLocalEndpoint(state);
-    if (await isEndpointPortOpen(initialEndpoint)) {
-        addLocalEvent(state, "warn", `${initialEndpoint} is already in use.`);
-        const correctedEndpoint = await nextAvailableLocalEndpoint(initialEndpoint);
-        state.localEndpoints[agent.id] = correctedEndpoint;
-        addLocalEvent(state, "ok", `Using ${correctedEndpoint} instead.`);
+    let endpoint = state.localEndpoints[agent.id] || selectedLocalEndpoint(state);
+    if (await isEndpointPortOpen(endpoint)) {
+        addLocalEvent(state, "warn", `${endpoint} is already in use.`);
+        endpoint = await nextAvailableLocalEndpoint(endpoint);
+        addLocalEvent(state, "ok", `Using ${endpoint} instead.`);
     }
-    const endpoint = selectedLocalEndpoint(state);
     const port = endpointPort(endpoint);
     clearMessagesForTarget(state, "local");
+    const runId = `${agent.id}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     state.localRun = {
         running: true,
         command: `${local.command} ${local.args.join(" ")}`,
@@ -632,6 +632,10 @@ async function startLocalAgent(state) {
         log: [`$ ${local.command} ${local.args.join(" ")}\n`],
         events: state.localRun?.events || [],
         process: null,
+        agentId: agent.id,
+        agentName: agent.serviceName,
+        endpoint,
+        runId,
     };
     addLocalEvent(state, "", `Starting local agent on ${endpoint}.`);
     const envValues = localEnvFoundryProjectValues(await readAgentEnv(agent));
@@ -662,10 +666,13 @@ async function startLocalAgent(state) {
         env: childEnv,
     });
     state.localRun.process = child;
-    const append = (chunk) => state.localRun.log.push(chunk.toString());
+    const append = (chunk) => {
+        if (state.localRun?.runId === runId) state.localRun.log.push(chunk.toString());
+    };
     child.stdout.on("data", append);
     child.stderr.on("data", append);
     child.on("error", (error) => {
+        if (state.localRun?.runId !== runId) return;
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = 1;
@@ -673,16 +680,22 @@ async function startLocalAgent(state) {
         addLocalEvent(state, "fail", error.message);
     });
     child.on("close", (code) => {
+        if (state.localRun?.runId !== runId) return;
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = code ?? 0;
         addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
         delete state.localRun.process;
     });
-    waitForLocalReadiness(state).then((health) => {
+    waitForLocalReadiness(state, { agent, endpoint, runId }).then((health) => {
+        if (state.localRun?.runId !== runId) return;
         state.lastHealth = health;
+        if (health.ok) {
+            state.localEndpoints[agent.id] = endpoint;
+        }
         addLocalEvent(state, health.ok ? "ok" : "fail", health.ok ? `Local agent ready at ${endpoint}.` : `Local readiness failed: ${health.body || health.status}`);
     }).catch((error) => {
+        if (state.localRun?.runId !== runId) return;
         addLocalEvent(state, "fail", error instanceof Error ? error.message : String(error));
     });
 }
@@ -725,11 +738,11 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForLocalReadiness(state) {
+async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
     const deadline = Date.now() + 15000;
     let latest = null;
     while (Date.now() < deadline) {
-        if (!state.localRun?.running) {
+        if (!state.localRun?.running || state.localRun?.runId !== runId) {
             return {
                 ok: false,
                 status: state.localRun?.exitCode ?? 0,
@@ -737,7 +750,7 @@ async function waitForLocalReadiness(state) {
                 body: "Local agent exited before it became ready.",
             };
         }
-        latest = await checkReadiness(selectedLocalEndpoint(state), { timeoutMs: 1000 });
+        latest = await checkReadiness(endpoint, { timeoutMs: 1000, expectedAgentNames: readinessAgentNames(agent) });
         if (latest.ok) return latest;
         await sleep(300);
     }
@@ -762,8 +775,17 @@ function stopLocalAgent(state) {
         log: [...(state.localRun?.log || []), "$ stopped local agent\n"],
         events: [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }].slice(-5),
         process: null,
+        runId: null,
     };
     state.lastHealth = null;
+}
+
+function readinessAgentNames(agent) {
+    return [agent.serviceName, agent.displayName].filter(Boolean);
+}
+
+function selectAgent(state, agentId) {
+    return switchSelectedAgent(state, agentId, { stopLocalRun: stopLocalAgent });
 }
 
 async function refreshHostedContext(state) {
@@ -1103,14 +1125,14 @@ async function handleRequest(req, res, state) {
             } else {
                 state.localEndpoints[state.selectedAgentId] = normalizeEndpoint(body.endpoint);
                 state.target = "local";
+                state.lastHealth = null;
             }
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/agent") {
             const body = await readBody(req);
-            setSelectedAgent(state, body.agentId);
-            state.lastHealth = null;
+            selectAgent(state, body.agentId);
             await refreshHostedContext(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
@@ -1159,7 +1181,9 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/health") {
-            state.lastHealth = await checkReadiness(activeEndpoint(state));
+            state.lastHealth = await checkReadiness(activeEndpoint(state), {
+                expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+            });
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1327,15 +1351,7 @@ async function startServer(ctx) {
             needsProvision: false,
             log: [],
         },
-        localRun: {
-            running: false,
-            command: null,
-            startedAt: null,
-            completedAt: null,
-            exitCode: null,
-            log: [],
-            events: [],
-        },
+        localRun: emptyLocalRun(),
         teams: {
             testedAt: null,
             agentId: null,
@@ -1398,6 +1414,7 @@ await joinSession({
                             state.hosted.responsesEndpoint = String(ctx.input?.endpoint || "").trim().replace(/\/+$/, "");
                         } else {
                             state.localEndpoints[state.selectedAgentId] = normalizeEndpoint(ctx.input?.endpoint);
+                            state.lastHealth = null;
                         }
                         return stateSnapshot(state);
                     },
@@ -1407,7 +1424,9 @@ await joinSession({
                     description: "Call GET /readiness on the configured agent endpoint.",
                     handler: async (ctx) => {
                         const state = instanceState(ctx);
-                        state.lastHealth = await checkReadiness(activeEndpoint(state));
+                        state.lastHealth = await checkReadiness(activeEndpoint(state), {
+                            expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+                        });
                         return state.lastHealth;
                     },
                 },

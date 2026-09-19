@@ -60,6 +60,118 @@ test("parseReadinessResponse treats Castia JSON status ok as ready", () => {
     assert.equal(result.readiness.agent.name, "contract-expert");
 });
 
+test("checkReadiness rejects endpoints owned by a different selected agent", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        status: "ok",
+        agent: { name: "contract-expert" },
+        protocols: ["responses"],
+    }), { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8095", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, false);
+        assert.equal(result.body, "Endpoint belongs to contract-expert; selected contract-policy-expert.");
+        assert.deepEqual(result.identity, {
+            expected: "contract-policy-expert",
+            actual: "contract-expert",
+            status: "mismatch",
+        });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness does not accept legacy readiness when agent identity is required", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("Agent running!", { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8095", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, false);
+        assert.equal(result.identity.status, "unknown");
+        assert.match(result.body, /Readiness identity is unknown/);
+        assert.match(result.body, /selected contract-policy-expert/);
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness accepts structured readiness for the selected agent", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        status: "ok",
+        agent: { name: "contract-policy-expert" },
+        protocols: ["responses"],
+    }), { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8096", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.identity, {
+            expected: "contract-policy-expert",
+            actual: "contract-policy-expert",
+            status: "match",
+        });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness reports identity mismatch even when stale endpoint is not otherwise ready", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        status: "configuration_missing",
+        agent: { name: "contract-expert" },
+        protocols: ["responses"],
+        configuration: { missing_required: ["FOUNDRY_PROJECT_ENDPOINT"] },
+    }), { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8095", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, false);
+        assert.equal(result.body, "Endpoint belongs to contract-expert; selected contract-policy-expert.");
+        assert.deepEqual(result.identity, {
+            expected: "contract-policy-expert",
+            actual: "contract-expert",
+            status: "mismatch",
+        });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness accepts normalized selected agent names", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        status: "ok",
+        agent: { name: "contract_policy_expert" },
+        protocols: ["responses"],
+    }), { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8096", {
+            expectedAgentNames: ["Contract Policy Expert", "contract-policy-expert"],
+        });
+
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.identity, {
+            expected: "Contract Policy Expert",
+            actual: "contract_policy_expert",
+            status: "match",
+        });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
 test("parseReadinessResponse keeps Castia configuration_missing from becoming ready", () => {
     const result = parseReadinessResponse(true, 200, JSON.stringify({
         status: "configuration_missing",
