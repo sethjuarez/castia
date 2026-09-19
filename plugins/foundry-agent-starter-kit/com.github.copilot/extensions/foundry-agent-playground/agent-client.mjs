@@ -39,6 +39,40 @@ export function responsesUrl(endpoint) {
     return `${endpoint.replace(/\/+$/, "")}/responses`;
 }
 
+export function readinessText(body) {
+    if (!body || typeof body !== "object") return body ?? "";
+    const parts = [];
+    const agentName = body.agent && typeof body.agent === "object" ? body.agent.name : null;
+    if (agentName) parts.push(`agent=${agentName}`);
+    if (Array.isArray(body.protocols) && body.protocols.length) {
+        parts.push(`protocols=${body.protocols.join(",")}`);
+    }
+    const missing = body.configuration && typeof body.configuration === "object"
+        ? body.configuration.missing_required
+        : null;
+    if (Array.isArray(missing) && missing.length) {
+        parts.push(`missing=${missing.join(",")}`);
+    }
+    return parts.length ? parts.join("; ") : JSON.stringify(body, null, 2);
+}
+
+export function parseReadinessResponse(responseOk, status, text) {
+    let body = text;
+    try {
+        body = text ? JSON.parse(text) : null;
+    } catch {
+        return { ok: responseOk, body };
+    }
+    if (body && typeof body === "object" && typeof body.status === "string") {
+        return {
+            ok: responseOk && body.status === "ok",
+            body: readinessText(body),
+            readiness: body,
+        };
+    }
+    return { ok: responseOk, body: readinessText(body) };
+}
+
 export async function azureAccessToken(resource) {
     const cached = tokenCache.get(resource);
     if (cached && cached.expiresAt > Date.now() + 60000) {
@@ -227,11 +261,13 @@ export async function checkReadiness(endpoint, { timeoutMs = 10000 } = {}) {
             signal: AbortSignal.timeout(timeoutMs),
         });
         const text = await response.text();
+        const parsed = parseReadinessResponse(response.ok, response.status, text);
         return {
-            ok: response.ok,
+            ok: parsed.ok,
             status: response.status,
             durationMs: Date.now() - started,
-            body: text,
+            body: parsed.body,
+            ...(parsed.readiness ? { readiness: parsed.readiness } : {}),
         };
     } catch (error) {
         return {

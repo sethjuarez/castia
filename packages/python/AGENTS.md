@@ -121,7 +121,7 @@ async def reply(text: str, model: Model = Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8088)
+    app.run()
 ```
 
 `azure.yaml` for Foundry code deploy:
@@ -161,7 +161,6 @@ the app root so `.env` and `.agent_configs` resolve naturally:
 
 ```powershell
 uv sync --project <agent-root>
-$env:HOST = "127.0.0.1"
 uv run --directory <agent-root> python main.py
 ```
 
@@ -222,7 +221,7 @@ async def reply(text: str, model: Model = Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8088)
+    app.run()
 ```
 
 The same `@app.responses()` handler is enough for Foundry Playground clients
@@ -231,8 +230,10 @@ completed answer as a Responses delta, the Responses completion lifecycle,
 `response.completed`, and a `[DONE]` sentinel. Add `@app.responses_stream()`
 only when the app can produce real incremental deltas.
 
-Set `HOST=127.0.0.1` for local-only runs. Hosted deployments need `0.0.0.0`
-so platform ingress can reach the process.
+`app.run()` reads `PORT` when no explicit port is provided and falls back to
+`8088`. Set a distinct `PORT` for each local agent when using playgrounds or
+canvases side by side. Use `app.run(host="127.0.0.1")` for local-only runs.
+Hosted deployments need `0.0.0.0` so platform ingress can reach the process.
 
 Foundry hosted agents reserve all `FOUNDRY_*` and `AGENT_*` container
 variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local development or
@@ -328,6 +329,8 @@ through the hosted service's environment when deploying; an azd environment
 entry alone does not put it in the container.
 
 In a second PowerShell window, readiness is local and does not invoke a model.
+It returns non-secret diagnostics, including the agent name, enabled protocols,
+route paths, and present/missing status for common configuration variables.
 The POST invokes live Foundry inference and may execute the toolbox. Get
 approval for that spend and tool access before sending it.
 

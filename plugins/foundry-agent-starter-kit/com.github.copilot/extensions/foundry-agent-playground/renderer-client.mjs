@@ -91,7 +91,8 @@ export const rendererClientScript = `
       avgLatency.textContent = state.stats.averageMs + "ms avg";
       renderMessages(state.visibleMessages || []);
       if (state.target !== "hosted" && state.lastHealth) {
-        setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms");
+        const detail = !state.lastHealth.ok && state.lastHealth.body ? " · " + String(state.lastHealth.body).slice(0, 160) : "";
+        setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms" + detail);
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.running) {
         setStatus("ok", "Local agent started.");
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
@@ -215,7 +216,7 @@ export const rendererClientScript = `
         testHostedAction.hidden = !(connected && foundryOk);
         guideTitle.textContent = !connected ? "Connect Foundry project" : "Make it work in Foundry";
         guideCopy.textContent = !connected
-          ? "Ask Copilot for the Foundry project endpoint so it can bootstrap .env, then refresh discovery here."
+          ? "Use Start local to open the Foundry project endpoint dialog and bootstrap .env, then refresh discovery here."
           : needsProvision
           ? "Prepare this repo for hosted deployment into the connected Foundry project."
           : foundryOk
@@ -249,12 +250,12 @@ export const rendererClientScript = `
         testHostedAction.hidden = true;
         guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Local agent";
         guideCopy.textContent = state.target === "hosted" && !connected
-          ? "Ask Copilot for the Foundry project endpoint so it can bootstrap .env, then refresh discovery here."
+          ? "Use Start local to open the Foundry project endpoint dialog and bootstrap .env, then refresh discovery here."
           : state.target === "hosted"
           ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
           : localRunning
           ? "Local agent is running."
-          : "Start the local agent. If Foundry values are missing, this will ask for the project endpoint.";
+          : "Start the local agent. If Foundry values are missing, this opens the project endpoint dialog.";
         primaryGuideAction.textContent = state.target === "hosted" && !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : "Start local";
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
       }
@@ -359,7 +360,7 @@ export const rendererClientScript = `
       deployLog.textContent = lines.length ? lines.join("") : [
         "$ azd env get-values\\n",
         discoveryLine,
-        "Ask Copilot to collect the Foundry project endpoint, bootstrap .env, then refresh discovery here.\\n",
+        "Use Start local to collect the Foundry project endpoint in the canvas dialog, bootstrap .env, then refresh discovery here.\\n",
         "Then discover the deployed Foundry agent version and protocol endpoints.\\n\\n",
         "$ azd deploy " + (state.selectedAgent?.serviceName || "minimal-agent") + " --no-prompt\\n",
         "Deploy changes to Foundry and register a new hosted version.\\n",
@@ -407,7 +408,7 @@ export const rendererClientScript = `
     async function sendPrompt() {
       if (inFlight) return;
       if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
-        setStatus("fail", "No hosted Responses endpoint is discovered yet. Ask Copilot for the Foundry project endpoint, bootstrap .env, then refresh.");
+        setStatus("fail", "No hosted Responses endpoint is discovered yet. Use Start local to bootstrap .env from the endpoint dialog, then refresh.");
         return;
       }
       const input = promptInput.value.trim();
@@ -757,9 +758,8 @@ export const rendererClientScript = `
           method: "POST",
           body: JSON.stringify({
             projectEndpoint,
-            modelDeployment: "gpt-6-astra",
-            toolboxName: "contract-toolbox",
-            overwrite: true,
+            overwrite: false,
+            targetPaths: latestState?.localEnv?.path ? [latestState.localEnv.path] : undefined,
           }),
         });
         renderSnapshot(payload.state);
@@ -808,7 +808,7 @@ export const rendererClientScript = `
 
     async function checkReadinessFromCanvas() {
       if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
-        setStatus("fail", "No hosted Responses endpoint is discovered yet. Ask Copilot for the Foundry project endpoint, bootstrap .env, then refresh.");
+        setStatus("fail", "No hosted Responses endpoint is discovered yet. Use Start local to bootstrap .env from the endpoint dialog, then refresh.");
         return;
       }
       primaryGuideAction.disabled = true;

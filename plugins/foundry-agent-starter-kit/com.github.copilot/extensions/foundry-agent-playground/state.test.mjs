@@ -70,6 +70,10 @@ test("clearMessagesForTarget clears only the selected target transcript", () => 
     clearMessagesForTarget(state, "hosted");
 
     assert.deepEqual(state.messages.map((message) => message.id), ["local-1"]);
+
+    clearMessagesForTarget(state, "local");
+
+    assert.deepEqual(state.messages.map((message) => message.id), []);
 });
 
 test("selectedAgent falls back to the default minimal agent", () => {

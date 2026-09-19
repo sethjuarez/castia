@@ -64,10 +64,9 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
 
 1. Open a scenario repo in Copilot App.
 2. Ask Copilot to build a Foundry agent for that repo.
-3. If the repo has no project endpoint yet, Copilot should ask which Foundry
-   project to use with a question box, then save that non-secret endpoint into
-   gitignored local `.env` files.
-4. Start the agent with `uv run --directory <agent-root> python main.py`.
-5. Open **Foundry Agent Playground**.
-6. Check readiness before sending a prompt.
-7. Deploy or publish only after explicit approval.
+3. Open **Foundry Agent Playground**.
+4. Click **Start local**. If the repo has no project endpoint yet, the canvas
+   opens its in-canvas endpoint dialog, then saves non-secret derived values into
+   gitignored local `.env` files and starts the agent.
+5. Check readiness before sending a prompt.
+6. Deploy or publish only after explicit approval.

@@ -282,7 +282,7 @@ export const rendererStyles = `
     .local-ticker {
       display: flex;
       gap: 6px;
-      align-items: baseline;
+      align-items: center;
       margin-top: 8px;
       color: var(--cp-text-muted);
       font-size: 12px;
@@ -328,7 +328,10 @@ export const rendererStyles = `
       border-radius: 999px;
       background: var(--cp-text-muted);
       flex: 0 0 auto;
-      margin-top: 6px;
+    }
+    .deploy-ticker-row .ticker-mark {
+      align-self: center;
+      justify-self: center;
     }
     .local-ticker.ok .ticker-mark { background: var(--cp-success); }
     .local-ticker.warn .ticker-mark { background: var(--cp-warning); }
