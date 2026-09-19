@@ -50,13 +50,14 @@ Invoke-RestMethod http://127.0.0.1:8088/readiness
 Invoke-RestMethod http://127.0.0.1:8088/responses `
   -Method Post `
   -ContentType "application/json" `
-  -Body '{"input":"Call local_agent_fact with topic canvas, then call local_trace_marker with topic canvas and stage second-tool. Quote both tool results exactly."}'
+  -Body '{"input":"Run a three-step local tool trace. First call local_agent_fact with topic canvas. After you have that result, call local_trace_marker with topic canvas and stage second-tool. After you have that result, call local_review_checkpoint with topic canvas and previous second-tool. Quote all three tool results exactly, in order."}'
 ```
 
-The `local_agent_fact` and `local_trace_marker` tools are always available and
-are registered in-process with Prompty's function-tool dispatcher. Asking for
-both in one turn creates two local `execute_tool` spans for trace inspection. To
-expose toolbox-backed tools to the same Prompty loop, set
+The `local_agent_fact`, `local_trace_marker`, and `local_review_checkpoint`
+tools are always available and are registered in-process with Prompty's
+function-tool dispatcher. Asking for all three in one turn creates multiple
+local `execute_tool` spans for trace timeline inspection. To expose
+toolbox-backed tools to the same Prompty loop, set
 `PROMPTY_TOOLBOX_ALLOWED_TOOLS` to a comma-separated list of MCP tool names, for
 example `contracts-kb-mcp___knowledge_base_retrieve`. The example resolves the
 toolbox endpoint through Castia's existing `TOOLBOX_*` environment conventions

@@ -12,6 +12,7 @@ CONFIG_ROOT = AGENT_ROOT / ".agent_configs"
 PROJECT_ENDPOINT = re.compile(r"^https://[^/\s]+/api/projects/[^/\s]+$")
 LOCAL_FACT_TOOL = "local_agent_fact"
 LOCAL_TRACE_TOOL = "local_trace_marker"
+LOCAL_REVIEW_TOOL = "local_review_checkpoint"
 
 
 def load_local_env() -> None:
@@ -99,6 +100,13 @@ def local_trace_marker(topic: str = "trace", stage: str = "follow-up") -> str:
     )
 
 
+def local_review_checkpoint(topic: str = "trace", previous: str = "none") -> str:
+    return (
+        f"Review checkpoint captured for topic '{topic}' after '{previous}'. "
+        "This third local Python function verifies another tool crank in the same turn."
+    )
+
+
 def local_function_tools() -> list[object]:
     import prompty
 
@@ -139,6 +147,27 @@ def local_function_tools() -> list[object]:
                 ),
             ],
         ),
+        prompty.FunctionTool(
+            name=LOCAL_REVIEW_TOOL,
+            description=(
+                "Return a deterministic review checkpoint proving the Prompty loop can "
+                "continue with another host-side Python function after earlier tool results."
+            ),
+            parameters=[
+                prompty.Property(
+                    name="topic",
+                    kind="string",
+                    description="Short topic label to include in the review checkpoint.",
+                    required=False,
+                ),
+                prompty.Property(
+                    name="previous",
+                    kind="string",
+                    description="Short label for the prior tool result being reviewed.",
+                    required=False,
+                ),
+            ],
+        ),
     ]
 
 
@@ -147,6 +176,7 @@ def register_local_functions() -> None:
 
     register_tool(LOCAL_FACT_TOOL, local_agent_fact)
     register_tool(LOCAL_TRACE_TOOL, local_trace_marker)
+    register_tool(LOCAL_REVIEW_TOOL, local_review_checkpoint)
 
 
 def toolbox_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
@@ -187,6 +217,7 @@ def runner_provider():
     tool_functions = {
         LOCAL_FACT_TOOL: local_agent_fact,
         LOCAL_TRACE_TOOL: local_trace_marker,
+        LOCAL_REVIEW_TOOL: local_review_checkpoint,
     }
     if tool_names:
         client = ToolboxMcpClient()
