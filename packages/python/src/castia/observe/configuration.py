@@ -15,6 +15,7 @@ _logger = logging.getLogger("agent")
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
+_MSI_TOKEN_EXCLUDED_URL = r".*/msi/token.*"
 
 
 def configure_observability(
@@ -50,6 +51,7 @@ def configure_observability(
     # span recording so model calls both surface in the portal and stay safe.
     # setdefault keeps it operator-overridable via the environment.
     os.environ.setdefault("OTEL_TRACES_SAMPLER", "always_on")
+    _configure_msi_token_http_filter()
 
     attributes = {
         "service.name": os.environ.get(
@@ -334,6 +336,25 @@ def _azure_core_tracing_implementation():
             super().__init__(span=span, name=name, **kwargs)
 
     return CastiaOpenTelemetrySpan
+
+
+def _configure_msi_token_http_filter() -> None:
+    """Exclude managed-identity token HTTP calls from default auto-instrumentation."""
+    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False):
+        return
+    for env_var in (
+        "OTEL_PYTHON_REQUESTS_EXCLUDED_URLS",
+        "OTEL_PYTHON_URLLIB3_EXCLUDED_URLS",
+        "OTEL_PYTHON_AIOHTTP_CLIENT_EXCLUDED_URLS",
+    ):
+        os.environ[env_var] = _append_excluded_url(os.environ.get(env_var), _MSI_TOKEN_EXCLUDED_URL)
+
+
+def _append_excluded_url(existing: str | None, pattern: str) -> str:
+    values = [value.strip() for value in (existing or "").split(",") if value.strip()]
+    if pattern not in values:
+        values.append(pattern)
+    return ",".join(values)
 
 
 def _configure_azure_core_tracing() -> None:

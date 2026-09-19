@@ -192,6 +192,31 @@ def test_azure_core_tracing_can_keep_msi_token_spans(monkeypatch):
     assert observability._azure_core_tracing_implementation() is OpenTelemetrySpan
 
 
+def test_msi_token_http_filter_sets_excluded_urls(monkeypatch):
+    for env_var in (
+        "OTEL_PYTHON_REQUESTS_EXCLUDED_URLS",
+        "OTEL_PYTHON_URLLIB3_EXCLUDED_URLS",
+        "OTEL_PYTHON_AIOHTTP_CLIENT_EXCLUDED_URLS",
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+
+    observability._configure_msi_token_http_filter()
+
+    assert observability.os.environ["OTEL_PYTHON_REQUESTS_EXCLUDED_URLS"] == r".*/msi/token.*"
+    assert observability.os.environ["OTEL_PYTHON_URLLIB3_EXCLUDED_URLS"] == r".*/msi/token.*"
+    assert observability.os.environ["OTEL_PYTHON_AIOHTTP_CLIENT_EXCLUDED_URLS"] == r".*/msi/token.*"
+
+
+def test_msi_token_http_filter_preserves_operator_opt_in(monkeypatch):
+    monkeypatch.setenv(_TRACE_MSI_TOKEN_ENV, "true")
+    monkeypatch.setenv("OTEL_PYTHON_REQUESTS_EXCLUDED_URLS", "https://example.invalid")
+
+    observability._configure_msi_token_http_filter()
+
+    assert observability.os.environ["OTEL_PYTHON_REQUESTS_EXCLUDED_URLS"] == "https://example.invalid"
+
+
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
     monkeypatch.setenv("FOUNDRY_AGENT_NAME", "prompty-agent")
     monkeypatch.setenv("FOUNDRY_AGENT_VERSION", "2")
