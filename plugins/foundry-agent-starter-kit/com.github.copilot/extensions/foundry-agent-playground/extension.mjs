@@ -10,6 +10,8 @@ import {
     callAgentStream,
     checkReadiness,
     configureAgentClient,
+    azureAccessToken,
+    isLoopbackEndpoint,
     responseText,
 } from "./agent-client.mjs";
 import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./constants.mjs";
