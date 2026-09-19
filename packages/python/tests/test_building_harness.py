@@ -115,7 +115,11 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
         with pytest.raises(RuntimeError, match="async with"):
             _ = harness.client
         async with harness as test:
-            assert (await test.client.get("/readiness")).text == "Agent running!"
+            readiness = (await test.client.get("/readiness")).json()
+            assert readiness["status"] == "ok"
+            assert readiness["protocols"] == ["responses", "invocations", "chat"]
+            assert readiness["routes"]["responses"] == "/responses"
+            assert readiness["agent"]["name"] is None
             r = await test.client.post("/responses", json={"input": [
                 {"role": "user", "content": [{"type": "input_text", "text": "real"}]}
             ]})
@@ -141,6 +145,124 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
     finally:
         dependencies._CACHE.clear()
         dependencies._CACHE.update(previous)
+
+
+def test_agent_run_uses_env_port_and_startup_checks(monkeypatch):
+    calls = []
+    captured = {}
+    app = Agent(name="env-agent")
+    app.startup_check(lambda: calls.append("startup"))
+
+    monkeypatch.setenv("PORT", "9012")
+    monkeypatch.setattr(
+        "castia.observe.configuration.configure_observability",
+        lambda: calls.append("observability"),
+    )
+
+    def fake_serve(routes, wire, invokes, *, host, port, agent_name, required_env):
+        captured.update(
+            host=host,
+            port=port,
+            agent_name=agent_name,
+            required_env=required_env,
+        )
+
+    monkeypatch.setattr("castia.hosting.server.serve", fake_serve)
+    app.run()
+
+    assert calls == ["observability", "startup"]
+    assert captured == {
+        "host": "0.0.0.0",
+        "port": 9012,
+        "agent_name": "env-agent",
+        "required_env": (),
+    }
+
+
+def test_agent_run_explicit_port_wins_and_invalid_port_fails(monkeypatch):
+    captured = {}
+    app = Agent()
+
+    monkeypatch.setenv("PORT", "not-a-port")
+    with pytest.raises(ValueError, match="PORT must be an integer"):
+        app.run()
+    monkeypatch.setenv("PORT", "70000")
+    with pytest.raises(ValueError, match="PORT must be between"):
+        app.run()
+
+    monkeypatch.setattr(
+        "castia.observe.configuration.configure_observability",
+        lambda: None,
+    )
+
+    def fake_explicit_serve(routes, wire, invokes, *, host, port, agent_name, required_env):
+        captured.update(host=host, port=port)
+
+    monkeypatch.setattr(
+        "castia.hosting.server.serve",
+        fake_explicit_serve,
+    )
+    app.run(host="0.0.0.0", port=9123)
+    assert captured == {"host": "0.0.0.0", "port": 9123}
+
+
+def test_startup_checks_and_required_env_fail_before_serving(monkeypatch):
+    app = Agent()
+    app.require_env("REQUIRED_FOR_TEST")
+    monkeypatch.delenv("REQUIRED_FOR_TEST", raising=False)
+    monkeypatch.setattr(
+        "castia.observe.configuration.configure_observability",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "castia.hosting.server.serve",
+        lambda *args, **kwargs: pytest.fail("server must not start"),
+    )
+    with pytest.raises(RuntimeError, match="Missing required environment"):
+        app.run()
+
+    app = Agent()
+
+    def fail_startup():
+        raise ValueError("bad config")
+
+    app.startup_check(fail_startup)
+    with pytest.raises(RuntimeError, match="Startup validation failed in fail_startup"):
+        app.run()
+
+
+def test_readiness_reports_missing_required_env_without_failing_health(monkeypatch):
+    monkeypatch.delenv("REQUIRED_FOR_READINESS", raising=False)
+    app = Agent(name="ready-agent")
+    app.require_env("REQUIRED_FOR_READINESS")
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.get("/readiness")
+            assert response.status_code == 200
+            body = response.json()
+            assert body["status"] == "configuration_missing"
+            assert body["agent"]["name"] == "ready-agent"
+            assert body["configuration"]["missing_required"] == [
+                "REQUIRED_FOR_READINESS"
+            ]
+            assert body["configuration"]["environment"]["REQUIRED_FOR_READINESS"] == {
+                "present": False,
+                "required": True,
+            }
+
+    asyncio.run(run())
+
+
+def test_port_probe_reports_occupied_port():
+    from castia.hosting.server import _ensure_port_available
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        with pytest.raises(SystemExit, match="port .* is already in use"):
+            _ensure_port_available("127.0.0.1", port)
 
 
 def test_responses_stream_uses_stream_handler_for_sse():

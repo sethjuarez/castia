@@ -102,6 +102,9 @@ def validate_startup() -> None:
     resolved_agent_config()
 
 
+app.startup_check(validate_startup)
+
+
 def model_provider():
     # Resolve candidates only on first use, never during module registration.
     from castia import configured_model
@@ -117,10 +120,7 @@ async def reply(text: str, model=Depends(model_provider)) -> str:
 
 
 if __name__ == "__main__":
-    validate_startup()
-    host = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
-    port = int(os.environ.get("PORT", "8088"))
-    app.run(host=host, port=port)
+    app.run()
 '''
     smoke = '''"""Offline protocol contract; no model, identity, or Azure calls."""
 
@@ -220,14 +220,14 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "`AZURE_AI_MODEL_DEPLOYMENT_NAME`, then run the app from the agent root:\n\n"
             "```powershell\n"
             "uv sync --project .\n"
-            "$env:HOST = \"127.0.0.1\"\n"
             "uv run --directory . python main.py\n"
             "```\n\n"
             "The entrypoint validates `.env` and `.agent_configs/baseline` before "
-            "serving. The app binds to `0.0.0.0` by default so hosted ingress "
-            "can reach it. Set `HOST=127.0.0.1` for local-only runs. Use the "
-            "Foundry Agent Playground health check against "
-            "`http://localhost:8088` before sending a model prompt.\n\n"
+            "serving. `app.run()` binds to `0.0.0.0` and port `8088` by default. "
+            "Use `app.run(host=\"127.0.0.1\")` for local-only runs, and set "
+            "`PORT` to a free port when running multiple local agents. Use the "
+            "Foundry Agent Playground health check against the selected port "
+            "before sending a model prompt.\n\n"
             "Before code deployment, select your existing azd environment and populate "
             "its context with values verified against that existing project:\n\n"
             "| Setting | Meaning |\n| --- | --- |\n"

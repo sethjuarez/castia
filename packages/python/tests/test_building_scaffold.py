@@ -54,8 +54,8 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "COPY pyproject.toml requirements.txt main.py ./" in (root / "Dockerfile").read_text()
     assert "FROM python:3.13-slim" in (root / "Dockerfile").read_text()
     main_py = (root / "main.py").read_text()
-    assert 'os.environ.get("HOST", "0.0.0.0")' in main_py
-    assert 'os.environ.get("PORT", "8088")' in main_py
+    assert "app.startup_check(validate_startup)" in main_py
+    assert "app.run()" in main_py
     assert '.strip().rstrip("/")' in main_py
     manifest = YAML(typ="safe").load((root / "azure.yaml").read_text())
     service = manifest["services"]["test-agent"]

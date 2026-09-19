@@ -153,7 +153,13 @@ class AgentTestHarness:
                 (dispatch, "invoke_agent", nullcontext),
             ):
                 stack.enter_context(patch.object(module, name, replacement))
-            asgi = server.build_app(self.app._routes, self.app._wire, self.app._invokes)
+            asgi = server.build_app(
+                self.app._routes,
+                self.app._wire,
+                self.app._invokes,
+                agent_name=self.app.name,
+                required_env=self.app._required_env,
+            )
             transport = httpx.ASGITransport(
                 app=asgi, raise_app_exceptions=self.raise_app_exceptions
             )

@@ -60,9 +60,10 @@ Do not scaffold or keep an Agent Framework sample as the implementation for a
 Castia story-flow starter. If an external scaffold command creates one, replace
 it before local testing or deployment.
 
-The playground should not ask for project/model settings. If `.env` is missing
-or incomplete, tell the user to copy `.env.example` to `.env`, fill those two
-values, and refresh.
+The agent should not ask for project/model settings in chat. If `.env` is
+missing or incomplete, open the Foundry Agent Playground and use **Start local**;
+the canvas opens its endpoint dialog, writes non-secret derived values to
+gitignored `.env` files, and starts the local agent.
 
 ## Agent identity
 
@@ -76,24 +77,11 @@ Treat `folder + azd service name` as the local agent identity.
 ## First-run contract
 
 Before local testing can work, the agent needs a Foundry project with a deployed
-model. Ask for the minimum Foundry target:
-
-- Foundry project endpoint, for example
-  `https://<account>.services.ai.azure.com/api/projects/<project>`
-- model deployment name, for example `gpt-5.5`
-
-Use this same project for both local model calls and hosted deployment unless the
-user explicitly overrides it.
-
-If the user does not already have a project and deployed model, guide them to
-create those first before starting the local run.
-
-Persist these values first to developer-local `.env` only:
-
-```powershell
-Copy-Item .env.example .env
-# Fill FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME in .env
-```
+model. Do not ask for the endpoint in chat, infer one, or call an agent-facing
+bootstrap action. Use the Foundry Agent Playground **Start local** button as the
+only endpoint-entry path. It opens the in-canvas dialog for a project endpoint
+such as `https://<account>.services.ai.azure.com/api/projects/<project>`, writes
+developer-local `.env`, and then starts local mode.
 
 Set the same values in the azd environment only when the user explicitly moves
 from local testing to hosted deployment.

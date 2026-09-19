@@ -15,12 +15,15 @@ it back unchanged; ``app.run()`` starts the server. ``Router`` mirrors FastAPI's
 
 from __future__ import annotations
 
+import inspect
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from castia.messaging.surfaces import Teams
 
 Handler = Callable[..., Awaitable[Any]]
+StartupCheck = Callable[[], Any]
 
 # Protocols we can publish to Foundry -- i.e. declare in ``azure.yaml`` and expose
 # on the deployed agent. ``chat`` is served locally but is *not* a
@@ -31,6 +34,8 @@ PUBLISHABLE_PROTOCOLS: tuple[str, ...] = ("activity", "responses", "invocations"
 # Canonical order the wire protocols are reported/emitted in.
 _WIRE_ORDER: tuple[str, ...] = ("responses", "invocations", "chat")
 _INTERNAL_WIRE: tuple[str, ...] = ("responses_stream",)
+_DEFAULT_HOST = "0.0.0.0"
+_DEFAULT_PORT = 8088
 
 
 class Router:
@@ -59,6 +64,8 @@ class Router:
         # ``tools.json``. Kept as providers (not materialized Tools) so any heavy
         # tool impls import lazily, exactly like the providers themselves do.
         self._tool_providers: list[Callable[[], list]] = []
+        self._startup_checks: list[StartupCheck] = []
+        self._required_env: tuple[str, ...] = ()
 
     def activity(self, *surfaces: Teams) -> Callable[[Handler], Handler]:
         """Serve ``func`` over the **Activity Protocol** for the given surfaces.
@@ -181,6 +188,30 @@ class Router:
         """
         self._tool_providers.extend(providers)
 
+    def startup_check(self, *checks: StartupCheck) -> None:
+        """Run zero-argument validation callables before the HTTP server starts.
+
+        Registration is side-effect free: checks are stored now and executed only
+        by :meth:`Agent.run`. Use this for local configuration validation that
+        should fail before serving traffic, not for network probes.
+        """
+        if not all(callable(check) for check in checks):
+            raise TypeError("startup_check accepts only callable checks")
+        self._startup_checks.extend(checks)
+
+    def require_env(self, *names: str) -> None:
+        """Require environment variables to be non-empty before serving.
+
+        Values are never exposed by readiness; only present/missing status is
+        reported. For richer validation, register a :meth:`startup_check`.
+        """
+        cleaned = []
+        for name in names:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("required environment names must be non-empty strings")
+            cleaned.append(name.strip())
+        self._required_env = tuple(dict.fromkeys((*self._required_env, *cleaned)))
+
     def registered_tools(self) -> list:
         """The agent's declared tools, flattened across every provider.
 
@@ -234,6 +265,10 @@ class Router:
                     )
                 self._invokes[name] = handler
             self._tool_providers.extend(router._tool_providers)
+            self._startup_checks.extend(router._startup_checks)
+            self._required_env = tuple(
+                dict.fromkeys((*self._required_env, *router._required_env))
+            )
 
     def registered_protocols(self) -> list[str]:
         """Protocol names this router serves, in canonical order.
@@ -247,6 +282,25 @@ class Router:
             names.append("activity")
         names.extend(protocol for protocol in _WIRE_ORDER if protocol in self._wire)
         return names
+
+
+def _resolved_host(host: str | None) -> str:
+    if host is None:
+        return _DEFAULT_HOST
+    return str(host).strip() or _DEFAULT_HOST
+
+
+def _resolved_port(port: int | str | None) -> int:
+    raw = os.environ.get("PORT", str(_DEFAULT_PORT)) if port is None else port
+    try:
+        resolved = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"PORT must be an integer between 1 and 65535; got {raw!r}."
+        ) from exc
+    if not 1 <= resolved <= 65535:
+        raise ValueError(f"PORT must be between 1 and 65535; got {resolved}.")
+    return resolved
 
 
 class Agent(Router):
@@ -298,15 +352,52 @@ class Agent(Router):
         if "responses_stream" in self._wire:
             projected._wire["responses_stream"] = self._wire["responses_stream"]
         projected._tool_providers = list(self._tool_providers)
+        projected._startup_checks = list(self._startup_checks)
+        projected._required_env = self._required_env
         return projected
 
-    def run(self, *, host: str = "0.0.0.0", port: int = 8088) -> None:
+    def _run_startup_checks(self) -> None:
+        missing = [
+            name for name in self._required_env
+            if not os.environ.get(name, "").strip()
+        ]
+        if missing:
+            raise RuntimeError(
+                "Missing required environment setting(s): " + ", ".join(missing)
+            )
+        for check in self._startup_checks:
+            try:
+                result = check()
+                if inspect.isawaitable(result):
+                    close = getattr(result, "close", None)
+                    if callable(close):
+                        close()
+                    raise TypeError("startup checks must be synchronous callables")
+            except Exception as exc:
+                name = getattr(check, "__name__", check.__class__.__name__)
+                raise RuntimeError(
+                    f"Startup validation failed in {name}: {type(exc).__name__}: {exc}"
+                ) from exc
+
+    def run(self, *, host: str | None = None, port: int | str | None = None) -> None:
         """Configure telemetry, then serve the registered handlers."""
+        resolved_host = _resolved_host(host)
+        resolved_port = _resolved_port(port)
+
         # Must happen before any instrumented SDK module is imported.
         from castia.observe.configuration import configure_observability
 
         configure_observability()
+        self._run_startup_checks()
 
         from castia.hosting.server import serve
 
-        serve(self._routes, self._wire, self._invokes, host=host, port=port)
+        serve(
+            self._routes,
+            self._wire,
+            self._invokes,
+            host=resolved_host,
+            port=resolved_port,
+            agent_name=self.name,
+            required_env=self._required_env,
+        )

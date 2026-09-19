@@ -30,9 +30,9 @@ The UI includes these parts.
 - agent discovery from `azure.yaml` services that use `host: azure.ai.agent`;
 - an agent picker keyed by folder plus azd service name;
 - a guided Local -> Foundry -> Teams step rail with one primary action at a time;
-- a first-run `.env` bootstrap for an existing Foundry project endpoint. Agents
-  should ask for the project endpoint before opening the canvas, then use this
-  bootstrap to write only non-secret derived values into gitignored `.env` files;
+- a first-run `.env` bootstrap for an existing Foundry project endpoint, owned
+  by the **Start local** in-canvas endpoint dialog rather than chat prompts or
+  agent-invoked bootstrap actions;
 - a deterministic local-start guard: if the user clicks **Start local** before
   Foundry project values are present, the plugin opens an in-canvas question box
   for the project endpoint, bootstraps `.env`, and then starts the local agent;
@@ -47,8 +47,8 @@ The UI includes these parts.
 
 When a new local session has `.env.example` files but no filled `.env` files
 yet, clicking **Start local** opens an in-canvas question box asking which Foundry
-project to use. The plugin then uses the same logic as the `bootstrap_env`
-canvas action with a project endpoint such as:
+project to use. The plugin then bootstraps gitignored `.env` files from a
+project endpoint such as:
 
 ```text
 https://<account>.services.ai.azure.com/api/projects/<project>
@@ -73,10 +73,9 @@ Safety rules:
 - every target must be ignored by git, verified with `git check-ignore`.
 
 Targets are discovered from `.env.example` siblings, hosted agent roots found in
-`azure.yaml`, and common `modules\agents` layouts. Agents can also trigger the
-same behavior through the `bootstrap_env` canvas action with
-`projectEndpoint`, optional `modelDeployment`, `toolboxName`, `overwrite`,
-`dryRun`, and `targetPaths`.
+`azure.yaml`, and common `modules\agents` layouts. The project endpoint is
+entered only through the Start local dialog; the SDK canvas action surface does
+not expose a separate endpoint-bootstrap action.
 
 The Foundry step keeps hosted state visible in the main playground context.
 

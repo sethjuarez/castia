@@ -194,7 +194,8 @@ async function setAzdEnvValues(cwd, values, log) {
         if (!value) continue;
         const result = await runCommand("azd", ["env", "set", key, value], { cwd });
         exitCode ||= result.code;
-        log?.push(`$ azd env set ${key} ${key.includes("ENDPOINT") ? value : String(value)}\n`);
+        const displayValue = key.includes("ENDPOINT") ? value : "<set>";
+        log?.push(`$ azd env set ${key} ${displayValue}\n`);
         if (result.code !== 0) {
             log?.push(result.output || `Failed to set ${key}.\n`);
         }
@@ -621,6 +622,7 @@ async function startLocalAgent(state) {
     }
     const endpoint = selectedLocalEndpoint(state);
     const port = endpointPort(endpoint);
+    clearMessagesForTarget(state, "local");
     state.localRun = {
         running: true,
         command: `${local.command} ${local.args.join(" ")}`,
@@ -632,16 +634,32 @@ async function startLocalAgent(state) {
         process: null,
     };
     addLocalEvent(state, "", `Starting local agent on ${endpoint}.`);
+    const envValues = localEnvFoundryProjectValues(await readAgentEnv(agent));
+    const childEnv = {
+        ...process.env,
+        ...(local.env || {}),
+        ...(port ? { PORT: String(port) } : {}),
+    };
+    for (const [key, value] of Object.entries({
+        FOUNDRY_PROJECT_ENDPOINT:
+            envValues.projectEndpoint ||
+            state.foundryConnection.projectEndpoint ||
+            process.env.FOUNDRY_PROJECT_ENDPOINT,
+        AZURE_AI_MODEL_DEPLOYMENT_NAME:
+            envValues.modelDeployment ||
+            state.foundryConnection.modelDeployment ||
+            process.env.AZURE_AI_MODEL_DEPLOYMENT_NAME,
+    })) {
+        if (value) {
+            childEnv[key] = value;
+        } else {
+            delete childEnv[key];
+        }
+    }
     const child = spawn(local.command, local.args, {
         cwd: agent.root,
         shell: false,
-        env: {
-            ...process.env,
-            ...(local.env || {}),
-            ...(port ? { PORT: String(port) } : {}),
-            FOUNDRY_PROJECT_ENDPOINT: state.foundryConnection.projectEndpoint || process.env.FOUNDRY_PROJECT_ENDPOINT || "",
-            AZURE_AI_MODEL_DEPLOYMENT_NAME: state.foundryConnection.modelDeployment || process.env.AZURE_AI_MODEL_DEPLOYMENT_NAME || "",
-        },
+        env: childEnv,
     });
     state.localRun.process = child;
     const append = (chunk) => state.localRun.log.push(chunk.toString());
@@ -1341,8 +1359,8 @@ await joinSession({
         mode: "append",
         content: [
             "When using the Foundry Agent Playground canvas and Foundry project values are missing, clicking Start local opens an in-canvas question box that asks the user for the Foundry project endpoint.",
-            "After the user provides the endpoint, the canvas writes non-secret Foundry values into gitignored .env files with the same bootstrap logic exposed through the bootstrap_env action.",
-            "Do not tell the user to paste the project endpoint into the canvas; the canvas intentionally keeps project bootstrap out of the visible UI.",
+            "Do not ask for the project endpoint in chat and do not tell the user to paste it manually; the Start local button is the only supported endpoint-entry path.",
+            "After the user provides the endpoint in the canvas dialog, the canvas writes non-secret Foundry values into gitignored .env files.",
         ].join("\n"),
     },
     canvases: [
@@ -1391,47 +1409,6 @@ await joinSession({
                         const state = instanceState(ctx);
                         state.lastHealth = await checkReadiness(activeEndpoint(state));
                         return state.lastHealth;
-                    },
-                },
-                {
-                    name: "bootstrap_env",
-                    description: "Create or update gitignored local .env files with non-secret Foundry project values derived from a project URL.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            projectEndpoint: {
-                                type: "string",
-                                description: "Foundry project URL ending in /api/projects/<project>.",
-                            },
-                            modelDeployment: {
-                                type: "string",
-                                description: "Azure AI model deployment name. Defaults to gpt-6-astra.",
-                            },
-                            toolboxName: {
-                                type: "string",
-                                description: "Optional toolbox name. When provided, writes TOOLBOX_NAME and its MCP endpoint. Defaults to contract-toolbox.",
-                            },
-                            overwrite: {
-                                type: "boolean",
-                                description: "Overwrite existing values in .env files. Defaults to false, preserving existing values.",
-                            },
-                            dryRun: {
-                                type: "boolean",
-                                description: "Preview discovered targets and derived values without writing files.",
-                            },
-                            targetPaths: {
-                                type: "array",
-                                description: "Optional workspace-relative .env files to write. Each must be gitignored.",
-                                items: { type: "string" },
-                            },
-                        },
-                        required: ["projectEndpoint"],
-                        additionalProperties: false,
-                    },
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        const result = await bootstrapLocalEnv(state, ctx.input || {});
-                        return { result, state: stateSnapshot(state) };
                     },
                 },
                 {

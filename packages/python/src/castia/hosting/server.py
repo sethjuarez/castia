@@ -26,12 +26,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import socket
+import subprocess
 from collections.abc import Callable
 from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from castia.messaging.connector import send_reply
 from castia.messaging.routing import (
@@ -60,6 +63,18 @@ _PREDICATES: dict[Teams, Callable[[Activity], bool]] = {
     Teams.group: teams_group_chat_message,
     Teams.channel_mention: teams_tagged_channel_message,
 }
+_ROUTE_PATHS = {
+    "activity": "/activity/messages",
+    "responses": "/responses",
+    "invocations": "/invocations",
+    "chat": "/chat/completions",
+}
+_COMMON_ENV_CHECKS = (
+    "FOUNDRY_PROJECT_ENDPOINT",
+    "AZURE_AI_MODEL_DEPLOYMENT_NAME",
+    "TOOLBOX_ENDPOINT",
+    "OPTIMIZATION_CANDIDATE_ID",
+)
 
 
 def _any_of(surfaces: tuple[Teams, ...]) -> Callable[[Activity], bool]:
@@ -460,24 +475,180 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
         logger.info("Serving invocations protocol on POST /invocations")
 
 
-def build_app(routes, wire=None, invokes=None) -> FastAPI:
+def _registered_protocols(routes, wire=None, invokes=None) -> list[str]:
+    protocols: list[str] = []
+    if routes or invokes:
+        protocols.append("activity")
+    protocols.extend(
+        protocol for protocol in ("responses", "invocations", "chat")
+        if protocol in (wire or {})
+    )
+    return protocols
+
+
+def _readiness_payload(
+    routes,
+    wire=None,
+    invokes=None,
+    *,
+    agent_name: str | None = None,
+    required_env: tuple[str, ...] = (),
+) -> dict:
+    protocols = _registered_protocols(routes, wire, invokes)
+    paths = {"readiness": "/readiness"}
+    paths.update({protocol: _ROUTE_PATHS[protocol] for protocol in protocols})
+    env_names = tuple(dict.fromkeys((*_COMMON_ENV_CHECKS, *required_env)))
+    environment = {
+        name: {
+            "present": bool(os.environ.get(name, "").strip()),
+            "required": name in required_env,
+        }
+        for name in env_names
+    }
+    missing_required = [
+        name for name, state in environment.items()
+        if state["required"] and not state["present"]
+    ]
+    return {
+        "status": "configuration_missing" if missing_required else "ok",
+        "agent": {"name": agent_name},
+        "protocols": protocols,
+        "routes": paths,
+        "invokes": sorted((invokes or {}).keys()),
+        "configuration": {
+            "environment": environment,
+            "missing_required": missing_required,
+        },
+    }
+
+
+def build_app(
+    routes,
+    wire=None,
+    invokes=None,
+    *,
+    agent_name: str | None = None,
+    required_env: tuple[str, ...] = (),
+) -> FastAPI:
     """Assemble the FastAPI app: readiness, the Activity endpoint, wire routes."""
     app = FastAPI(title="castia", docs_url=None, redoc_url=None)
 
     @app.get("/readiness")
     async def readiness() -> Response:
-        return PlainTextResponse("Agent running!")
+        body = _readiness_payload(
+            routes,
+            wire or {},
+            invokes or {},
+            agent_name=agent_name,
+            required_env=required_env,
+        )
+        return JSONResponse(
+            body,
+            status_code=200,
+        )
 
     _register_activity(app, routes, invokes)
     _register_wire(app, wire or {})
     return app
 
 
+def _windows_port_owner(port: int) -> str | None:
+    if os.name != "nt":
+        return None
+    command = (
+        "$ErrorActionPreference = 'SilentlyContinue'; "
+        f"$c = Get-NetTCPConnection -LocalPort {port} -State Listen | "
+        "Select-Object -First 1; "
+        "if ($c) { "
+        "$p = Get-CimInstance Win32_Process -Filter "
+        '"ProcessId=$($c.OwningProcess)"; '
+        "[pscustomobject]@{Pid=$c.OwningProcess;Name=$p.Name} | "
+        "ConvertTo-Json -Compress }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    pid = payload.get("Pid")
+    name = payload.get("Name")
+    if pid and name:
+        return f"PID {pid} ({name})"
+    if pid:
+        return f"PID {pid}"
+    return None
+
+
+def _port_in_use_message(host: str, port: int) -> str:
+    owner = _windows_port_owner(port)
+    owner_text = f" Owned by {owner}." if owner else ""
+    return (
+        f"Cannot start Castia agent on {host}:{port}: port {port} is already in use."
+        f"{owner_text} Stop that process or set PORT to a free value "
+        '(for example, PowerShell: $env:PORT = "8089") before running the agent.'
+    )
+
+
+def _ensure_port_available(host: str, port: int) -> None:
+    probe_host = "" if host in {"0.0.0.0", "::"} else host
+    try:
+        family = socket.getaddrinfo(
+            probe_host or host,
+            port,
+            type=socket.SOCK_STREAM,
+        )[0][0]
+    except OSError:
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as probe:
+        if os.name != "nt":
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((probe_host, port))
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 10048 or exc.errno in {48, 98, 10048}:
+                message = _port_in_use_message(host, port)
+            else:
+                message = (
+                    f"Cannot start Castia agent on {host}:{port}: {exc}. "
+                    "Set HOST/PORT to a bindable local address."
+                )
+            logger.error(message)
+            raise SystemExit(message) from exc
+
+
 def serve(
-    routes, wire=None, invokes=None, *, host: str = "0.0.0.0", port: int = 8088
+    routes,
+    wire=None,
+    invokes=None,
+    *,
+    host: str = "0.0.0.0",
+    port: int = 8088,
+    agent_name: str | None = None,
+    required_env: tuple[str, ...] = (),
 ) -> None:
     """Serve the Activity endpoint and any registered wire protocols."""
-    logger.info("Starting agent...")
+    logger.info("Starting agent %s on %s:%s...", agent_name or "<unnamed>", host, port)
+    _ensure_port_available(host, port)
     uvicorn.run(
-        build_app(routes, wire, invokes), host=host, port=port, log_level="info"
+        build_app(
+            routes,
+            wire,
+            invokes,
+            agent_name=agent_name,
+            required_env=required_env,
+        ),
+        host=host,
+        port=port,
+        log_level="info",
     )

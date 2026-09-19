@@ -96,6 +96,13 @@ instead of being buried in the framework. (`Model()` with no argument falls back
 to `AZURE_AI_MODEL_DEPLOYMENT_NAME`; `get_model` / `use_model("gpt-4o")` are
 zero-config conveniences.)
 
+`app.run()` binds to `0.0.0.0` and reads `PORT` when no explicit port is
+provided, falling back to `8088`. Set a different `PORT` for each local agent
+when running multiple agents through the playground or canvas. Use
+`app.run(host="127.0.0.1")` for local-only development. `GET /readiness` returns
+non-secret diagnostics for the selected process: agent name, enabled protocols,
+route paths, and present/missing status for common configuration variables.
+
 ### Composing protocols with routers
 
 Like FastAPI's `include_router`, an `Agent` composes `Router`s so each protocol

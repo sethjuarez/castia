@@ -65,6 +65,9 @@ def validate_startup() -> None:
     resolved_agent_config()
 
 
+app.startup_check(validate_startup)
+
+
 def model_provider():
     # Resolve candidates only on first use, never during module registration.
     from castia import configured_model
@@ -79,8 +82,7 @@ ModelDependency = Depends(model_provider)
 @app.responses()
 @app.invocations()
 async def reply(text: str, model=ModelDependency) -> str:
-    answer = await model.respond(text)
-    return f"{answer}\n\nSmoke test marker: local-to-hosted path is current."
+    return await model.respond(text)
 
 
 if hasattr(app, "responses_stream"):
@@ -89,11 +91,6 @@ if hasattr(app, "responses_stream"):
     async def reply_stream(text: str, model=ModelDependency):
         async for delta in model.stream(text):
             yield delta
-        yield "\n\nSmoke test marker: local-to-hosted path is current."
-
 
 if __name__ == "__main__":
-    validate_startup()
-    host = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
-    port = int(os.environ.get("PORT", "8088"))
-    app.run(host=host, port=port)
+    app.run()

@@ -54,6 +54,11 @@ Invoke-RestMethod http://127.0.0.1:8088/responses `
   -Body '{"input":"Say hello from the minimal agent."}'
 ```
 
+`app.run()` uses `PORT` when set and otherwise falls back to `8088`. When
+running more than one local Castia agent, assign each shell or playground launch
+a distinct port, for example `$env:PORT = "8089"`, and point readiness and
+Responses requests at that port.
+
 For a real streaming smoke test, request the Responses stream:
 
 ```powershell
