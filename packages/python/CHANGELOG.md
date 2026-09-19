@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.6](https://github.com/sethjuarez/castia/compare/python-v0.7.5...python-v0.7.6) (2026-09-19)
+
+
+### Bug Fixes
+
+* stabilize playground and pyproject deploy guidance ([#45](https://github.com/sethjuarez/castia/issues/45)) ([727bbcd](https://github.com/sethjuarez/castia/commit/727bbcd851342b51d87363a47169914b00faadc3))
+
 ## [0.7.5](https://github.com/sethjuarez/castia/compare/python-v0.7.4...python-v0.7.5) (2026-09-19)
 
 
