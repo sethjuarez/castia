@@ -737,13 +737,18 @@ export const rendererStyles = `
       0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
       40% { transform: translateY(-3px); opacity: 1; }
     }
+    .details-row {
+      display: flex;
+      align-items: center;
+      padding: 0 12px 10px;
+    }
     .details-toggle {
       appearance: none;
       display: inline-flex;
       align-items: center;
       gap: 4px;
       width: auto;
-      margin: 0 12px 10px;
+      min-height: 20px;
       padding: 0;
       border: 0;
       border-radius: 4px;
@@ -756,29 +761,31 @@ export const rendererStyles = `
       text-decoration: none;
       box-shadow: none;
     }
-    .details-toggle::before {
-      content: "▸";
-      color: currentColor;
-      font-size: 10px;
-      line-height: 1;
-    }
-    .details-toggle[aria-expanded="true"]::before {
-      content: "▾";
-    }
     .details-toggle:hover {
-      border-color: transparent;
       background: transparent;
       text-decoration: underline;
     }
-    .details-toggle:focus {
-      outline: none;
+    .details-toggle-icon {
+      width: 0;
+      height: 0;
+      border-top: 3.5px solid transparent;
+      border-bottom: 3.5px solid transparent;
+      border-left: 5px solid currentColor;
+      transform-origin: 45% 50%;
+      transition: transform 120ms ease;
+    }
+    .details-toggle[aria-expanded="true"] .details-toggle-icon {
+      transform: rotate(90deg);
+    }
+    .details-panel {
+      padding: 0 12px 12px;
+    }
+    .details-panel[hidden] {
+      display: none;
     }
     .details-toggle:focus-visible {
       outline: 2px solid var(--cp-accent);
       outline-offset: 2px;
-    }
-    .details-panel {
-      padding: 0 12px 12px;
     }
     .details-panel pre {
       max-height: 240px;

@@ -38,7 +38,11 @@ export function responseDetailsKey(turn, index = 0) {
 }
 
 export function responseDetailsPanelId(detailsKey) {
-    return "response-details-" + String(detailsKey || "unknown").replace(/[^A-Za-z0-9_-]+/g, "-");
+    const normalized = String(detailsKey || "details")
+        .trim()
+        .replace(/[^A-Za-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    return "response-details-" + (normalized || "details");
 }
 
 export function composerGate(state, { activeView = "chat", inFlight = false } = {}) {
@@ -462,7 +466,7 @@ export const rendererClientScript = `
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => {
         const detailsKey = responseDetailsKey(turn, index);
-        const detailsPanelId = responseDetailsPanelId(detailsKey);
+        const detailsId = responseDetailsPanelId(detailsKey);
         const detailsOpen = expandedResponseDetails.has(detailsKey);
         const ok = turn.response?.ok;
         const streaming = turn.response?.streaming;
@@ -481,8 +485,8 @@ export const rendererClientScript = `
           '<section class="bubble agent">' +
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
-          '<button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsPanelId) + '">Details</button>' +
-          '<div id="' + escapeHtml(detailsPanelId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
+          '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button></div>' +
+          '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
       }).join("");

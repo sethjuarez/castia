@@ -80,12 +80,14 @@ class Model:
         # The GenAI instrumentor enabled in observability._enable_genai_tracing
         # wraps this Responses API call in a `chat {model}` span carrying the
         # gen_ai.* semantic-convention attributes the Foundry Traces UI renders.
+        _add_model_event("castia.model.request.started", phase="single")
         response = await self._client.get_openai_client().responses.create(
             model=self._deployment,
-            input=text,
+            input=_user_message_input(text),
             **_instructions_param(self._instructions),
             **self._reasoning,
         )
+        _add_model_event("castia.model.final_response.completed", phase="single")
         return response.output_text
 
     async def stream(self, text: str) -> AsyncIterator[str]:
@@ -101,18 +103,22 @@ class Model:
                 await s.append(delta)
             await s.finish()
         """
+        _add_model_event("castia.model.request.started", phase="stream")
         stream = await self._client.get_openai_client().responses.create(
             model=self._deployment,
-            input=text,
+            input=_user_message_input(text),
             stream=True,
             **_instructions_param(self._instructions),
             **self._reasoning,
         )
-        async for event in stream:
-            if getattr(event, "type", None) == "response.output_text.delta":
-                delta = getattr(event, "delta", "")
-                if delta:
-                    yield delta
+        try:
+            async for event in stream:
+                if getattr(event, "type", None) == "response.output_text.delta":
+                    delta = getattr(event, "delta", "")
+                    if delta:
+                        yield delta
+        finally:
+            _add_model_event("castia.model.final_response.completed", phase="stream")
 
     async def respond_with_tools(
         self,
@@ -150,10 +156,15 @@ class Model:
         ]
         by_name = {t.name: t for t in function_tools}
         client = self._client.get_openai_client()
-        conversation: list = [{"role": "user", "content": text}]
+        conversation: list = _user_message_input(text)
 
         response = None
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
+            _add_model_event(
+                "castia.model.request.started",
+                phase="tool_loop",
+                iteration=iteration + 1,
+            )
             response = await client.responses.create(
                 model=self._deployment,
                 input=conversation,
@@ -167,8 +178,19 @@ class Model:
                 if getattr(item, "type", None) == "function_call"
             ]
             if not calls:
+                _add_model_event(
+                    "castia.model.final_response.completed",
+                    phase="tool_loop",
+                    iteration=iteration + 1,
+                )
                 return response.output_text
 
+            _add_model_event(
+                "castia.model.tool_calls.requested",
+                count=len(calls),
+                names=",".join(str(call.name) for call in calls if getattr(call, "name", None)),
+                iteration=iteration + 1,
+            )
             for call in calls:
                 # Echo the model's function_call, then append our result for it.
                 conversation.append(
@@ -200,15 +222,36 @@ class Model:
 
         tool = by_name.get(call.name)
         if tool is None:
+            _add_model_event(
+                "castia.tool.call.completed",
+                tool_name=str(call.name),
+                ok=False,
+                error_type="unknown_tool",
+            )
             return {"ok": False, "detail": f"unknown tool '{call.name}'"}
         try:
             args = json.loads(call.arguments or "{}")
         except json.JSONDecodeError as exc:
+            _add_model_event(
+                "castia.tool.call.completed",
+                tool_name=str(call.name),
+                ok=False,
+                error_type="bad_arguments",
+            )
             return {"ok": False, "detail": f"bad tool arguments: {exc}"}
         try:
+            _add_model_event("castia.tool.call.started", tool_name=str(call.name))
             with execute_tool(call.name):
-                return await tool.run(activity, **args)
+                result = await tool.run(activity, **args)
+            _add_model_event("castia.tool.call.completed", tool_name=str(call.name), ok=True)
+            return result
         except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
+            _add_model_event(
+                "castia.tool.call.completed",
+                tool_name=str(call.name),
+                ok=False,
+                error_type=type(exc).__name__,
+            )
             return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
 
 
@@ -227,6 +270,43 @@ def _instructions_param(instructions: str | None) -> dict:
     if instructions is None:
         return {}
     return {"instructions": instructions}
+
+
+def _user_message_input(text: str) -> list[dict]:
+    """Responses input shape whose text is visible to GenAI content recording.
+
+    The Foundry Responses instrumentor understands explicit ``input_text`` parts.
+    A structured message with ``content`` as a raw string is valid for the
+    Responses API, but current telemetry records it as role-only
+    (``{"role":"user"}``). This shape keeps content private unless the existing
+    content-recording opt-in is enabled, because the instrumentor still owns the
+    decision to include or omit the ``text`` value on exported spans.
+    """
+    return [{"role": "user", "content": [{"type": "input_text", "text": text}]}]
+
+
+def _event_attributes(**attributes: object) -> dict[str, bool | int | float | str]:
+    clean: dict[str, bool | int | float | str] = {}
+    for key, value in attributes.items():
+        if value is None:
+            continue
+        if isinstance(value, (bool, int, float, str)):
+            clean[key] = value
+        else:
+            clean[key] = str(value)
+    return clean
+
+
+def _add_model_event(name: str, **attributes: object) -> None:
+    """Add a non-payload Castia event to the current trace span, best-effort."""
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        if span and span.is_recording():
+            span.add_event(name, attributes=_event_attributes(**attributes))
+    except Exception:  # noqa: BLE001 - telemetry must never break a model call
+        return
 
 
 def _public_tool_spec(

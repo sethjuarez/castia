@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.8](https://github.com/sethjuarez/castia/compare/python-v0.7.7...python-v0.7.8) (2026-09-19)
+
+
+### Bug Fixes
+
+* **python:** record structured model input traces ([#50](https://github.com/sethjuarez/castia/issues/50)) ([e681298](https://github.com/sethjuarez/castia/commit/e681298918869bbcf7ce03b555d20ce9c468f4f6))
+
 ## [0.7.7](https://github.com/sethjuarez/castia/compare/python-v0.7.6...python-v0.7.7) (2026-09-19)
 
 

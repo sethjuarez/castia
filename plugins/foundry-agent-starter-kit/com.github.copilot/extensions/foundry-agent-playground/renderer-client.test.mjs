@@ -131,3 +131,11 @@ test("response details panel ids are stable attribute-safe ids", () => {
         "response-details-created-2026-09-19T00-00-00Z-hosted",
     );
 });
+
+test("response details panel ids are stable and attribute-safe", () => {
+    assert.equal(responseDetailsPanelId("response:resp-1"), "response-details-response-resp-1");
+    assert.equal(
+        responseDetailsPanelId("created:2026-09-19T00:00:00Z:hosted"),
+        "response-details-created-2026-09-19T00-00-00Z-hosted",
+    );
+});
