@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.7](https://github.com/sethjuarez/castia/compare/python-v0.7.6...python-v0.7.7) (2026-09-19)
+
+
+### Bug Fixes
+
+* **python:** suppress noisy ASGI send spans ([#47](https://github.com/sethjuarez/castia/issues/47)) ([c658f15](https://github.com/sethjuarez/castia/commit/c658f159e9612ce50bbf8ce4e546ae6e69fb6405))
+
 ## [0.7.6](https://github.com/sethjuarez/castia/compare/python-v0.7.5...python-v0.7.6) (2026-09-19)
 
 
