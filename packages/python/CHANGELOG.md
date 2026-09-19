@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.5](https://github.com/sethjuarez/castia/compare/python-v0.7.4...python-v0.7.5) (2026-09-19)
+
+
+### Bug Fixes
+
+* **python:** restrict readiness diagnostics to local requests ([81b0508](https://github.com/sethjuarez/castia/commit/81b0508f3ba5037c67ad75513637ec5415272ba1))
+
 ## [0.7.4](https://github.com/sethjuarez/castia/compare/python-v0.7.3...python-v0.7.4) (2026-09-19)
 
 
