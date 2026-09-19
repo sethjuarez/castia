@@ -5,23 +5,38 @@ import { createConnection } from "node:net";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
+import {
+    callAgent,
+    callAgentStream,
+    checkReadiness,
+    configureAgentClient,
+    responseText,
+} from "./agent-client.mjs";
+import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./constants.mjs";
 import { renderHtml } from "./renderer.mjs";
+import {
+    activeEndpoint,
+    addLocalEvent,
+    emptyFoundryConnection,
+    emptyHostedContext,
+    endpointPort,
+    endpointWithPort,
+    hasFoundryProjectValues,
+    normalizeEndpoint,
+    selectedAgent,
+    selectedLocalEndpoint,
+    setSelectedAgent,
+    stateSnapshot,
+} from "./state.mjs";
 import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
 import {
     discoverHostedContextFromFoundry,
     hostedContextFromAzd,
-    normalizeHostedResponsesEndpoint,
 } from "./hosted-discovery.mjs";
 
-const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
-const DEFAULT_SERVICE_NAME = "minimal-agent";
-const DEFAULT_AGENT_ROOT = join(process.cwd(), "examples", "python", "minimal-agent");
-const DEFAULT_MODEL_DEPLOYMENT = "gpt-6-astra";
-const DEFAULT_TOOLBOX_NAME = "contract-toolbox";
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
 const servers = new Map();
-const tokenCache = new Map();
 
 function cleanupManagedLocalRuns() {
     for (const entry of servers.values()) {
@@ -60,13 +75,7 @@ function normalizeWorkspacePath(path) {
     return { path: resolved, label: rel ? rel.split(/[\\/]+/).join("\\") : "." };
 }
 
-function normalizeEndpoint(value) {
-    const endpoint = String(value || DEFAULT_ENDPOINT).trim().replace(/\/+$/, "");
-    if (!/^https?:\/\/[^/\s]+/i.test(endpoint)) {
-        throw new CanvasError("invalid_endpoint", "Endpoint must be an http(s) URL.");
-    }
-    return endpoint;
-}
+
 
 function instanceState(ctx) {
     const entry = servers.get(ctx.instanceId);
@@ -108,160 +117,23 @@ function sendNoContent(res) {
     res.end();
 }
 
-function responseText(body) {
-    if (body && typeof body === "object") {
-        return body.output_text ?? body.output ?? JSON.stringify(body, null, 2);
-    }
-    return body ?? "";
-}
 
-function isLoopbackEndpoint(endpoint) {
-    try {
-        const { hostname } = new URL(endpoint);
-        return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
-    } catch {
-        return false;
-    }
-}
 
-function isFoundryResponsesEndpoint(endpoint) {
-    try {
-        const { pathname } = new URL(endpoint);
-        return /\/endpoint\/protocols\/openai\/responses$/i.test(pathname);
-    } catch {
-        return false;
-    }
-}
 
-function responsesUrl(endpoint) {
-    if (isFoundryResponsesEndpoint(endpoint)) {
-        return normalizeHostedResponsesEndpoint(endpoint);
-    }
-    return `${endpoint.replace(/\/+$/, "")}/responses`;
-}
 
-async function azureAccessToken(resource) {
-    const cached = tokenCache.get(resource);
-    if (cached && cached.expiresAt > Date.now() + 60000) {
-        return cached.token;
-    }
-    const result = await runCommand("az", [
-        "account",
-        "get-access-token",
-        "--resource",
-        resource,
-        "--query",
-        "accessToken",
-        "--output",
-        "tsv",
-    ]);
-    if (result.code !== 0) {
-        throw new Error(result.output || "Azure login is required to call the hosted agent.");
-    }
-    const token = result.output.trim();
-    if (!token) {
-        throw new Error("Azure CLI did not return an access token for the hosted agent.");
-    }
-    tokenCache.set(resource, { token, expiresAt: Date.now() + 50 * 60 * 1000 });
-    return token;
-}
 
-async function requestHeadersForEndpoint(endpoint, accept) {
-    const headers = {
-        "Content-Type": "application/json",
-        ...(accept ? { Accept: accept } : {}),
-    };
-    if (/^https:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint)) {
-        headers.Authorization = `Bearer ${await azureAccessToken("https://ai.azure.com")}`;
-    }
-    return headers;
-}
 
-function activeEndpoint(state) {
-    return state.target === "hosted" ? state.hosted.responsesEndpoint || "" : selectedLocalEndpoint(state);
-}
 
-function selectedAgent(state) {
-    return (
-        state.agents.find((agent) => agent.id === state.selectedAgentId) ||
-        state.agents[0] || {
-            id: "minimal-agent",
-            serviceName: DEFAULT_SERVICE_NAME,
-            displayName: DEFAULT_SERVICE_NAME,
-            root: DEFAULT_AGENT_ROOT,
-            rootLabel: "examples\\python\\minimal-agent",
-            envPrefix: serviceEnvPrefix(DEFAULT_SERVICE_NAME),
-        }
-    );
-}
 
-function selectedLocalEndpoint(state) {
-    const agent = selectedAgent(state);
-    return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
-}
 
-function endpointPort(endpoint) {
-    try {
-        const parsed = new URL(endpoint);
-        return Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
-    } catch {
-        return null;
-    }
-}
 
-function endpointWithPort(endpoint, port) {
-    const parsed = new URL(endpoint);
-    parsed.hostname = "127.0.0.1";
-    parsed.port = String(port);
-    return parsed.toString().replace(/\/+$/, "");
-}
 
-function addLocalEvent(state, kind, text) {
-    state.localRun ||= {};
-    state.localRun.events = [
-        ...(state.localRun.events || []),
-        { kind, text, at: new Date().toISOString() },
-    ].slice(-5);
-}
 
-function hasFoundryProjectValues(state) {
-    return Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
-}
 
-function emptyHostedContext(agent) {
-    return {
-        agentName: agent.displayName || agent.serviceName,
-        agentId: null,
-        version: null,
-        responsesEndpoint: null,
-        activityEndpoint: null,
-        invocationsEndpoint: null,
-        projectEndpoint: null,
-        modelDeployment: null,
-        status: "not_deployed",
-        deployedAt: null,
-        lastRefresh: null,
-        lastRefreshExitCode: null,
-        lastRefreshSource: null,
-        lastRemoteDiscoveryStatus: null,
-        lastRemoteDiscoveryMessage: null,
-    };
-}
 
-function emptyFoundryConnection() {
-    return {
-        projectEndpoint: null,
-        modelDeployment: null,
-        subscriptionId: null,
-        location: null,
-        projectId: null,
-        accountName: null,
-        projectName: null,
-        connectedAt: null,
-        lastConnectExitCode: null,
-        lastDiscoveryMessage: null,
-    };
-}
+
+
+
 
 function parseFoundryProjectEndpoint(endpoint) {
     try {
@@ -545,14 +417,7 @@ async function bootstrapLocalEnv(state, input = {}) {
     return state.envBootstrap;
 }
 
-function setSelectedAgent(state, agentId) {
-    const agent = state.agents.find((candidate) => candidate.id === agentId) || state.agents[0];
-    state.selectedAgentId = agent.id;
-    state.hostedByAgent[agent.id] ||= emptyHostedContext(agent);
-    state.localEndpoints[agent.id] ||= DEFAULT_ENDPOINT;
-    state.hosted = state.hostedByAgent[agent.id];
-    return agent;
-}
+
 
 function parseAzdEnv(output) {
     const values = {};
@@ -603,6 +468,8 @@ function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
         });
     });
 }
+
+configureAgentClient({ runCommand });
 
 async function localStartCommand(agent) {
     if (await exists(join(agent.root, "main.py"))) {
@@ -1079,226 +946,9 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
     res.end();
 }
 
-function transcriptStats(messages) {
-    const completed = messages.filter((message) => message.response?.ok);
-    const failed = messages.filter(
-        (message) => message.response && !message.response.streaming && !message.response.ok,
-    );
-    const latencies = messages
-        .map((message) => message.response?.durationMs)
-        .filter((value) => Number.isFinite(value));
-    const averageMs = latencies.length
-        ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length)
-        : 0;
-    return {
-        total: messages.length,
-        completed: completed.length,
-        failed: failed.length,
-        averageMs,
-        lastStatus: messages.at(-1)?.response?.status ?? null,
-    };
-}
-
-function messagesForTarget(state) {
-    return state.messages.filter((message) =>
-        state.target === "hosted" ? message.target === "hosted" : message.target !== "hosted",
-    );
-}
-
-async function callAgentStream(endpoint, payload, onDelta) {
-    const started = Date.now();
-    try {
-        const response = await fetch(responsesUrl(endpoint), {
-            method: "POST",
-            headers: await requestHeadersForEndpoint(endpoint, "text/event-stream"),
-            body: JSON.stringify({ ...payload, stream: true }),
-            signal: AbortSignal.timeout(60000),
-        });
-        const contentType = response.headers.get("content-type") || "";
-        if (!response.ok || !contentType.includes("text/event-stream") || !response.body) {
-            const text = await response.text();
-            let body = text;
-            try {
-                body = text ? JSON.parse(text) : null;
-            } catch {
-                // Keep non-JSON error bodies readable in the tester.
-            }
-            return {
-                ok: response.ok,
-                status: response.status,
-                durationMs: Date.now() - started,
-                body,
-                delivery: {
-                    mode: contentType.includes("text/event-stream") ? "upstream-stream" : "single-response",
-                    upstreamStreaming: contentType.includes("text/event-stream"),
-                    active: false,
-                },
-            };
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let outputText = "";
-        let completedBody = null;
-
-        const handlePart = (part) => {
-            const lines = part.split("\n");
-            const eventLine = lines.find((line) => line.startsWith("event: "));
-            const eventName = eventLine ? eventLine.slice(7).trim() : "message";
-            const data = lines
-                .filter((line) => line.startsWith("data: "))
-                .map((line) => line.slice(6))
-                .join("\n");
-            if (!data) return;
-            if (data.trim() === "[DONE]") return;
-            const payload = JSON.parse(data);
-            if (eventName === "response.output_text.delta") {
-                const delta = String(payload.delta || "");
-                if (delta) {
-                    outputText += delta;
-                    onDelta(delta, outputText, Date.now() - started);
-                }
-            } else if (eventName === "response.completed") {
-                completedBody = payload;
-            }
-        };
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const parts = buffer.split("\n\n");
-            buffer = parts.pop() || "";
-            for (const part of parts) {
-                handlePart(part);
-            }
-        }
-        buffer += decoder.decode();
-        if (buffer.trim()) {
-            handlePart(buffer);
-        }
-
-        return {
-            ok: true,
-            status: response.status,
-            durationMs: Date.now() - started,
-            body: completedBody || { output_text: outputText },
-            delivery: {
-                mode: "upstream-stream",
-                upstreamStreaming: true,
-                active: false,
-            },
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            status: 0,
-            durationMs: Date.now() - started,
-            body: error instanceof Error ? error.message : String(error),
-            delivery: {
-                mode: "error",
-                upstreamStreaming: false,
-                active: false,
-            },
-        };
-    }
-}
-
 function writeEvent(res, name, payload) {
     res.write(`event: ${name}\n`);
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-async function callAgent(endpoint, path, payload) {
-    const started = Date.now();
-    try {
-        const url = path === "/responses" ? responsesUrl(endpoint) : `${endpoint}${path}`;
-        const response = await fetch(url, {
-            method: "POST",
-            headers: await requestHeadersForEndpoint(endpoint),
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(60000),
-        });
-        const text = await response.text();
-        let body = text;
-        try {
-            body = text ? JSON.parse(text) : null;
-        } catch {
-            // Keep non-JSON error bodies readable in the tester.
-        }
-        return {
-            ok: response.ok,
-            status: response.status,
-            durationMs: Date.now() - started,
-            body,
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            status: 0,
-            durationMs: Date.now() - started,
-            body: error instanceof Error ? error.message : String(error),
-        };
-    }
-}
-
-async function checkReadiness(endpoint, { timeoutMs = 10000 } = {}) {
-    const started = Date.now();
-    if (isFoundryResponsesEndpoint(endpoint)) {
-        return {
-            ok: true,
-            status: "hosted",
-            durationMs: 0,
-            body: "Hosted Responses endpoint discovered. Send a prompt to test it.",
-        };
-    }
-    try {
-        const response = await fetch(`${endpoint}/readiness`, {
-            signal: AbortSignal.timeout(timeoutMs),
-        });
-        const text = await response.text();
-        return {
-            ok: response.ok,
-            status: response.status,
-            durationMs: Date.now() - started,
-            body: text,
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            status: 0,
-            durationMs: Date.now() - started,
-            body: error instanceof Error ? error.message : String(error),
-        };
-    }
-}
-
-function stateSnapshot(state) {
-    const agent = selectedAgent(state);
-    const visibleMessages = messagesForTarget(state);
-    return {
-        endpoint: activeEndpoint(state),
-        localEndpoint: selectedLocalEndpoint(state),
-        target: state.target,
-        agents: state.agents,
-        selectedAgentId: state.selectedAgentId,
-        selectedAgent: agent,
-        foundryConnection: state.foundryConnection,
-        envBootstrap: state.envBootstrap,
-        hosted: state.hosted,
-        deployment: state.deployment,
-        localEnv: state.localEnv,
-        localRun: {
-            ...state.localRun,
-            process: undefined,
-        },
-        teams: state.teams,
-        messages: state.messages,
-        visibleMessages,
-        lastHealth: state.lastHealth,
-        stats: transcriptStats(visibleMessages),
-    };
 }
 
 async function handleRequest(req, res, state) {

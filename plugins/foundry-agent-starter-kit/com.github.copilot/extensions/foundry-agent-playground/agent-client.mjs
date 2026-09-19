@@ -1,0 +1,244 @@
+import { normalizeHostedResponsesEndpoint } from "./hosted-discovery.mjs";
+
+const tokenCache = new Map();
+let commandRunner;
+
+export function configureAgentClient({ runCommand }) {
+    commandRunner = runCommand;
+}
+
+export function responseText(body) {
+    if (body && typeof body === "object") {
+        return body.output_text ?? body.output ?? JSON.stringify(body, null, 2);
+    }
+    return body ?? "";
+}
+
+export function isLoopbackEndpoint(endpoint) {
+    try {
+        const { hostname } = new URL(endpoint);
+        return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+    } catch {
+        return false;
+    }
+}
+
+export function isFoundryResponsesEndpoint(endpoint) {
+    try {
+        const { pathname } = new URL(endpoint);
+        return /\/endpoint\/protocols\/openai\/responses$/i.test(pathname);
+    } catch {
+        return false;
+    }
+}
+
+export function responsesUrl(endpoint) {
+    if (isFoundryResponsesEndpoint(endpoint)) {
+        return normalizeHostedResponsesEndpoint(endpoint);
+    }
+    return `${endpoint.replace(/\/+$/, "")}/responses`;
+}
+
+export async function azureAccessToken(resource) {
+    const cached = tokenCache.get(resource);
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+        return cached.token;
+    }
+    if (!commandRunner) {
+        throw new Error("Agent client command runner is not configured.");
+    }
+    const result = await commandRunner("az", [
+        "account",
+        "get-access-token",
+        "--resource",
+        resource,
+        "--query",
+        "accessToken",
+        "--output",
+        "tsv",
+    ]);
+    if (result.code !== 0) {
+        throw new Error(result.output || "Azure login is required to call the hosted agent.");
+    }
+    const token = result.output.trim();
+    if (!token) {
+        throw new Error("Azure CLI did not return an access token for the hosted agent.");
+    }
+    tokenCache.set(resource, { token, expiresAt: Date.now() + 50 * 60 * 1000 });
+    return token;
+}
+
+export async function requestHeadersForEndpoint(endpoint, accept) {
+    const headers = {
+        "Content-Type": "application/json",
+        ...(accept ? { Accept: accept } : {}),
+    };
+    if (/^https:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint)) {
+        headers.Authorization = `Bearer ${await azureAccessToken("https://ai.azure.com")}`;
+    }
+    return headers;
+}
+
+export async function callAgentStream(endpoint, payload, onDelta) {
+    const started = Date.now();
+    try {
+        const response = await fetch(responsesUrl(endpoint), {
+            method: "POST",
+            headers: await requestHeadersForEndpoint(endpoint, "text/event-stream"),
+            body: JSON.stringify({ ...payload, stream: true }),
+            signal: AbortSignal.timeout(60000),
+        });
+        const contentType = response.headers.get("content-type") || "";
+        if (!response.ok || !contentType.includes("text/event-stream") || !response.body) {
+            const text = await response.text();
+            let body = text;
+            try {
+                body = text ? JSON.parse(text) : null;
+            } catch {
+                // Keep non-JSON error bodies readable in the tester.
+            }
+            return {
+                ok: response.ok,
+                status: response.status,
+                durationMs: Date.now() - started,
+                body,
+                delivery: {
+                    mode: contentType.includes("text/event-stream") ? "upstream-stream" : "single-response",
+                    upstreamStreaming: contentType.includes("text/event-stream"),
+                    active: false,
+                },
+            };
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let outputText = "";
+        let completedBody = null;
+
+        const handlePart = (part) => {
+            const lines = part.split("\n");
+            const eventLine = lines.find((line) => line.startsWith("event: "));
+            const eventName = eventLine ? eventLine.slice(7).trim() : "message";
+            const data = lines
+                .filter((line) => line.startsWith("data: "))
+                .map((line) => line.slice(6))
+                .join("\n");
+            if (!data) return;
+            if (data.trim() === "[DONE]") return;
+            const payload = JSON.parse(data);
+            if (eventName === "response.output_text.delta") {
+                const delta = String(payload.delta || "");
+                if (delta) {
+                    outputText += delta;
+                    onDelta(delta, outputText, Date.now() - started);
+                }
+            } else if (eventName === "response.completed") {
+                completedBody = payload;
+            }
+        };
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop() || "";
+            for (const part of parts) {
+                handlePart(part);
+            }
+        }
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+            handlePart(buffer);
+        }
+
+        return {
+            ok: true,
+            status: response.status,
+            durationMs: Date.now() - started,
+            body: completedBody || { output_text: outputText },
+            delivery: {
+                mode: "upstream-stream",
+                upstreamStreaming: true,
+                active: false,
+            },
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            status: 0,
+            durationMs: Date.now() - started,
+            body: error instanceof Error ? error.message : String(error),
+            delivery: {
+                mode: "error",
+                upstreamStreaming: false,
+                active: false,
+            },
+        };
+    }
+}
+
+export async function callAgent(endpoint, path, payload) {
+    const started = Date.now();
+    try {
+        const url = path === "/responses" ? responsesUrl(endpoint) : `${endpoint}${path}`;
+        const response = await fetch(url, {
+            method: "POST",
+            headers: await requestHeadersForEndpoint(endpoint),
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(60000),
+        });
+        const text = await response.text();
+        let body = text;
+        try {
+            body = text ? JSON.parse(text) : null;
+        } catch {
+            // Keep non-JSON error bodies readable in the tester.
+        }
+        return {
+            ok: response.ok,
+            status: response.status,
+            durationMs: Date.now() - started,
+            body,
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            status: 0,
+            durationMs: Date.now() - started,
+            body: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+export async function checkReadiness(endpoint, { timeoutMs = 10000 } = {}) {
+    const started = Date.now();
+    if (isFoundryResponsesEndpoint(endpoint)) {
+        return {
+            ok: true,
+            status: "hosted",
+            durationMs: 0,
+            body: "Hosted Responses endpoint discovered. Send a prompt to test it.",
+        };
+    }
+    try {
+        const response = await fetch(`${endpoint}/readiness`, {
+            signal: AbortSignal.timeout(timeoutMs),
+        });
+        const text = await response.text();
+        return {
+            ok: response.ok,
+            status: response.status,
+            durationMs: Date.now() - started,
+            body: text,
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            status: 0,
+            durationMs: Date.now() - started,
+            body: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
