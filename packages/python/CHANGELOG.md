@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/sethjuarez/castia/compare/python-v0.7.8...python-v0.8.0) (2026-09-19)
+
+
+### Features
+
+* **python:** add optional Prompty runtime harness ([#52](https://github.com/sethjuarez/castia/issues/52)) ([6c903b6](https://github.com/sethjuarez/castia/commit/6c903b6cda634e9c7c049761824e17507484cd1f))
+
 ## [0.7.8](https://github.com/sethjuarez/castia/compare/python-v0.7.7...python-v0.7.8) (2026-09-19)
 
 
