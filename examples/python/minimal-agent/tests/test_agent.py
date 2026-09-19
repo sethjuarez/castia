@@ -23,7 +23,10 @@ def test_protocols():
             ready = await test.client.get("/readiness")
             assert ready.status_code == 200
             response = await test.client.post("/responses", json={"input": "hello"})
-            assert response.json()["output_text"] == "Echo: hello"
+            assert (
+                response.json()["output_text"]
+                == "Echo: hello\n\nSmoke test marker: local-to-hosted path is current."
+            )
             response = await test.client.post("/responses", json={
                 "input": "hello", "stream": True,
             })
@@ -32,9 +35,13 @@ def test_protocols():
             assert "event: response.output_text.delta" in response.text
             assert '"delta":"Echo: "' in response.text
             assert '"delta":"hello"' in response.text
+            assert "Smoke test marker: local-to-hosted path is current." in response.text
             assert "event: response.completed" in response.text
             response = await test.client.post("/invocations", json={"message": "hello"})
-            assert response.json()["output"] == "Echo: hello"
+            assert (
+                response.json()["output"]
+                == "Echo: hello\n\nSmoke test marker: local-to-hosted path is current."
+            )
             response = await test.client.post("/activity/messages", json={
                 "type": "message", "id": "turn-1", "channelId": "msteams",
                 "serviceUrl": "https://connector.invalid", "text": "hello",
@@ -42,7 +49,10 @@ def test_protocols():
                 "from": {"id": "user"}, "recipient": {"id": "bot"},
             })
             assert response.status_code == 200
-            assert test.egress[-1].body["text"] == "Echo: hello"
+            assert (
+                test.egress[-1].body["text"]
+                == "Echo: hello\n\nSmoke test marker: local-to-hosted path is current."
+            )
     asyncio.run(check())
 
 

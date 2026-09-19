@@ -33,18 +33,22 @@ The UI includes these parts.
 - a first-run `.env` bootstrap for an existing Foundry project endpoint. Agents
   should ask for the project endpoint before opening the canvas, then use this
   bootstrap to write only non-secret derived values into gitignored `.env` files;
+- a deterministic local-start guard: if the user clicks **Start local** before
+  Foundry project values are present, the plugin opens an in-canvas question box
+  for the project endpoint, bootstraps `.env`, and then starts the local agent;
 - Local and Foundry target modes with separate endpoint state;
 - readiness status and response latency;
 - transcript counters for total, passing, and failing turns;
 - raw request/response JSON for protocol debugging;
 - chat keyboard input. Enter sends, Shift+Enter adds a newline;
-- advanced settings for local endpoint and bootstrap refreshes.
+- a refresh affordance for values the agent has already bootstrapped into `.env`.
 
 ## First-run `.env` bootstrap
 
-Use **Save project** when a new local session has `.env.example` files but no
-filled `.env` files yet. The agent should already have asked which Foundry
-project to use; the canvas accepts a project endpoint such as:
+When a new local session has `.env.example` files but no filled `.env` files
+yet, clicking **Start local** opens an in-canvas question box asking which Foundry
+project to use. The plugin then uses the same logic as the `bootstrap_env`
+canvas action with a project endpoint such as:
 
 ```text
 https://<account>.services.ai.azure.com/api/projects/<project>
@@ -62,7 +66,8 @@ It derives and writes these non-secret values:
 Safety rules:
 
 - secrets are never requested or written;
-- existing values are preserved unless **Overwrite existing values** is checked;
+- existing values are preserved unless the agent explicitly passes
+  `overwrite: true`;
 - only files named `.env` can be written;
 - `.env.example` is never modified;
 - every target must be ignored by git, verified with `git check-ignore`.
@@ -73,7 +78,7 @@ same behavior through the `bootstrap_env` canvas action with
 `projectEndpoint`, optional `modelDeployment`, `toolboxName`, `overwrite`,
 `dryRun`, and `targetPaths`.
 
-The deploy view runs from the selected agent folder.
+The Foundry step keeps hosted state visible in the main playground context.
 
 - `azd env set FOUNDRY_PROJECT_ENDPOINT <endpoint>` and
   `azd env set AZURE_AI_MODEL_DEPLOYMENT_NAME <deployment>` bind the selected
@@ -82,10 +87,15 @@ The deploy view runs from the selected agent folder.
   project endpoint and writes values such as `AZURE_SUBSCRIPTION_ID`,
   `AZURE_LOCATION`, and `AZURE_AI_PROJECT_ID` into the local azd environment;
 - the loaded Foundry project is queried directly for the selected hosted agent
-  and its deployed versions/endpoints; `azd env get-values` remains a fallback
-  cache when remote discovery cannot run;
+  and its deployed versions/endpoints; the current hosted release, status, and
+  Responses endpoint are shown alongside the chat transcript without requiring
+  a deploy view; `azd env get-values` remains a fallback cache when remote
+  discovery cannot run;
 - `azd deploy <service> --no-prompt` streams deployment output into the canvas
   after a confirmation in the canvas;
+- when no hosted release is discovered, the Foundry step guides the user toward
+  a first deploy; when one exists, deploy remains an explicit "Deploy new
+  version" action for intentional updates;
 - if deploy reports that infrastructure has not been provisioned, the primary
   action becomes "Prepare deploy" and runs `azd provision --no-prompt`;
 - after deployment, the canvas refreshes hosted metadata from the Foundry project

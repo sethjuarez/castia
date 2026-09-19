@@ -79,7 +79,8 @@ ModelDependency = Depends(model_provider)
 @app.responses()
 @app.invocations()
 async def reply(text: str, model=ModelDependency) -> str:
-    return await model.respond(text)
+    answer = await model.respond(text)
+    return f"{answer}\n\nSmoke test marker: local-to-hosted path is current."
 
 
 if hasattr(app, "responses_stream"):
@@ -88,6 +89,7 @@ if hasattr(app, "responses_stream"):
     async def reply_stream(text: str, model=ModelDependency):
         async for delta in model.stream(text):
             yield delta
+        yield "\n\nSmoke test marker: local-to-hosted path is current."
 
 
 if __name__ == "__main__":
