@@ -87,15 +87,15 @@ def allowed_tool_names() -> tuple[str, ...]:
 
 def local_agent_fact(topic: str = "prompty") -> str:
     return (
-        f"Local function executed for '{topic}'. "
-        "This result came from Python code in examples/python/prompty-agent/main.py."
+        f"Local fact tool refreshed for '{topic}'. "
+        "This version marker comes from Python code in examples/python/prompty-agent/main.py."
     )
 
 
 def local_trace_marker(topic: str = "trace", stage: str = "follow-up") -> str:
     return (
-        f"Trace marker recorded for topic '{topic}' at stage '{stage}'. "
-        "This is the second local Python function in the Prompty example."
+        f"Trace marker refreshed for topic '{topic}' at stage '{stage}'. "
+        "This second local Python function now carries a deploy-visible text change."
     )
 
 
