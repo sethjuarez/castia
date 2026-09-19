@@ -676,6 +676,7 @@ async function startLocalAgent(state) {
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = 1;
+        state.lastHealth = null;
         state.localRun.log.push(`${error.name}: ${error.message}\n`);
         addLocalEvent(state, "fail", error.message);
     });
@@ -684,6 +685,7 @@ async function startLocalAgent(state) {
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = code ?? 0;
+        state.lastHealth = null;
         addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
         delete state.localRun.process;
     });
@@ -786,6 +788,16 @@ function readinessAgentNames(agent) {
 
 function selectAgent(state, agentId) {
     return switchSelectedAgent(state, agentId, { stopLocalRun: stopLocalAgent });
+}
+
+function setLocalEndpoint(state, endpoint) {
+    const normalized = normalizeEndpoint(endpoint);
+    const current = selectedLocalEndpoint(state);
+    state.localEndpoints[state.selectedAgentId] = normalized;
+    state.target = "local";
+    if (normalized !== current) {
+        state.lastHealth = null;
+    }
 }
 
 async function refreshHostedContext(state) {
@@ -1123,9 +1135,7 @@ async function handleRequest(req, res, state) {
                 state.hostedByAgent[state.selectedAgentId] = state.hosted;
                 state.target = "hosted";
             } else {
-                state.localEndpoints[state.selectedAgentId] = normalizeEndpoint(body.endpoint);
-                state.target = "local";
-                state.lastHealth = null;
+                setLocalEndpoint(state, body.endpoint);
             }
             sendJson(res, 200, stateSnapshot(state));
             return;
@@ -1413,8 +1423,7 @@ await joinSession({
                         if (state.target === "hosted") {
                             state.hosted.responsesEndpoint = String(ctx.input?.endpoint || "").trim().replace(/\/+$/, "");
                         } else {
-                            state.localEndpoints[state.selectedAgentId] = normalizeEndpoint(ctx.input?.endpoint);
-                            state.lastHealth = null;
+                            setLocalEndpoint(state, ctx.input?.endpoint);
                         }
                         return stateSnapshot(state);
                     },

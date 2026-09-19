@@ -116,6 +116,11 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
             _ = harness.client
         async with harness as test:
             readiness = (await test.client.get("/readiness")).json()
+            assert readiness == {"status": "ok"}
+            readiness = (await test.client.get(
+                "/readiness",
+                headers={"host": "127.0.0.1"},
+            )).json()
             assert readiness["status"] == "ok"
             assert readiness["protocols"] == ["responses", "invocations", "chat"]
             assert readiness["routes"]["responses"] == "/responses"
@@ -241,6 +246,11 @@ def test_readiness_reports_missing_required_env_without_failing_health(monkeypat
             response = await test.client.get("/readiness")
             assert response.status_code == 200
             body = response.json()
+            assert body == {"status": "configuration_missing"}
+
+            response = await test.client.get("/readiness", headers={"host": "127.0.0.1"})
+            assert response.status_code == 200
+            body = response.json()
             assert body["status"] == "configuration_missing"
             assert body["agent"]["name"] == "ready-agent"
             assert body["configuration"]["missing_required"] == [
@@ -250,6 +260,54 @@ def test_readiness_reports_missing_required_env_without_failing_health(monkeypat
                 "present": False,
                 "required": True,
             }
+
+    asyncio.run(run())
+
+
+def test_readiness_diagnostics_are_loopback_only():
+    from castia.hosting import server
+
+    app = Agent(name="public-agent")
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    asgi = server.build_app(
+        app._routes,
+        app._wire,
+        app._invokes,
+        agent_name=app.name,
+        required_env=app._required_env,
+    )
+
+    async def run():
+        remote_transport = httpx.ASGITransport(
+            app=asgi,
+            client=("203.0.113.10", 12345),
+        )
+        async with httpx.AsyncClient(
+            transport=remote_transport,
+            base_url="http://castia.test",
+        ) as client:
+            response = await client.get("/readiness?diagnostics=1")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}
+
+        local_transport = httpx.ASGITransport(
+            app=asgi,
+            client=("127.0.0.1", 12345),
+        )
+        async with httpx.AsyncClient(
+            transport=local_transport,
+            base_url="http://127.0.0.1",
+        ) as client:
+            response = await client.get("/readiness")
+            assert response.status_code == 200
+            body = response.json()
+            assert body["status"] == "ok"
+            assert body["agent"]["name"] == "public-agent"
+            assert body["protocols"] == ["responses"]
 
     asyncio.run(run())
 

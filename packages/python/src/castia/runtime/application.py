@@ -202,8 +202,10 @@ class Router:
     def require_env(self, *names: str) -> None:
         """Require environment variables to be non-empty before serving.
 
-        Values are never exposed by readiness; only present/missing status is
-        reported. For richer validation, register a :meth:`startup_check`.
+        Values are never exposed by readiness. ``GET /readiness`` reports only
+        aggregate status by default; the diagnostic readiness opt-in reports
+        present/missing status for key names only. For richer validation,
+        register a :meth:`startup_check`.
         """
         cleaned = []
         for name in names:

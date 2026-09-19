@@ -329,8 +329,10 @@ through the hosted service's environment when deploying; an azd environment
 entry alone does not put it in the container.
 
 In a second PowerShell window, readiness is local and does not invoke a model.
-It returns non-secret diagnostics, including the agent name, enabled protocols,
-route paths, and present/missing status for common configuration variables.
+Non-loopback callers receive low-disclosure JSON such as `{"status":"ok"}`.
+Local loopback callers receive diagnostic readiness, including the agent name,
+enabled protocols, route paths, and present/missing status for common
+configuration variable names. Readiness never exposes environment values.
 The POST invokes live Foundry inference and may execute the toolbox. Get
 approval for that spend and tool access before sending it.
 

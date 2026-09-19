@@ -146,6 +146,13 @@ export async function requestHeadersForEndpoint(endpoint, accept) {
     return headers;
 }
 
+function readinessHeaders(endpoint, expectsIdentity) {
+    if (expectsIdentity && isLoopbackEndpoint(endpoint)) {
+        return { "X-Castia-Readiness": "diagnostics" };
+    }
+    return {};
+}
+
 export async function callAgentStream(endpoint, payload, onDelta) {
     const started = Date.now();
     try {
@@ -289,8 +296,10 @@ export async function checkReadiness(endpoint, { timeoutMs = 10000, expectedAgen
             body: "Hosted Responses endpoint discovered. Send a prompt to test it.",
         };
     }
+    const expectsIdentity = Boolean(expectedAgentNames || expectedAgentName);
     try {
         const response = await fetch(`${endpoint}/readiness`, {
+            headers: readinessHeaders(endpoint, expectsIdentity),
             signal: AbortSignal.timeout(timeoutMs),
         });
         const text = await response.text();

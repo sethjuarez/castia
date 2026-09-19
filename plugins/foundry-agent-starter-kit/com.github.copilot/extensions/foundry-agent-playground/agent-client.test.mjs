@@ -103,22 +103,65 @@ test("checkReadiness does not accept legacy readiness when agent identity is req
 
 test("checkReadiness accepts structured readiness for the selected agent", async () => {
     const previousFetch = globalThis.fetch;
-    globalThis.fetch = async () => new Response(JSON.stringify({
-        status: "ok",
-        agent: { name: "contract-policy-expert" },
-        protocols: ["responses"],
-    }), { status: 200 });
+    const calls = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        calls.push(options);
+        return new Response(JSON.stringify({
+            status: "ok",
+            agent: { name: "contract-policy-expert" },
+            protocols: ["responses"],
+        }), { status: 200 });
+    };
     try {
         const result = await checkReadiness("http://127.0.0.1:8096", {
             expectedAgentName: "contract-policy-expert",
         });
 
         assert.equal(result.ok, true);
+        assert.equal(calls[0].headers["X-Castia-Readiness"], "diagnostics");
         assert.deepEqual(result.identity, {
             expected: "contract-policy-expert",
             actual: "contract-policy-expert",
             status: "match",
         });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness does not request diagnostics without local identity matching", async () => {
+    const previousFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        calls.push(options);
+        return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    };
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8096");
+
+        assert.equal(result.ok, true);
+        assert.deepEqual(calls[0].headers, {});
+        assert.deepEqual(result.readiness, { status: "ok" });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness does not request diagnostics from non-loopback endpoints", async () => {
+    const previousFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (_url, options = {}) => {
+        calls.push(options);
+        return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    };
+    try {
+        const result = await checkReadiness("https://agent.example.test", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, false);
+        assert.deepEqual(calls[0].headers, {});
+        assert.equal(result.identity.status, "unknown");
     } finally {
         globalThis.fetch = previousFetch;
     }

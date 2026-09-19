@@ -3,7 +3,7 @@ use serde_json::json;
 
 #[test]
 fn readiness_matches_python_server() {
-    assert_eq!(readiness_body(), "Agent running!");
+    assert_eq!(readiness_body(), "{\"status\":\"ok\"}");
 }
 
 #[test]

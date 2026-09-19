@@ -100,8 +100,10 @@ zero-config conveniences.)
 provided, falling back to `8088`. Set a different `PORT` for each local agent
 when running multiple agents through the playground or canvas. Use
 `app.run(host="127.0.0.1")` for local-only development. `GET /readiness` returns
-non-secret diagnostics for the selected process: agent name, enabled protocols,
-route paths, and present/missing status for common configuration variables.
+low-disclosure JSON to non-local callers, for example `{"status":"ok"}`. Local
+loopback callers receive diagnostic readiness for development tooling: agent
+name, enabled protocols, route paths, and present/missing status for common
+configuration variables without exposing values.
 
 ### Composing protocols with routers
 

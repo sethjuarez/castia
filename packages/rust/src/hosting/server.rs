@@ -21,7 +21,7 @@ impl HostingServerRuntime for CastiaHostingServerRuntime {
 }
 
 pub fn readiness_body() -> String {
-    "Agent running!".to_string()
+    "{\"status\":\"ok\"}".to_string()
 }
 
 pub fn sse_event(event_type: &str, payload: &Value) -> String {
