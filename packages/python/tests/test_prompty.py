@@ -67,26 +67,85 @@ def test_prompty_runner_turn_does_not_request_structured_cast(monkeypatch):
     monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
 
     assert asyncio.run(runner.turn("hello")) == "plain text answer"
-    assert calls == [
-        (
-            runner.agent,
-            {"text": "hello"},
-            {"tools": {"local_tool": local_tool}, "max_iterations": 3},
-        )
-    ]
+    assert calls[0][0] is runner.agent
+    assert calls[0][1] == {"text": "hello"}
+    assert set(calls[0][2]["tools"]) == {"local_tool"}
+    assert calls[0][2]["tools"]["local_tool"] is not local_tool
+    assert calls[0][2]["max_iterations"] == 3
 
 
-def test_prompty_otel_registration_respects_content_recording_opt_in(monkeypatch):
+def test_prompty_runner_wraps_tool_functions_in_tool_spans(monkeypatch):
+    from contextlib import contextmanager
+
+    events = []
+
+    @contextmanager
+    def fake_execute_tool(name):
+        events.append(("enter", name))
+        yield
+        events.append(("exit", name))
+
+    def local_tool(topic: str) -> str:
+        events.append(("call", topic))
+        return "done"
+
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Use tools.", "default"),
+        tool_functions={"local_tool": local_tool},
+        enable_otel=False,
+    )
+
+    async def fake_turn_async(agent, inputs, **kwargs):
+        return await kwargs["tools"]["local_tool"](topic="canvas")
+
+    monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", fake_execute_tool)
+
+    assert asyncio.run(runner.turn("hello")) == "done"
+    assert events == [("enter", "local_tool"), ("call", "canvas"), ("exit", "local_tool")]
+
+
+def test_prompty_otel_registration_filters_content_without_opt_in(monkeypatch):
     calls = []
+    emitted = []
+
+    def fake_otel_tracer(*, tracer_name, provider):
+        def backend(name):
+            class Backend:
+                def __enter__(self):
+                    emitted.append(("span", name))
+                    return lambda key, value: emitted.append((key, value))
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+            return Backend()
+
+        return backend
+
     monkeypatch.delenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", raising=False)
     monkeypatch.setattr(prompty.Tracer, "add", lambda name, tracer: calls.append((name, tracer)))
+    monkeypatch.setattr("prompty.tracing.otel.otel_tracer", fake_otel_tracer)
 
-    assert register_prompty_otel_tracing() is False
-    assert calls == []
-
-    monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
     assert register_prompty_otel_tracing() is True
     assert calls and calls[0][0] == "otel"
+
+    with calls[0][1]("turn_async") as add:
+        add("signature", "prompty.core.turn_async")
+        add("inputs", {"text": "private prompt"})
+        add("result", "private answer")
+
+    assert ("signature", "prompty.core.turn_async") in emitted
+    assert all(key not in {"inputs", "result"} for key, _value in emitted)
+
+    monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
+    calls.clear()
+    assert register_prompty_otel_tracing() is True
+    with calls[0][1]("turn_async") as add:
+        add("inputs", {"text": "recorded prompt"})
+        add("result", "recorded answer")
+    assert ("inputs", {"text": "recorded prompt"}) in emitted
+    assert ("result", "recorded answer") in emitted
 
 
 def test_prompty_otel_registration_uses_active_provider(monkeypatch):
@@ -101,10 +160,9 @@ def test_prompty_otel_registration_uses_active_provider(monkeypatch):
     monkeypatch.setattr("prompty.tracing.otel.otel_tracer", fake_otel_tracer)
 
     assert register_prompty_otel_tracing(tracer_name="castia-prompty", provider="provider") is True
-    assert calls == [
-        ("otel_tracer", "castia-prompty", "provider"),
-        ("add", "otel", "otel-backend"),
-    ]
+    assert calls[0] == ("otel_tracer", "castia-prompty", "provider")
+    assert calls[1][0:2] == ("add", "otel")
+    assert callable(calls[1][2])
 
 
 def test_toolbox_mcp_client_lists_and_calls_tools_with_bearer():

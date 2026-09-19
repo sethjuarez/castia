@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
+from inspect import isawaitable
 from typing import Any
 from uuid import uuid4
 
@@ -57,24 +59,48 @@ def register_prompty_otel_tracing(
     tracer_name: str = "prompty",
     provider: object | None = None,
 ) -> bool:
-    """Register Prompty's OTel backend only when content recording is enabled.
+    """Register Prompty's OTel backend with Castia privacy defaults.
 
-    Prompty's generic OTel tracer records structured ``inputs`` and ``result``
-    attributes. To keep Castia privacy defaults aligned, this helper is a no-op
-    unless explicitly enabled or the existing Foundry content-recording opt-in
-    environment variable is ``true``. Call it after Castia observability has
-    been configured so the Prompty backend binds to the active Microsoft OTel
-    provider.
+    Prompty emits spans for the prompt pipeline. Castia always registers the
+    backend so those inner spans are visible, but drops Prompty ``inputs`` and
+    ``result`` attributes unless content recording is explicitly enabled or the
+    existing Foundry content-recording opt-in environment variable is ``true``.
+    Call this after Castia observability has been configured so the backend
+    binds to the active Microsoft OTel provider.
     """
-    enabled = _content_recording_enabled() if enable_content_recording is None else enable_content_recording
-    if not enabled:
-        return False
+    include_content = _content_recording_enabled() if enable_content_recording is None else enable_content_recording
     prompty = _prompty()
     from opentelemetry import trace as otel_trace
+
+    prompty.Tracer.add(
+        name,
+        _prompty_otel_backend(
+            tracer_name=tracer_name,
+            provider=provider or otel_trace.get_tracer_provider(),
+            include_content=include_content,
+        ),
+    )
+    return True
+
+
+def _prompty_otel_backend(*, tracer_name: str, provider: object, include_content: bool):
     from prompty.tracing.otel import otel_tracer  # type: ignore[import-not-found]
 
-    prompty.Tracer.add(name, otel_tracer(tracer_name=tracer_name, provider=provider or otel_trace.get_tracer_provider()))
-    return True
+    backend = otel_tracer(tracer_name=tracer_name, provider=provider)
+
+    @contextmanager
+    def tracer(span_name: str):
+        with backend(f"prompty {span_name}") as add:
+            add("castia.prompty.span.name", span_name)
+
+            def filtered_add(key: str, value: Any) -> None:
+                if not include_content and key in {"inputs", "result"}:
+                    return
+                add(key, value)
+
+            yield filtered_add
+
+    return tracer
 
 
 def register_foundry_default_connection(
@@ -173,10 +199,27 @@ class PromptyRunner:
         result = await prompty.turn_async(
             self.agent,
             {"text": text, **inputs},
-            tools=dict(self.tool_functions or {}),
+            tools=_traced_tool_functions(self.tool_functions or {}),
             max_iterations=self.max_iterations,
         )
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> dict[str, Callable[..., Awaitable[Any]]]:
+    from castia.observe.tracing import execute_tool
+
+    traced = {}
+    for name, tool_function in tool_functions.items():
+
+        async def call_tool(*args: Any, _name: str = name, _tool_function: Callable[..., Any] = tool_function, **kwargs: Any) -> Any:
+            with execute_tool(_name):
+                result = _tool_function(*args, **kwargs)
+                if isawaitable(result):
+                    return await result
+                return result
+
+        traced[name] = call_tool
+    return traced
 
 
 def configured_prompty_runner(
