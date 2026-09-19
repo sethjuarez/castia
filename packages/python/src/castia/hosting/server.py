@@ -30,6 +30,7 @@ import os
 import socket
 import subprocess
 from collections.abc import Callable
+from ipaddress import ip_address
 from uuid import uuid4
 
 import uvicorn
@@ -493,10 +494,8 @@ def _readiness_payload(
     *,
     agent_name: str | None = None,
     required_env: tuple[str, ...] = (),
+    diagnostics: bool = False,
 ) -> dict:
-    protocols = _registered_protocols(routes, wire, invokes)
-    paths = {"readiness": "/readiness"}
-    paths.update({protocol: _ROUTE_PATHS[protocol] for protocol in protocols})
     env_names = tuple(dict.fromkeys((*_COMMON_ENV_CHECKS, *required_env)))
     environment = {
         name: {
@@ -509,8 +508,16 @@ def _readiness_payload(
         name for name, state in environment.items()
         if state["required"] and not state["present"]
     ]
-    return {
+    payload = {
         "status": "configuration_missing" if missing_required else "ok",
+    }
+    if not diagnostics:
+        return payload
+
+    protocols = _registered_protocols(routes, wire, invokes)
+    paths = {"readiness": "/readiness"}
+    paths.update({protocol: _ROUTE_PATHS[protocol] for protocol in protocols})
+    return payload | {
         "agent": {"name": agent_name},
         "protocols": protocols,
         "routes": paths,
@@ -520,6 +527,25 @@ def _readiness_payload(
             "missing_required": missing_required,
         },
     }
+
+
+def _is_loopback_host(value: str | None) -> bool:
+    host = (value or "").split(":", 1)[0]
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_loopback_request(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return _is_loopback_host(host) and _is_loopback_host(request.url.hostname)
+
+
+def _wants_readiness_diagnostics(request: Request) -> bool:
+    return _is_loopback_request(request)
 
 
 def build_app(
@@ -534,13 +560,14 @@ def build_app(
     app = FastAPI(title="castia", docs_url=None, redoc_url=None)
 
     @app.get("/readiness")
-    async def readiness() -> Response:
+    async def readiness(request: Request) -> Response:
         body = _readiness_payload(
             routes,
             wire or {},
             invokes or {},
             agent_name=agent_name,
             required_env=required_env,
+            diagnostics=_wants_readiness_diagnostics(request),
         )
         return JSONResponse(
             body,

@@ -1,4 +1,54 @@
+export function localReadinessState(state) {
+    if (state?.target === "hosted") {
+        return { ready: true, reason: null };
+    }
+    if (state?.lastHealth?.ok) {
+        return { ready: true, reason: null };
+    }
+    if (state?.lastHealth && !state.lastHealth.ok) {
+        const status = state.lastHealth.status ? " (" + state.lastHealth.status + ")" : "";
+        const detail = state.lastHealth.body ? ": " + String(state.lastHealth.body).slice(0, 160) : "";
+        return { ready: false, reason: "Readiness check failed" + status + detail };
+    }
+    if (state?.localRun?.running) {
+        return { ready: false, reason: "Local agent is running; waiting for readiness." };
+    }
+    if (state?.localRun?.exitCode !== null && state?.localRun?.exitCode !== undefined) {
+        return { ready: false, reason: "Local agent stopped. Start local again before chatting." };
+    }
+    return { ready: false, reason: "Start local before chatting." };
+}
+
+export function composerGate(state, { activeView = "chat", inFlight = false } = {}) {
+    if (activeView !== "chat") {
+        return { canSend: false, inputDisabled: true, disabledReason: "Open chat to send a prompt." };
+    }
+    if (!state) {
+        return { canSend: false, inputDisabled: true, disabledReason: "Loading playground state." };
+    }
+    if (state.target === "hosted") {
+        if (!state.hosted?.responsesEndpoint) {
+            return {
+                canSend: false,
+                inputDisabled: true,
+                disabledReason: "Discover or deploy a hosted Responses endpoint before chatting.",
+            };
+        }
+    } else {
+        const readiness = localReadinessState(state);
+        if (!readiness.ready) {
+            return { canSend: false, inputDisabled: true, disabledReason: readiness.reason };
+        }
+    }
+    if (inFlight) {
+        return { canSend: false, inputDisabled: false, disabledReason: "Waiting for the current response." };
+    }
+    return { canSend: true, inputDisabled: false, disabledReason: null };
+}
+
 export const rendererClientScript = `
+    const localReadinessState = ${localReadinessState.toString()};
+    const composerGate = ${composerGate.toString()};
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
     const agentMenu = document.getElementById("agentMenu");
@@ -177,8 +227,8 @@ export const rendererClientScript = `
         try {
           const state = await request("/api/state");
           renderSnapshot(state);
-          if (state.localRun?.running && !state.lastHealth) {
-            localRefreshTimer = window.setTimeout(tick, 1000);
+          if (state.localRun?.running) {
+            localRefreshTimer = window.setTimeout(tick, state.lastHealth?.ok ? 2500 : 1000);
           }
         } catch (error) {
           setStatus("fail", error.message);
@@ -296,24 +346,22 @@ export const rendererClientScript = `
     }
 
     function renderView() {
-      const connected = Boolean(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment);
-      const hostedBlocked = activeView === "chat" && latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint;
-      const localBlocked = activeView === "chat" && latestState?.target !== "hosted" && !latestState?.lastHealth?.ok;
+      const gate = composerGate(latestState, { activeView, inFlight });
       const deploymentRunning = Boolean(latestState?.deployment?.running);
       chatView.hidden = activeView !== "chat";
       deployView.hidden = activeView !== "deploy";
       teamsView.hidden = activeView !== "teams";
       sendButton.hidden = activeView !== "chat";
-      sendButton.disabled = inFlight || hostedBlocked || localBlocked;
+      sendButton.disabled = !gate.canSend;
       provisionButton.hidden = true;
       deployButton.hidden = true;
       provisionButton.disabled = deploymentRunning;
       deployButton.disabled = deploymentRunning;
       teamsTestedButton.hidden = true;
       promptInput.hidden = activeView !== "chat";
-      promptInput.disabled = hostedBlocked || localBlocked;
-      promptInput.placeholder = localBlocked
-        ? "Start local and wait for readiness before chatting."
+      promptInput.disabled = gate.inputDisabled;
+      promptInput.placeholder = gate.inputDisabled
+        ? gate.disabledReason
         : "Ask the agent something... Enter sends, Shift+Enter adds a line.";
       stopLocalAction.hidden = !(activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running);
       stopLocalAction.disabled = false;
@@ -407,8 +455,9 @@ export const rendererClientScript = `
 
     async function sendPrompt() {
       if (inFlight) return;
-      if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
-        setStatus("fail", "No hosted Responses endpoint is discovered yet. Use Start local to bootstrap .env from the endpoint dialog, then refresh.");
+      const gate = composerGate(latestState, { activeView, inFlight });
+      if (!gate.canSend) {
+        setStatus("fail", gate.disabledReason || "Prompt composer is not ready.");
         return;
       }
       const input = promptInput.value.trim();
