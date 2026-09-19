@@ -307,19 +307,35 @@ export const rendererStyles = `
     .health .deploy-ticker {
       margin-top: 0;
       min-height: 0;
-      max-width: min(460px, 42vw);
+      width: clamp(280px, 38vw, 460px);
+      padding: 4px 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface-soft);
     }
     .health .deploy-ticker-row {
       align-items: center;
+      width: 100%;
+      display: grid;
+      grid-template-columns: max-content 6ch max-content minmax(0, 1fr);
+      gap: 8px;
+    }
+    .deploy-label {
+      color: var(--cp-text-muted);
+      font-weight: 600;
+      white-space: nowrap;
     }
     .deploy-elapsed {
-      flex: 0 0 auto;
       color: var(--cp-text);
+      font-variant-numeric: tabular-nums;
       font-weight: 700;
+      text-align: center;
       white-space: nowrap;
     }
     .deploy-phase {
-      max-width: 32vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .ticker-mark {
       width: 7px;

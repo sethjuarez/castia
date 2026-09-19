@@ -123,10 +123,10 @@ export const rendererClientScript = `
 
     function elapsedLabel(startedAt) {
       const start = startedAt ? new Date(startedAt).getTime() : NaN;
-      if (!Number.isFinite(start)) return "0s elapsed";
+      if (!Number.isFinite(start)) return "00:00";
       const seconds = Math.max(0, Math.round((Date.now() - start) / 1000));
-      if (seconds < 60) return seconds + "s elapsed";
-      return Math.floor(seconds / 60) + "m " + String(seconds % 60).padStart(2, "0") + "s elapsed";
+      const minutes = Math.floor(seconds / 60);
+      return String(minutes).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
     }
 
     function latestDeployPhase(log) {
@@ -156,7 +156,7 @@ export const rendererClientScript = `
       }
       deployTicker.hidden = false;
       deployTicker.innerHTML =
-        '<div class="deploy-ticker-row"><span class="deploy-elapsed">' +
+        '<div class="deploy-ticker-row"><span class="deploy-label">Deploying</span><span class="deploy-elapsed" aria-label="Elapsed deployment time">' +
         escapeHtml(elapsedLabel(state.deployment.startedAt)) +
         '</span><span class="ticker-mark" aria-hidden="true"></span><span class="ticker-text deploy-phase">' +
         escapeHtml(latestDeployPhase(state.deployment.log)) +
