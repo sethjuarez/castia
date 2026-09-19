@@ -444,6 +444,31 @@ async function readAgentEnv(agent) {
     return { envPath, exists: Boolean(output), values: parseAzdEnv(output) };
 }
 
+function localEnvHasFoundryProjectValues(env) {
+    const values = env?.values || {};
+    const projectEndpoint =
+        values.FOUNDRY_PROJECT_ENDPOINT ||
+        values.AZURE_AI_PROJECT_ENDPOINT ||
+        values.AZURE_AIPROJECT_ENDPOINT ||
+        null;
+    const modelDeployment =
+        values.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
+        values.AZURE_OPENAI_DEPLOYMENT_NAME ||
+        null;
+    return Boolean(projectEndpoint && modelDeployment);
+}
+
+async function refreshLocalEnvState(state) {
+    const env = await readAgentEnv(selectedAgent(state));
+    state.localEnv = {
+        path: env.envPath,
+        exists: env.exists,
+        hasFoundryProjectValues: localEnvHasFoundryProjectValues(env),
+        loadedAt: new Date().toISOString(),
+    };
+    return env;
+}
+
 function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
     return new Promise((resolve) => {
         const output = [];
@@ -763,13 +788,7 @@ async function hydrateFoundryConnectionFromAzd(state) {
 }
 
 async function hydrateFoundryConnectionFromDotEnv(state) {
-    const agent = selectedAgent(state);
-    const env = await readAgentEnv(agent);
-    state.localEnv = {
-        path: env.envPath,
-        exists: env.exists,
-        loadedAt: new Date().toISOString(),
-    };
+    const env = await refreshLocalEnvState(state);
     const projectEndpoint =
         env.values.FOUNDRY_PROJECT_ENDPOINT ||
         env.values.AZURE_AI_PROJECT_ENDPOINT ||
@@ -1065,13 +1084,17 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/start") {
-            if (!hasFoundryProjectValues(state)) {
+            const localEnv = await refreshLocalEnvState(state);
+            if (!localEnvHasFoundryProjectValues(localEnv)) {
                 sendJson(res, 409, {
-                    error: "Foundry project endpoint is required before starting local.",
+                    error: "Foundry project endpoint is required in the local .env before starting local.",
                     needsProjectEndpoint: true,
                     state: stateSnapshot(state),
                 });
                 return;
+            }
+            if (!hasFoundryProjectValues(state)) {
+                await hydrateFoundryConnectionFromDotEnv(state);
             }
             await startLocalAgent(state);
             sendJson(res, 200, stateSnapshot(state));
