@@ -130,8 +130,10 @@ export const rendererClientScript = `
     }
 
     function latestDeployPhase(log) {
-      const text = (log || []).join("").replaceAll(String.fromCharCode(27), "");
-      const lines = text.replaceAll(String.fromCharCode(13), "").split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
+      const ansiPattern = new RegExp(String.fromCharCode(27) + "\\\\[[0-9;?]*[ -/]*[@-~]", "g");
+      const lineBreakPattern = new RegExp("\\\\r\\\\n|\\\\r|\\\\n");
+      const text = (log || []).join("").slice(-8192).replace(ansiPattern, "");
+      const lines = text.split(lineBreakPattern).map((line) => line.trim()).filter(Boolean);
       const line = [...lines].reverse().find((entry) =>
         /Deploying|Provisioning|Packaging|Uploading|Registering|Polling|Ensuring|Preparing|Checking|Updating|Waiting|Resolving|Done/i.test(entry)
       );
@@ -319,9 +321,7 @@ export const rendererClientScript = `
         deployButton.hidden = Boolean(latestState?.deployment?.needsProvision);
         deployButton.textContent = latestState?.hosted?.version || latestState?.hosted?.responsesEndpoint ? "Deploy new version" : "Deploy first version";
       }
-      if (deploymentRunning && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted")) {
-        primaryGuideAction.disabled = true;
-      }
+      primaryGuideAction.disabled = deploymentRunning && activeView !== "teams" && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted");
       clearButton.hidden = activeView === "teams";
       clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
     }
@@ -905,7 +905,8 @@ export const rendererClientScript = `
 
     async function showTeams() {
       activeView = "teams";
-      renderSnapshot(latestState);
+      if (latestState) renderSnapshot(latestState);
+      else renderView();
       setStatus("", "Teams step.");
       request("/api/hosted/refresh", { method: "POST" })
         .then((state) => {

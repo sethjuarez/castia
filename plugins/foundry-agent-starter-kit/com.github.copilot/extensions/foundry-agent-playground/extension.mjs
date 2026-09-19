@@ -984,43 +984,49 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
     if (commandName === "deploy") {
         clearMessagesForTarget(state, "hosted");
     }
-    if (commandName === "deploy" || commandName === "provision") {
-        await ensureAzdDeploymentContext(state, state.deployment.log);
-    }
-    writeEvent(res, "snapshot", stateSnapshot(state));
-    const result = await runCommand("azd", args, {
-        cwd: agent.root,
-        onOutput: (text) => {
-            state.deployment.log.push(text);
-            writeEvent(res, "snapshot", stateSnapshot(state));
-        },
-    });
-    const output = state.deployment.log.join("");
-    state.deployment.running = false;
-    state.deployment.exitCode = result.code;
-    state.deployment.completedAt = new Date().toISOString();
-    state.deployment.needsProvision =
-        commandName === "deploy" &&
-        result.code !== 0 &&
-        /infrastructure has not been provisioned|Run 'azd provision'/i.test(output);
-    if (state.deployment.needsProvision) {
-        state.deployment.log.push("\nNext: prepare this repo for hosted deployment, then deploy again.\n");
-    }
-    if (commandName === "provision" || result.code === 0) {
-        state.deployment.log.push(`\n$ azd env get-values\n`);
-        const refresh = await refreshHostedContext(state);
-        state.deployment.log.push(refresh.result.output || "(no output)\n");
-        if (state.hosted.lastRemoteDiscoveryStatus || state.hosted.lastRemoteDiscoveryMessage) {
-            state.deployment.log.push(
-                `Foundry discovery: ${state.hosted.lastRemoteDiscoveryStatus || "unknown"}${state.hosted.lastRemoteDiscoveryMessage ? ` — ${state.hosted.lastRemoteDiscoveryMessage}` : ""}\n`,
-            );
+    try {
+        if (commandName === "deploy" || commandName === "provision") {
+            await ensureAzdDeploymentContext(state, state.deployment.log);
         }
+        writeEvent(res, "snapshot", stateSnapshot(state));
+        const result = await runCommand("azd", args, {
+            cwd: agent.root,
+            onOutput: (text) => {
+                state.deployment.log.push(text);
+                writeEvent(res, "snapshot", stateSnapshot(state));
+            },
+        });
+        const output = state.deployment.log.join("");
+        state.deployment.exitCode = result.code;
+        state.deployment.needsProvision =
+            commandName === "deploy" &&
+            result.code !== 0 &&
+            /infrastructure has not been provisioned|Run 'azd provision'/i.test(output);
+        if (state.deployment.needsProvision) {
+            state.deployment.log.push("\nNext: prepare this repo for hosted deployment, then deploy again.\n");
+        }
+        if (commandName === "provision" || result.code === 0) {
+            state.deployment.log.push(`\n$ azd env get-values\n`);
+            const refresh = await refreshHostedContext(state);
+            state.deployment.log.push(refresh.result.output || "(no output)\n");
+            if (state.hosted.lastRemoteDiscoveryStatus || state.hosted.lastRemoteDiscoveryMessage) {
+                state.deployment.log.push(
+                    `Foundry discovery: ${state.hosted.lastRemoteDiscoveryStatus || "unknown"}${state.hosted.lastRemoteDiscoveryMessage ? ` — ${state.hosted.lastRemoteDiscoveryMessage}` : ""}\n`,
+                );
+            }
+        }
+        if (commandName === "provision" && result.code === 0) {
+            state.deployment.log.push("\nDeploy prep complete. Deploy is ready.\n");
+        }
+    } catch (error) {
+        state.deployment.exitCode = state.deployment.exitCode ?? 1;
+        state.deployment.log.push(`\nERROR: ${error instanceof Error ? error.message : String(error)}\n`);
+    } finally {
+        state.deployment.running = false;
+        state.deployment.completedAt = new Date().toISOString();
+        writeEvent(res, "snapshot", stateSnapshot(state));
+        res.end();
     }
-    if (commandName === "provision" && result.code === 0) {
-        state.deployment.log.push("\nDeploy prep complete. Deploy is ready.\n");
-    }
-    writeEvent(res, "snapshot", stateSnapshot(state));
-    res.end();
 }
 
 function writeEvent(res, name, payload) {
