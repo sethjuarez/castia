@@ -3161,12 +3161,11 @@ function renderHtml() {
     }
 
     async function showFoundryChat() {
-      setStatus("", "Discovering Foundry target...");
       activeView = "chat";
       foundryPanelOpen = true;
       const state = await request("/api/target", {
         method: "POST",
-        body: JSON.stringify({ target: "hosted", refresh: true }),
+        body: JSON.stringify({ target: "hosted" }),
       });
       renderSnapshot(state);
       setStatus(state.hosted?.responsesEndpoint ? "ok" : "fail", state.hosted?.responsesEndpoint ? "Foundry target selected." : "Foundry endpoint not discovered.");
@@ -3180,21 +3179,14 @@ function renderHtml() {
     }
 
     async function showFoundry() {
-      setStatus("", "Refreshing Foundry...");
       activeView = "chat";
       foundryPanelOpen = true;
-      const refreshed = await request("/api/hosted/refresh", { method: "POST" });
-      if (refreshed.hosted?.version || refreshed.hosted?.responsesEndpoint) {
-        const state = await request("/api/target", {
-          method: "POST",
-          body: JSON.stringify({ target: "hosted" }),
-        });
-        renderSnapshot(state);
-        setStatus(state.hosted?.responsesEndpoint ? "ok" : "fail", state.hosted?.responsesEndpoint ? "Foundry target selected." : "Foundry endpoint not discovered.");
-        return;
-      }
-      renderSnapshot(refreshed);
-      setStatus("", "No hosted release found yet. Local testing is still available; deploy when ready.");
+      const state = await request("/api/target", {
+        method: "POST",
+        body: JSON.stringify({ target: "hosted" }),
+      });
+      renderSnapshot(state);
+      setStatus(state.hosted?.responsesEndpoint ? "ok" : "fail", state.hosted?.responsesEndpoint ? "Foundry target selected." : "Foundry endpoint not discovered.");
     }
 
     async function showTeams() {
