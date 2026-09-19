@@ -28,6 +28,12 @@ default. The normal trace shape remains:
 - Foundry GenAI spans such as `chat {model}`;
 - tool and retrieval spans.
 
+Prompt and response text is intentionally absent unless content recording is
+enabled. With content recording on, the standard Foundry instrumentor records
+message payloads on the `chat {model}` span as `gen_ai.input.messages` and
+`gen_ai.output.messages`; without it, the trace still carries timing, identity,
+token, and operation metadata.
+
 Set `CASTIA_OTEL_TRACE_ASGI_SEND=true` only when debugging ASGI transport
 behavior and you deliberately want per-`send` spans back. Do not record streamed
 chunk text by default. Castia records aggregate transport attributes on the

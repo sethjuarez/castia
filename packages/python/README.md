@@ -251,8 +251,10 @@ keys off) but does **not** record the prompt/response **content** onto them.
 
 Recording content is what makes an agent's traces *evaluable* — trace-based
 evaluators read the input/output text from the GenAI spans, which is only present
-when content recording is enabled. Turn it on deliberately via
-`configure_observability`:
+when content recording is enabled. When enabled, the standard Foundry GenAI
+instrumentor records content on the `chat {model}` span as
+`gen_ai.input.messages` and `gen_ai.output.messages`. Turn it on deliberately
+via `configure_observability`:
 
 ```python
 from castia.observe.configuration import configure_observability
