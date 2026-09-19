@@ -140,6 +140,7 @@ export const rendererClientScript = `
     let hostedWaitTimer = null;
     let deployRefreshTimer = null;
     const expandedResponseDetails = new Set();
+    const responseDetailsScroll = new Map();
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
@@ -454,10 +455,9 @@ export const rendererClientScript = `
         transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
         return;
       }
-      const detailsScroll = new Map();
       transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
         const panel = pre.closest(".details-panel[data-details-key]");
-        if (panel?.dataset?.detailsKey) detailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
+        if (panel?.dataset?.detailsKey) responseDetailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
       });
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => {
@@ -486,13 +486,22 @@ export const rendererClientScript = `
           '</section>' +
           '</article>';
       }).join("");
-      transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
+      const restoreDetailsScroll = () => transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
         const panel = pre.closest(".details-panel[data-details-key]");
-        const top = panel?.dataset?.detailsKey ? detailsScroll.get(panel.dataset.detailsKey) : undefined;
+        const top = panel?.dataset?.detailsKey ? responseDetailsScroll.get(panel.dataset.detailsKey) : undefined;
         if (top !== undefined) pre.scrollTop = top;
       });
+      restoreDetailsScroll();
       if (shouldStickToBottom) transcript.scrollTop = transcript.scrollHeight;
+      requestAnimationFrame(restoreDetailsScroll);
     }
+
+    transcript.addEventListener("scroll", (event) => {
+      const pre = event.target?.closest?.(".details-panel[data-details-key] pre");
+      if (!pre) return;
+      const panel = pre.closest(".details-panel[data-details-key]");
+      if (panel?.dataset?.detailsKey) responseDetailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
+    }, true);
 
     transcript.addEventListener("click", (event) => {
       const toggle = event.target.closest(".details-toggle");
