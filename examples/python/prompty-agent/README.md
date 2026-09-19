@@ -9,7 +9,8 @@ It demonstrates:
 - `castia[optimize,prompty]` as an explicit dependency boundary;
 - `register_foundry_default_connection()` using the same Foundry endpoint and
   managed identity / developer credential path as Castia model calls;
-- `register_prompty_otel_tracing()` gated by
+- `register_prompty_otel_tracing()` on the active Microsoft OTel provider, with
+  prompt/response content gated by
   `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`;
 - `configured_prompty_runner(config)` projecting `.agent_configs` into a
   Prompty-backed turn runner;
@@ -58,3 +59,8 @@ Prompty loop, set
 example `contracts-kb-mcp___knowledge_base_retrieve`. The example resolves the
 toolbox endpoint through Castia's existing `TOOLBOX_*` environment conventions
 and mints the toolbox token for `https://ai.azure.com/.default`.
+
+This example is trace-focused, so hosted deployment opts into
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true` in `azure.yaml`. Remove or
+set that value to `false` for deployments where prompt/response text must not be
+written to Application Insights.

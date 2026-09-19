@@ -19,6 +19,7 @@ _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
+_TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
 
 
 @pytest.mark.parametrize("helper", ["invoke_agent", "execute_tool"])
@@ -169,6 +170,26 @@ def test_configure_observability_accepts_asgi_send_compat_flag(monkeypatch):
 
     options = use_otel.call_args.kwargs["instrumentation_options"]
     assert options["fastapi"] == {}
+
+
+def test_azure_core_tracing_filters_msi_token_spans_by_default(monkeypatch):
+    from opentelemetry.trace import NonRecordingSpan
+
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    implementation = observability._azure_core_tracing_implementation()
+
+    span = implementation(name="GET /msi/token")
+
+    assert isinstance(span.span_instance, NonRecordingSpan)
+    assert implementation.__name__ == "CastiaOpenTelemetrySpan"
+
+
+def test_azure_core_tracing_can_keep_msi_token_spans(monkeypatch):
+    from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
+
+    monkeypatch.setenv(_TRACE_MSI_TOKEN_ENV, "true")
+
+    assert observability._azure_core_tracing_implementation() is OpenTelemetrySpan
 
 
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):

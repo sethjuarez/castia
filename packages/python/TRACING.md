@@ -146,19 +146,20 @@ dependencies
 ```
 
 - A framework span (e.g. `agents.adapter.process`) shows `type == "InProc"`.
-- An auth/MSI call (e.g. `GET /msi/token`) shows `type == "HTTP"`.
+- If `CASTIA_OTEL_TRACE_MSI_TOKEN=true` is set, an auth/MSI call (e.g.
+  `GET /msi/token`) shows `type == "HTTP"`.
 
 If those rows are correct but the UI badge reads **Other**, it is the portal
 `any()` query, not the runtime and not our processor.
 
 ## Auth/MSI token spans
 
-Hosted agents may show `GET /msi/token` dependency spans beneath a model call.
+Hosted agents can emit `GET /msi/token` dependency spans beneath model calls.
 Those spans come from platform managed-identity token acquisition in the Azure
-SDK transport, not from Castia's agent loop. They are useful when authentication
-fails or token acquisition is slow, so Castia does not suppress them by default.
-The available OpenTelemetry URL-exclusion knobs run when a span starts; they
-cannot hide only successful/fast MSI calls while retaining failing or abnormal
-latency calls. If the platform adds an end-of-span filtering hook that can drop
-only healthy MSI dependencies after status and duration are known, Castia can
-wire that in without masking auth failures.
+SDK transport, not from Castia's agent loop. They make the default trace tree
+noisy, so Castia suppresses the stock Azure SDK `GET /msi/token` span by default
+before it reaches Azure Monitor.
+
+Set `CASTIA_OTEL_TRACE_MSI_TOKEN=true` when debugging managed-identity
+authentication or token-acquisition latency. That opt-in restores the normal
+Azure SDK token dependency spans for the process.
