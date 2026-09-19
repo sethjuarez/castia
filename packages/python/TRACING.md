@@ -35,6 +35,13 @@ message payloads on the `chat {model}` span as `gen_ai.input.messages` and
 `gen_ai.output.messages`; without it, the trace still carries timing, identity,
 token, and operation metadata.
 
+Castia sends user turns to the Responses API using explicit
+`{"type": "input_text", "text": ...}` content parts. This is deliberately more
+verbose than a bare string because the Foundry GenAI instrumentor can then record
+the real prompt in `gen_ai.input.messages` when
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`. The same payload still
+exports only role/type structure when content recording is off.
+
 Set `CASTIA_OTEL_TRACE_ASGI_INTERNAL=true` only when debugging ASGI transport
 behavior and you deliberately want per-event spans back. The older
 `CASTIA_OTEL_TRACE_ASGI_SEND=true` flag is still accepted as a compatibility
@@ -89,6 +96,49 @@ names only on spans we own, at creation, in `src/castia/observe/tracing.py`.
 
 This rule is about keeping the underlying App Insights `type` clean. It is good
 hygiene, but note it is **not** what makes the framework badge flicker — see next.
+
+## Tool-loop shape
+
+`Model.respond_with_tools(...)` has two layers of trace ownership:
+
+- The official Foundry Responses/OpenAI instrumentor owns the `chat {model}` span
+  and the `gen_ai.input.messages` / `gen_ai.output.messages` attributes. Server-side
+  tools such as Foundry Toolbox MCP are executed inside that model request, so
+  their HTTP/dependency shape is platform-owned.
+- Castia owns local tool execution. Local function tools run inside an
+  `execute_tool {name}` span. Castia also adds lightweight, non-payload events to
+  the current turn span so human review can follow the logical phases even when
+  the platform keeps the model call as one long span:
+  `castia.model.request.started`, `castia.model.tool_calls.requested`,
+  `castia.tool.call.started`, `castia.tool.call.completed`, and
+  `castia.model.final_response.completed`.
+
+These events carry counts, phase names, iteration numbers, tool names, and status
+only. They do not duplicate prompt text, tool arguments, or tool output. Payload
+content remains governed by the existing GenAI content-recording opt-in.
+
+For server-side MCP/toolbox calls, Castia cannot safely reparent the platform's
+dependency spans under a separate local `execute_tool` span: the tool execution
+happens inside the Responses service call and is reported by the upstream
+instrumentors. The realistic Castia workaround is the phase events above plus
+proper input/output content recording on the `chat {model}` span.
+
+## Auth/MSI dependency spans
+
+`GET /msi/token` dependency spans come from Azure Identity / Azure SDK HTTP
+instrumentation, not from Castia's agent logic. They are useful when managed
+identity is slow, unavailable, throttled, or denied. Suppressing only
+"successful and fast" token spans would require an end-of-span export filter that
+can inspect status and duration after the request completes. The Microsoft
+OpenTelemetry distro configuration Castia uses exposes coarse instrumentation
+enable/disable switches, not a safe success-only dependency filter.
+
+Castia therefore does **not** disable Azure SDK/HTTP instrumentation by default:
+doing so would also hide the auth failures and abnormal latency that operators
+need. Treat successful fast MSI token rows as platform-owned dependency noise;
+keep them when diagnosing auth. Castia still suppresses low-value ASGI
+`send`/`receive` transport spans by default because those are framework internals
+that can be removed without hiding authentication or model-call failures.
 
 ## The badge that lies: portal query is non-deterministic
 
