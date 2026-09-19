@@ -1,6 +1,9 @@
 # Customize additions plan
 
-Castia should be installable from the docs site into GitHub Copilot App's Customize surface. The site is the front door. The installable thing is a Copilot plugin that carries the Castia canvas, skills, prompts, and repo setup guidance.
+Castia should be installable from the docs site into GitHub Copilot App's
+Customize surface. The site is the front door. The installable thing is a
+Copilot plugin or Copilot canvas extension that carries the Castia canvas,
+skills, prompts, and repo setup guidance.
 
 ## What we will ship
 
@@ -19,14 +22,17 @@ The canvas is the missing product piece. The prompts and skills can ship first b
 
 The future docs page should have one clear path:
 
-1. Install the Castia Copilot plugin from Customize.
+1. Install the Castia Copilot plugin or canvas extension from Customize.
 2. Copy the scenario starter files into the target repo.
 3. Open the target repo in Copilot App.
 4. Run the build prompt.
 5. Try the local agent in the Castia Agent Lab canvas.
 6. Deploy only after the local proof looks good.
 
-The website should not provision Azure resources or grant permissions. It should point the user to Customize and explain what will be installed.
+The website should not provision Azure resources or grant permissions. It should
+point the user to Customize and explain what will be installed. Public
+distribution must use Copilot App extension/plugin surfaces only; do not depend
+on Agency commands, Agency marketplaces, or Agency-specific plugin installation.
 
 ## Plugin shape
 
@@ -78,6 +84,8 @@ The docs site can provide copy buttons and templates. The repo must own the fina
 ## Open decisions
 
 - Whether the plugin marketplace lives in this repo or in a separate website repo.
+- Whether the first public artifact is the full plugin or the canvas extension by
+  itself.
 - Whether the canvas starts the local agent or only connects to one.
 - How the plugin installer copies prompts into a target repo.
 - How much Teams packaging belongs in Castia versus the scenario repo.

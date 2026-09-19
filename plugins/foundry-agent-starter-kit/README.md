@@ -19,7 +19,8 @@ package underneath the flow.
 
 ## Install
 
-Install from the Castia marketplace in Copilot App:
+Install from the Castia marketplace in Copilot App when that marketplace is
+available to your environment:
 
 1. Open **Customize**.
 2. Open **Plugins**.
@@ -32,6 +33,21 @@ For command line setup, install the plugin from the repository subdirectory:
 copilot plugin marketplace add sethjuarez/castia
 copilot plugin install foundry-agent-starter-kit@castia
 ```
+
+This is Copilot plugin distribution, not Agency distribution. Do not use Agency
+plugin commands or Agency marketplaces for the public Castia path.
+
+## Canvas-only testing
+
+Use this when you need to test or share the canvas before the plugin marketplace
+path is available. The canvas folder is:
+
+```text
+plugins\foundry-agent-starter-kit\com.github.copilot\extensions\foundry-agent-playground
+```
+
+Open it as **Foundry Agent Playground** after installing the extension through
+Copilot App's extension sharing/install flow.
 
 ## Manual repo setup
 
