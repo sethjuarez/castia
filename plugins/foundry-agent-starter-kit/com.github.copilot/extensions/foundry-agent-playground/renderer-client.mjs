@@ -156,9 +156,9 @@ export const rendererClientScript = `
       }
       deployTicker.hidden = false;
       deployTicker.innerHTML =
-        '<div class="deploy-ticker-row"><span class="ticker-mark" aria-hidden="true"></span><span class="ticker-text">' +
+        '<div class="deploy-ticker-row"><span class="deploy-elapsed">' +
         escapeHtml(elapsedLabel(state.deployment.startedAt)) +
-        '</span></div><div class="deploy-ticker-row"><span class="ticker-mark" aria-hidden="true"></span><span class="ticker-text">' +
+        '</span><span class="ticker-mark" aria-hidden="true"></span><span class="ticker-text deploy-phase">' +
         escapeHtml(latestDeployPhase(state.deployment.log)) +
         '</span></div>';
       if (!deployRefreshTimer) {
@@ -296,6 +296,7 @@ export const rendererClientScript = `
       const connected = Boolean(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment);
       const hostedBlocked = activeView === "chat" && latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint;
       const localBlocked = activeView === "chat" && latestState?.target !== "hosted" && !latestState?.lastHealth?.ok;
+      const deploymentRunning = Boolean(latestState?.deployment?.running);
       chatView.hidden = activeView !== "chat";
       deployView.hidden = activeView !== "deploy";
       teamsView.hidden = activeView !== "teams";
@@ -303,6 +304,8 @@ export const rendererClientScript = `
       sendButton.disabled = inFlight || hostedBlocked || localBlocked;
       provisionButton.hidden = true;
       deployButton.hidden = true;
+      provisionButton.disabled = deploymentRunning;
+      deployButton.disabled = deploymentRunning;
       teamsTestedButton.hidden = true;
       promptInput.hidden = activeView !== "chat";
       promptInput.disabled = hostedBlocked || localBlocked;
@@ -315,6 +318,9 @@ export const rendererClientScript = `
         provisionButton.hidden = !latestState?.deployment?.needsProvision;
         deployButton.hidden = Boolean(latestState?.deployment?.needsProvision);
         deployButton.textContent = latestState?.hosted?.version || latestState?.hosted?.responsesEndpoint ? "Deploy new version" : "Deploy first version";
+      }
+      if (deploymentRunning && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted")) {
+        primaryGuideAction.disabled = true;
       }
       clearButton.hidden = activeView === "teams";
       clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
@@ -972,6 +978,7 @@ export const rendererClientScript = `
     async function streamCommand({ path, button, confirmText, runningText, successText, failureText }) {
       if (!confirm(confirmText)) return;
       button.disabled = true;
+      primaryGuideAction.disabled = true;
       setStatus("", runningText);
       try {
         const response = await fetch(path, { method: "POST" });
@@ -999,6 +1006,7 @@ export const rendererClientScript = `
         setStatus("fail", error.message);
       } finally {
         button.disabled = false;
+        primaryGuideAction.disabled = false;
       }
     }
 

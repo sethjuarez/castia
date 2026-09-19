@@ -43,7 +43,6 @@ export function renderHtml() {
           <div id="guideTitle" class="action-title">Make it work locally</div>
           <div id="guideCopy" class="action-copy">Start or stop the local agent.</div>
           <div id="localTicker" class="local-ticker" hidden></div>
-          <div id="deployTicker" class="deploy-ticker" aria-live="polite" hidden></div>
         </div>
         <div class="action-buttons">
           <div class="agent-picker hero-picker">
@@ -72,7 +71,11 @@ export function renderHtml() {
               <span class="meta-pill" id="avgLatency">0ms avg</span>
             </div>
           </div>
-          <div class="health"><span id="statusDot" class="dot"></span><span id="statusText">Not checked yet.</span></div>
+          <div class="health">
+            <div id="deployTicker" class="deploy-ticker" aria-live="polite" hidden></div>
+            <span id="statusDot" class="dot"></span>
+            <span id="statusText">Not checked yet.</span>
+          </div>
         </div>
         <section id="foundryStatus" class="foundry-status" hidden>
           <div class="foundry-status-head">
@@ -189,4 +192,3 @@ export function renderHtml() {
 </body>
 </html>`;
 }
-

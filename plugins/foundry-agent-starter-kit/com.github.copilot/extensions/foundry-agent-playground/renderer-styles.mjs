@@ -304,6 +304,23 @@ export const rendererStyles = `
       align-items: baseline;
       min-width: 0;
     }
+    .health .deploy-ticker {
+      margin-top: 0;
+      min-height: 0;
+      max-width: min(460px, 42vw);
+    }
+    .health .deploy-ticker-row {
+      align-items: center;
+    }
+    .deploy-elapsed {
+      flex: 0 0 auto;
+      color: var(--cp-text);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .deploy-phase {
+      max-width: 32vw;
+    }
     .ticker-mark {
       width: 7px;
       height: 7px;
@@ -460,6 +477,7 @@ export const rendererStyles = `
       align-items: center;
       gap: 8px;
       color: var(--cp-text-muted);
+      min-width: 0;
     }
     .dot {
       width: 10px;
