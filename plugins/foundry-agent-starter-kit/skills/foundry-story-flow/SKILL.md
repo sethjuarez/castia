@@ -60,9 +60,12 @@ Do not scaffold or keep an Agent Framework sample as the implementation for a
 Castia story-flow starter. If an external scaffold command creates one, replace
 it before local testing or deployment.
 
-The playground should not ask for project/model settings. If `.env` is missing
-or incomplete, tell the user to copy `.env.example` to `.env`, fill those two
-values, and refresh.
+If `.env` is missing or incomplete, ask for the Foundry project endpoint and use
+the Foundry Agent Playground `bootstrap_env` canvas action when it is available.
+That action writes only non-secret values to gitignored `.env` files and
+preserves existing values unless overwrite is explicitly requested. If the
+canvas action is unavailable, tell the user to copy `.env.example` to `.env`,
+fill the project endpoint and model deployment name, and refresh.
 
 ## Agent identity
 
@@ -91,8 +94,12 @@ create those first before starting the local run.
 Persist these values first to developer-local `.env` only:
 
 ```powershell
+# Preferred when the Foundry Agent Playground canvas is available:
+# invoke bootstrap_env with projectEndpoint and, if needed, modelDeployment.
+
+# Fallback:
 Copy-Item .env.example .env
-# Fill FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME in .env
+# Fill FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME in .env.
 ```
 
 Set the same values in the azd environment only when the user explicitly moves

@@ -30,15 +30,46 @@ The UI includes these parts.
 - agent discovery from `azure.yaml` services that use `host: azure.ai.agent`;
 - an agent picker keyed by folder plus azd service name;
 - a guided Local -> Foundry -> Teams step rail with one primary action at a time;
-- a project choice for first use. Select an existing Foundry project with a
-  deployed model, or create one first, then provide its project endpoint plus
-  model deployment name;
+- a first-run `.env` bootstrap. Paste an existing Foundry project endpoint and
+  the canvas writes only non-secret derived values into gitignored `.env` files;
 - Local and Foundry target modes with separate endpoint state;
 - readiness status and response latency;
 - transcript counters for total, passing, and failing turns;
 - raw request/response JSON for protocol debugging;
 - chat keyboard input. Enter sends, Shift+Enter adds a newline;
-- advanced settings hidden behind the Settings button so the main path stays focused.
+- advanced settings for local endpoint and bootstrap refreshes.
+
+## First-run `.env` bootstrap
+
+Use **Create .env** when a new local session has `.env.example` files but no
+filled `.env` files yet. The canvas accepts a Foundry project endpoint such as:
+
+```text
+https://<account>.services.ai.azure.com/api/projects/<project>
+```
+
+It derives and writes these non-secret values:
+
+- `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_PROJECT_ENDPOINT`, and
+  `AZURE_AIPROJECT_ENDPOINT`;
+- `AZURE_AI_ACCOUNT_NAME` and `AZURE_AI_PROJECT_NAME`;
+- `AZURE_AI_MODEL_DEPLOYMENT_NAME`, defaulting to `gpt-6-astra`;
+- optional toolbox values, defaulting to `TOOLBOX_NAME=contract-toolbox` and
+  `TOOLBOX_CONTRACT_TOOLBOX_MCP_ENDPOINT=<project>/toolboxes/contract-toolbox/mcp?api-version=v1`.
+
+Safety rules:
+
+- secrets are never requested or written;
+- existing values are preserved unless **Overwrite existing values** is checked;
+- only files named `.env` can be written;
+- `.env.example` is never modified;
+- every target must be ignored by git, verified with `git check-ignore`.
+
+Targets are discovered from `.env.example` siblings, hosted agent roots found in
+`azure.yaml`, and common `modules\agents` layouts. Agents can also trigger the
+same behavior through the `bootstrap_env` canvas action with
+`projectEndpoint`, optional `modelDeployment`, `toolboxName`, `overwrite`,
+`dryRun`, and `targetPaths`.
 
 The deploy view runs from the selected agent folder.
 
