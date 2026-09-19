@@ -9,6 +9,7 @@ from main import (
     configure_prompty_tracing,
     local_agent_fact,
     local_function_tools,
+    local_trace_marker,
     prompty_tool_definitions,
     register_local_functions,
     runner_provider,
@@ -69,7 +70,8 @@ def test_prompty_tool_definitions_use_castia_prompty_helpers(monkeypatch):
 
     tools = prompty_tool_definitions(("lookup",))
     assert tools[0].name == "local_agent_fact"
-    assert tools[1:] == ["tool:lookup"]
+    assert tools[1].name == "local_trace_marker"
+    assert tools[2:] == ["tool:lookup"]
     names, descriptions, param_guidance = calls[0]
     assert names == ("lookup",)
     assert descriptions["lookup"] == "Call the configured Foundry toolbox MCP tool."
@@ -90,17 +92,28 @@ def test_local_function_tool_dispatches_through_prompty_registry():
             {},
         )
         assert result == local_agent_fact("canvas")
+        result = await dispatch_tool_async(
+            "local_trace_marker",
+            '{"topic":"canvas","stage":"second-tool"}',
+            {},
+            None,
+            {},
+        )
+        assert result == local_trace_marker("canvas", "second-tool")
 
     asyncio.run(check())
     clear_tools()
 
 
 def test_local_function_tool_definition_describes_parameter():
-    tool = local_function_tools()[0]
+    fact_tool, trace_tool = local_function_tools()
 
-    assert tool.kind == "function"
-    assert tool.name == "local_agent_fact"
-    assert tool.parameters[0].name == "topic"
+    assert fact_tool.kind == "function"
+    assert fact_tool.name == "local_agent_fact"
+    assert fact_tool.parameters[0].name == "topic"
+    assert trace_tool.kind == "function"
+    assert trace_tool.name == "local_trace_marker"
+    assert [param.name for param in trace_tool.parameters] == ["topic", "stage"]
 
 
 def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
@@ -152,9 +165,11 @@ def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
     assert isinstance(calls[1][2], FakeToolboxClient)
     assert calls[2][0:2] == ("runner", "gpt-5.5")
     assert calls[2][2][0].name == "local_agent_fact"
-    assert calls[2][2][1:] == ["tool:lookup"]
-    assert set(calls[2][3]) == {"local_agent_fact", "lookup"}
+    assert calls[2][2][1].name == "local_trace_marker"
+    assert calls[2][2][2:] == ["tool:lookup"]
+    assert set(calls[2][3]) == {"local_agent_fact", "local_trace_marker", "lookup"}
     assert calls[2][3]["local_agent_fact"] is local_agent_fact
+    assert calls[2][3]["local_trace_marker"] is local_trace_marker
 
 
 def test_configure_prompty_tracing_registers_at_startup(monkeypatch):

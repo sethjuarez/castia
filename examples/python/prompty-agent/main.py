@@ -11,6 +11,7 @@ AGENT_ROOT = Path(__file__).parent
 CONFIG_ROOT = AGENT_ROOT / ".agent_configs"
 PROJECT_ENDPOINT = re.compile(r"^https://[^/\s]+/api/projects/[^/\s]+$")
 LOCAL_FACT_TOOL = "local_agent_fact"
+LOCAL_TRACE_TOOL = "local_trace_marker"
 
 
 def load_local_env() -> None:
@@ -91,6 +92,13 @@ def local_agent_fact(topic: str = "prompty") -> str:
     )
 
 
+def local_trace_marker(topic: str = "trace", stage: str = "follow-up") -> str:
+    return (
+        f"Trace marker recorded for topic '{topic}' at stage '{stage}'. "
+        "This is the second local Python function in the Prompty example."
+    )
+
+
 def local_function_tools() -> list[object]:
     import prompty
 
@@ -109,7 +117,28 @@ def local_function_tools() -> list[object]:
                     required=False,
                 )
             ],
-        )
+        ),
+        prompty.FunctionTool(
+            name=LOCAL_TRACE_TOOL,
+            description=(
+                "Return a deterministic trace marker proving the Prompty loop can "
+                "execute multiple host-side Python functions in one turn."
+            ),
+            parameters=[
+                prompty.Property(
+                    name="topic",
+                    kind="string",
+                    description="Short topic label to include in the trace marker.",
+                    required=False,
+                ),
+                prompty.Property(
+                    name="stage",
+                    kind="string",
+                    description="Short stage label for this trace marker.",
+                    required=False,
+                ),
+            ],
+        ),
     ]
 
 
@@ -117,6 +146,7 @@ def register_local_functions() -> None:
     from prompty.core.tool_dispatch import register_tool
 
     register_tool(LOCAL_FACT_TOOL, local_agent_fact)
+    register_tool(LOCAL_TRACE_TOOL, local_trace_marker)
 
 
 def toolbox_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
@@ -154,7 +184,10 @@ def runner_provider():
 
     tool_names = allowed_tool_names()
     tools = prompty_tool_definitions(tool_names)
-    tool_functions = {LOCAL_FACT_TOOL: local_agent_fact}
+    tool_functions = {
+        LOCAL_FACT_TOOL: local_agent_fact,
+        LOCAL_TRACE_TOOL: local_trace_marker,
+    }
     if tool_names:
         client = ToolboxMcpClient()
         for name in tool_names:
