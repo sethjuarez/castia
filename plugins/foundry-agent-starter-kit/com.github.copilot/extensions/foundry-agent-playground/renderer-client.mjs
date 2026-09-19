@@ -905,9 +905,15 @@ export const rendererClientScript = `
 
     async function showTeams() {
       activeView = "teams";
-      const state = await request("/api/hosted/refresh", { method: "POST" });
-      renderSnapshot(state);
+      renderSnapshot(latestState);
       setStatus("", "Teams step.");
+      request("/api/hosted/refresh", { method: "POST" })
+        .then((state) => {
+          if (activeView === "teams") renderSnapshot(state);
+        })
+        .catch((error) => {
+          if (activeView === "teams") setStatus("fail", error.message);
+        });
     }
 
     localStep.addEventListener("click", () => {
