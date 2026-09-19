@@ -1606,6 +1606,21 @@ function renderHtml() {
       min-height: 16px;
     }
     .local-ticker[hidden] { display: none; }
+    .deploy-ticker {
+      display: grid;
+      gap: 2px;
+      margin-top: 8px;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      min-height: 32px;
+    }
+    .deploy-ticker[hidden] { display: none; }
+    .deploy-ticker-row {
+      display: flex;
+      gap: 6px;
+      align-items: baseline;
+      min-width: 0;
+    }
     .ticker-mark {
       width: 7px;
       height: 7px;
@@ -1617,6 +1632,7 @@ function renderHtml() {
     .local-ticker.ok .ticker-mark { background: var(--cp-success); }
     .local-ticker.warn .ticker-mark { background: var(--cp-warning); }
     .local-ticker.fail .ticker-mark { background: var(--cp-danger); }
+    .deploy-ticker .ticker-mark { background: var(--cp-warning); }
     .ticker-text {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -2289,6 +2305,7 @@ function renderHtml() {
           <div id="guideTitle" class="action-title">Make it work locally</div>
           <div id="guideCopy" class="action-copy">Start or stop the local agent.</div>
           <div id="localTicker" class="local-ticker" hidden></div>
+          <div id="deployTicker" class="deploy-ticker" aria-live="polite" hidden></div>
         </div>
         <div class="action-buttons">
           <div class="agent-picker hero-picker">
@@ -2446,6 +2463,7 @@ function renderHtml() {
     const guideTitle = document.getElementById("guideTitle");
     const guideCopy = document.getElementById("guideCopy");
     const localTicker = document.getElementById("localTicker");
+    const deployTicker = document.getElementById("deployTicker");
     const primaryGuideAction = document.getElementById("primaryGuideAction");
     const testHostedAction = document.getElementById("testHostedAction");
     const advancedToggle = document.getElementById("advancedToggle");
@@ -2494,6 +2512,7 @@ function renderHtml() {
     let foundryPanelOpen = false;
     let localRefreshTimer = null;
     let hostedWaitTimer = null;
+    let deployRefreshTimer = null;
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
@@ -2531,6 +2550,7 @@ function renderHtml() {
       renderDeploy(state);
       renderTeams(state);
       renderLocalTicker(state);
+      renderDeployTicker(state);
       renderJourney(state);
       renderView();
     }
@@ -2548,6 +2568,49 @@ function renderHtml() {
       localTicker.className = "local-ticker " + kind;
       localTicker.innerHTML = '<span class="ticker-mark" aria-hidden="true"></span>' +
         '<span class="ticker-text">' + escapeHtml(event.text) + '</span>';
+    }
+
+    function elapsedLabel(startedAt) {
+      const start = startedAt ? new Date(startedAt).getTime() : NaN;
+      if (!Number.isFinite(start)) return "0s elapsed";
+      const seconds = Math.max(0, Math.round((Date.now() - start) / 1000));
+      if (seconds < 60) return seconds + "s elapsed";
+      return Math.floor(seconds / 60) + "m " + String(seconds % 60).padStart(2, "0") + "s elapsed";
+    }
+
+    function latestDeployPhase(log) {
+      const text = (log || []).join("").replace(/\u001b\[[0-9;]*m/g, "");
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const line = [...lines].reverse().find((entry) =>
+        /Deploying|Provisioning|Packaging|Uploading|Registering|Polling|Ensuring|Preparing|Checking|Updating|Waiting|Resolving|Done/i.test(entry)
+      );
+      if (!line) return "Starting deployment workflow";
+      const phase = line.match(/\((.*)\)\s*\[[^\]]+\]\s*$/)?.[1];
+      return phase || line.replace(/^\S+:\s*/, "").replace(/\s*\[[^\]]+\]\s*$/, "");
+    }
+
+    function renderDeployTicker(state) {
+      if (!state.deployment?.running) {
+        if (deployRefreshTimer) {
+          clearInterval(deployRefreshTimer);
+          deployRefreshTimer = null;
+        }
+        deployTicker.hidden = true;
+        deployTicker.innerHTML = "";
+        return;
+      }
+      deployTicker.hidden = false;
+      deployTicker.innerHTML =
+        '<div class="deploy-ticker-row"><span class="ticker-mark" aria-hidden="true"></span><span class="ticker-text">' +
+        escapeHtml(elapsedLabel(state.deployment.startedAt)) +
+        '</span></div><div class="deploy-ticker-row"><span class="ticker-mark" aria-hidden="true"></span><span class="ticker-text">' +
+        escapeHtml(latestDeployPhase(state.deployment.log)) +
+        '</span></div>';
+      if (!deployRefreshTimer) {
+        deployRefreshTimer = setInterval(() => {
+          if (latestState?.deployment?.running) renderDeployTicker(latestState);
+        }, 1000);
+      }
     }
 
     function scheduleLocalRefresh() {
