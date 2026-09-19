@@ -35,6 +35,9 @@ export function selectedAgent(state) {
 
 export function selectedLocalEndpoint(state) {
     const agent = selectedAgent(state);
+    if (state.localRun?.running && state.localRun.agentId === agent.id && state.localRun.endpoint) {
+        return state.localRun.endpoint;
+    }
     return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
 }
 
@@ -101,12 +104,43 @@ export function emptyFoundryConnection() {
     };
 }
 
+export function emptyLocalRun() {
+    return {
+        running: false,
+        command: null,
+        startedAt: null,
+        completedAt: null,
+        exitCode: null,
+        log: [],
+        events: [],
+        process: null,
+        agentId: null,
+        agentName: null,
+        endpoint: null,
+        runId: null,
+    };
+}
+
 export function setSelectedAgent(state, agentId) {
     const agent = state.agents.find((candidate) => candidate.id === agentId) || state.agents[0];
     state.selectedAgentId = agent.id;
     state.hostedByAgent[agent.id] ||= emptyHostedContext(agent);
     state.localEndpoints[agent.id] ||= DEFAULT_ENDPOINT;
     state.hosted = state.hostedByAgent[agent.id];
+    return agent;
+}
+
+export function switchSelectedAgent(state, agentId, { stopLocalRun } = {}) {
+    const previousAgent = selectedAgent(state);
+    const agent = setSelectedAgent(state, agentId);
+    if (agent.id !== previousAgent.id) {
+        if (state.localRun?.running || state.localRun?.process) {
+            stopLocalRun?.(state);
+        }
+        state.localRun = emptyLocalRun();
+        state.lastHealth = null;
+        clearMessagesForTarget(state, "local");
+    }
     return agent;
 }
 

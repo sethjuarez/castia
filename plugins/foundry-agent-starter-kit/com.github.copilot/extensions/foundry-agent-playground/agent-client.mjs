@@ -56,6 +56,39 @@ export function readinessText(body) {
     return parts.length ? parts.join("; ") : JSON.stringify(body, null, 2);
 }
 
+export function readinessAgentName(readiness) {
+    return readiness?.agent && typeof readiness.agent === "object" && typeof readiness.agent.name === "string"
+        ? readiness.agent.name
+        : null;
+}
+
+function normalizedAgentName(name) {
+    return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function readinessIdentity(endpoint, expectedAgentNames, actualAgentName, requireKnownIdentity) {
+    const expectedNames = (Array.isArray(expectedAgentNames) ? expectedAgentNames : [expectedAgentNames])
+        .map((name) => String(name || "").trim())
+        .filter(Boolean);
+    if (!expectedNames.length) return null;
+    const expected = expectedNames[0];
+    const expectedNormalized = new Set(expectedNames.map(normalizedAgentName).filter(Boolean));
+    if (!actualAgentName) {
+        if (!requireKnownIdentity) return null;
+        return {
+            body: `Readiness identity is unknown for ${endpoint}; selected ${expected}. The agent returned legacy/non-JSON readiness, so this endpoint was not accepted.`,
+            identity: { expected, actual: null, status: "unknown" },
+        };
+    }
+    if (!expectedNormalized.has(normalizedAgentName(actualAgentName))) {
+        return {
+            body: `Endpoint belongs to ${actualAgentName}; selected ${expected}.`,
+            identity: { expected, actual: actualAgentName, status: "mismatch" },
+        };
+    }
+    return { identity: { expected, actual: actualAgentName, status: "match" } };
+}
+
 export function parseReadinessResponse(responseOk, status, text) {
     let body = text;
     try {
@@ -246,7 +279,7 @@ export async function callAgent(endpoint, path, payload) {
     }
 }
 
-export async function checkReadiness(endpoint, { timeoutMs = 10000 } = {}) {
+export async function checkReadiness(endpoint, { timeoutMs = 10000, expectedAgentName = null, expectedAgentNames = null } = {}) {
     const started = Date.now();
     if (isFoundryResponsesEndpoint(endpoint)) {
         return {
@@ -262,12 +295,16 @@ export async function checkReadiness(endpoint, { timeoutMs = 10000 } = {}) {
         });
         const text = await response.text();
         const parsed = parseReadinessResponse(response.ok, response.status, text);
+        const actualAgentName = readinessAgentName(parsed.readiness);
+        const identity = readinessIdentity(endpoint, expectedAgentNames || expectedAgentName, actualAgentName, parsed.ok);
+        const identityBlocksReady = identity && identity.identity?.status !== "match";
         return {
-            ok: parsed.ok,
+            ok: parsed.ok && !identityBlocksReady,
             status: response.status,
             durationMs: Date.now() - started,
-            body: parsed.body,
+            body: identity?.body || parsed.body,
             ...(parsed.readiness ? { readiness: parsed.readiness } : {}),
+            ...(identity?.identity ? { identity: identity.identity } : {}),
         };
     } catch (error) {
         return {
