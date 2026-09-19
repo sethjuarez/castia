@@ -60,12 +60,23 @@ Do not scaffold or keep an Agent Framework sample as the implementation for a
 Castia story-flow starter. If an external scaffold command creates one, replace
 it before local testing or deployment.
 
-If `.env` is missing or incomplete, ask for the Foundry project endpoint and use
-the Foundry Agent Playground `bootstrap_env` canvas action when it is available.
-That action writes only non-secret values to gitignored `.env` files and
-preserves existing values unless overwrite is explicitly requested. If the
-canvas action is unavailable, tell the user to copy `.env.example` to `.env`,
-fill the project endpoint and model deployment name, and refresh.
+**Required question gate:** if the selected agent root does not already have a
+resolved Foundry project endpoint from `.env`, `azd env get-values`, or explicit
+user input, STOP and ask with the app's question UI (`ask_user`) before opening
+or relying on the canvas, starting local testing, or deploying. If the model
+deployment name is also missing, collect it in the same question. Do not infer,
+guess, create, or silently select a Foundry project. Use this exact prompt:
+"Which Foundry project endpoint and model deployment name should this agent use?"
+Explain that the endpoint should look like
+`https://<account>.services.ai.azure.com/api/projects/<project>` and the model
+deployment should look like `gpt-5.5`.
+
+After the user provides the endpoint, use the Foundry Agent Playground
+`bootstrap_env` canvas action when it is available. That action writes only
+non-secret values to gitignored `.env` files and preserves existing values
+unless overwrite is explicitly requested. If the canvas action is unavailable,
+tell the user to copy `.env.example` to `.env`, fill the project endpoint and
+model deployment name, and refresh.
 
 ## Agent identity
 
@@ -79,7 +90,8 @@ Treat `folder + azd service name` as the local agent identity.
 ## First-run contract
 
 Before local testing can work, the agent needs a Foundry project with a deployed
-model. Ask for the minimum Foundry target:
+model. The following values are required context. If either is missing, ask for
+it with question UI instead of putting the discovery question in the canvas:
 
 - Foundry project endpoint, for example
   `https://<account>.services.ai.azure.com/api/projects/<project>`
@@ -154,6 +166,36 @@ The preferred recovery is:
 
 Foundry is complete when the hosted agent/version is resolved and the same smoke
 prompt works against the hosted Responses endpoint.
+
+## Deployed-agent trace handoff
+
+After a hosted smoke test or any deployed-agent invocation, preserve any
+`traceId`, `conversationId`, `sessionId`, `responseId`, agent name, version, and
+endpoint returned by `azd ai agent invoke`, the Playground, or Foundry. If the
+user asks why a deployed agent failed, what happened during an invocation, or
+how to inspect production behavior, follow
+[`castia-lifecycle/hosted-invoke-traces.md`](../castia-lifecycle/hosted-invoke-traces.md)
+before writing KQL.
+
+Trace lookup rules:
+
+1. Prefer `azd ai agent monitor --tail 120` first to confirm the hosted process
+   received the request and whether readiness, `/responses`, framework, or
+   server errors occurred.
+2. If a `traceId` is available, treat it as the App Insights `operation_Id` and
+   query `requests`, `dependencies`, `traces`, `exceptions`, and `customEvents`
+   using the templates in `hosted-invoke-traces.md`.
+3. If no `traceId` is available, search recent `requests` by Foundry agent name
+   and then drill into the returned `operation_Id`.
+4. Resolve the App Insights resource from `azd env get-values` first
+   (`APPLICATIONINSIGHTS_CONNECTION_STRING` or related observability values).
+   If azd does not expose it, use the Foundry trace skill's App Insights
+   resolution workflow before querying. App Insights telemetry can lag behind
+   hosted logs; if logs show the request but the first KQL query returns no
+   rows, wait briefly and retry before concluding the trace is absent.
+5. Never conclude the hosted agent returned no answer solely because terminal
+   output or telemetry lacks literal answer text; verify the hosted HTTP,
+   AgentServer, model, tool, and response-body layers first.
 
 If hosted testing fails with `session_not_ready` or `424 FailedDependency`, read
 the hosted session logs before changing deployment settings. A common cause is a

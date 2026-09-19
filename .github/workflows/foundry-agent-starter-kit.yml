@@ -1,0 +1,33 @@
+name: foundry-agent-starter-kit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/foundry-agent-starter-kit.yml"
+      - "plugins/foundry-agent-starter-kit/**"
+  pull_request:
+    paths:
+      - ".github/workflows/foundry-agent-starter-kit.yml"
+      - "plugins/foundry-agent-starter-kit/**"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Run Foundry Agent Playground tests
+        run: node --test plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/*.test.mjs
+
+      - name: Check Foundry Agent Playground extension syntax
+        run: |
+          node --check plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/extension.mjs
+          node --check plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/hosted-discovery.mjs

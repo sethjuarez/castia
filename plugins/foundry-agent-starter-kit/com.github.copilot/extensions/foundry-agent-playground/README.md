@@ -30,8 +30,9 @@ The UI includes these parts.
 - agent discovery from `azure.yaml` services that use `host: azure.ai.agent`;
 - an agent picker keyed by folder plus azd service name;
 - a guided Local -> Foundry -> Teams step rail with one primary action at a time;
-- a first-run `.env` bootstrap. Paste an existing Foundry project endpoint and
-  the canvas writes only non-secret derived values into gitignored `.env` files;
+- a first-run `.env` bootstrap for an existing Foundry project endpoint. Agents
+  should ask for the project endpoint before opening the canvas, then use this
+  bootstrap to write only non-secret derived values into gitignored `.env` files;
 - Local and Foundry target modes with separate endpoint state;
 - readiness status and response latency;
 - transcript counters for total, passing, and failing turns;
@@ -41,8 +42,9 @@ The UI includes these parts.
 
 ## First-run `.env` bootstrap
 
-Use **Create .env** when a new local session has `.env.example` files but no
-filled `.env` files yet. The canvas accepts a Foundry project endpoint such as:
+Use **Save project** when a new local session has `.env.example` files but no
+filled `.env` files yet. The agent should already have asked which Foundry
+project to use; the canvas accepts a project endpoint such as:
 
 ```text
 https://<account>.services.ai.azure.com/api/projects/<project>
@@ -79,14 +81,16 @@ The deploy view runs from the selected agent folder.
 - when Azure CLI is signed in, the canvas derives deployment context from the
   project endpoint and writes values such as `AZURE_SUBSCRIPTION_ID`,
   `AZURE_LOCATION`, and `AZURE_AI_PROJECT_ID` into the local azd environment;
-- `azd env get-values` discovers the Foundry project, hosted agent name, version,
-  and protocol endpoints for that agent service;
+- the loaded Foundry project is queried directly for the selected hosted agent
+  and its deployed versions/endpoints; `azd env get-values` remains a fallback
+  cache when remote discovery cannot run;
 - `azd deploy <service> --no-prompt` streams deployment output into the canvas
   after a confirmation in the canvas;
 - if deploy reports that infrastructure has not been provisioned, the primary
   action becomes "Prepare deploy" and runs `azd provision --no-prompt`;
-- after deployment, the canvas refreshes hosted metadata so the Hosted target can
-  show the latest version and Responses endpoint if azd exposes one.
+- after deployment, the canvas refreshes hosted metadata from the Foundry project
+  so the Hosted target can show the latest version and Responses endpoint even
+  when azd env outputs are missing.
 
 For scaffolded Castia agents, `pyproject.toml` is the canonical dependency
 source. `requirements.txt` exists only as the Foundry remote-build entrypoint

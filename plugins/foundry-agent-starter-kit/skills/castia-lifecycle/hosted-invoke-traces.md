@@ -23,6 +23,26 @@ If only a trace ID is available, start with the `operation_Id` queries below. If
 only an agent name or session ID is available, start with hosted logs and request
 search.
 
+## Resolve the App Insights resource
+
+Prefer `APPLICATIONINSIGHTS_CONNECTION_STRING` or an App Insights resource ID
+from `azd env get-values`. Some existing-project deployments do not write those
+values into the azd environment. In that case, use the Foundry project context to
+find the resource before querying:
+
+```powershell
+# If azd exposes the project resource ID, use its subscription/resource group.
+azd env get-values
+
+# Fallback: list App Insights components in the subscription or project resource group.
+az resource list --subscription <subscription-id> --resource-type Microsoft.Insights/components --query "[].{name:name,resourceGroup:resourceGroup,id:id}" --output table
+```
+
+Choose the App Insights component associated with the Foundry project or agent
+resource group. If there are several candidates, inspect the candidate by
+querying recent telemetry for the target agent name before assuming the trace is
+missing.
+
 ## Hosted logs first
 
 Use azd logs to confirm the hosted process received the request and returned a
@@ -41,6 +61,10 @@ azd ai agent monitor --session-id <session-id> --tail 120
 
 Look for readiness checks, `/responses` requests, exceptions, and framework or
 server errors.
+
+If the invocation just happened, App Insights can lag behind hosted logs. When
+logs show the request but KQL returns no rows, wait briefly and retry the same
+query before changing the time range or concluding the trace is absent.
 
 ## App Insights trace ID lookup
 
