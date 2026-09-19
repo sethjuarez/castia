@@ -364,6 +364,13 @@ async function discoverManagementContext(agent, endpoint) {
     };
 }
 
+async function discoverTenantId(agent) {
+    const result = await runCommand("az", ["account", "show", "--query", "tenantId", "--output", "tsv"], {
+        cwd: agent.root,
+    });
+    return result.code === 0 ? result.output.trim() : null;
+}
+
 async function findEnvExampleFiles(dir, depth = 0) {
     if (depth > 6) return [];
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -946,6 +953,7 @@ async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
             AZURE_LOCATION: discovery.location,
             AZURE_AI_PROJECT_ID: discovery.projectId,
             AZURE_RESOURCE_GROUP: discovery.resourceGroup,
+            AZURE_TENANT_ID: await discoverTenantId(agent),
             AZURE_AI_ACCOUNT_NAME: discovery.accountName,
             AZURE_AI_PROJECT_NAME: discovery.projectName,
         },
@@ -972,6 +980,49 @@ async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
     return { discovery, exitCode };
 }
 
+async function ensureAzdDeploymentContext(state, log) {
+    const agent = selectedAgent(state);
+    const endpoint =
+        state.foundryConnection.projectEndpoint ||
+        state.hosted.projectEndpoint ||
+        null;
+    const deployment =
+        state.foundryConnection.modelDeployment ||
+        state.hosted.modelDeployment ||
+        null;
+    if (!endpoint || !deployment) return 0;
+
+    const discovery = await discoverManagementContext(agent, endpoint);
+    const values = {
+        FOUNDRY_PROJECT_ENDPOINT: endpoint,
+        AZURE_AI_PROJECT_ENDPOINT: endpoint,
+        AZURE_AIPROJECT_ENDPOINT: endpoint,
+        AZURE_AI_MODEL_DEPLOYMENT_NAME: deployment,
+        AZURE_SUBSCRIPTION_ID: discovery.subscriptionId,
+        AZURE_LOCATION: discovery.location,
+        AZURE_AI_PROJECT_ID: discovery.projectId,
+        AZURE_RESOURCE_GROUP: discovery.resourceGroup,
+        AZURE_TENANT_ID: await discoverTenantId(agent),
+        AZURE_AI_ACCOUNT_NAME: discovery.accountName,
+        AZURE_AI_PROJECT_NAME: discovery.projectName,
+    };
+    const exitCode = await setAzdEnvValues(agent.root, values, log);
+    state.foundryConnection = {
+        ...state.foundryConnection,
+        subscriptionId: discovery.subscriptionId || state.foundryConnection.subscriptionId,
+        location: discovery.location || state.foundryConnection.location,
+        projectId: discovery.projectId || state.foundryConnection.projectId,
+        accountName: discovery.accountName || state.foundryConnection.accountName,
+        projectName: discovery.projectName || state.foundryConnection.projectName,
+        lastConnectExitCode: exitCode,
+        lastDiscoveryMessage: discovery.message || state.foundryConnection.lastDiscoveryMessage,
+    };
+    if (discovery.message) {
+        log?.push(`${discovery.message}\n`);
+    }
+    return exitCode;
+}
+
 async function streamAzdLifecycle(res, state, { commandName, args }) {
     res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -988,6 +1039,9 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         needsProvision: false,
         log: [`$ azd ${args.join(" ")}\n`],
     };
+    if (commandName === "deploy" || commandName === "provision") {
+        await ensureAzdDeploymentContext(state, state.deployment.log);
+    }
     writeEvent(res, "snapshot", stateSnapshot(state));
     const result = await runCommand("azd", args, {
         cwd: agent.root,
