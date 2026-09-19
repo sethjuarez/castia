@@ -11,6 +11,29 @@ Written after a bug bash where we watched the framework/HTTP badges flip on thei
 own and spent a long time blaming our own code before finding the real cause: a
 non-deterministic query in the Foundry Traces portal.
 
+## Streaming transport spans
+
+Castia optimizes hosted traces for semantic readability. The Microsoft
+OpenTelemetry distro instruments FastAPI through ASGI middleware; by default
+that middleware can create a child span for every ASGI `send` event. A streaming
+`POST /responses` call may therefore produce many zero-duration
+`POST /responses http send` children that describe chunks rather than bounded
+agent work.
+
+Castia passes `exclude_spans=["send"]` to the FastAPI instrumentation by
+default. The normal trace shape remains:
+
+- one server/request span for `POST /responses`;
+- semantic Castia spans such as `invoke_agent`;
+- Foundry GenAI spans such as `chat {model}`;
+- tool and retrieval spans.
+
+Set `CASTIA_OTEL_TRACE_ASGI_SEND=true` only when debugging ASGI transport
+behavior and you deliberately want per-`send` spans back. Do not record streamed
+chunk text by default. Castia records aggregate transport attributes on the
+request span when available instead: `stream.chunk_count`,
+`stream.first_chunk_ms`, `stream.last_chunk_ms`, and `stream.bytes_sent`.
+
 ## Where the labels come from
 
 Two different things feed the badges, and only one of them is under our control.

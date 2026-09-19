@@ -17,6 +17,7 @@ from castia.observe import configuration as observability
 
 _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
+_TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 
 
 @pytest.mark.parametrize("helper", ["invoke_agent", "execute_tool"])
@@ -118,6 +119,38 @@ def test_genai_tracing_default_instruments_and_sets_env(monkeypatch):
         observability._enable_genai_tracing()
     instrumentor.return_value.instrument.assert_called_once()
     assert observability.os.environ[_GENAI_ENV] == "true"
+
+
+def test_configure_observability_suppresses_asgi_send_spans_by_default(monkeypatch):
+    monkeypatch.delenv(_TRACE_ASGI_SEND_ENV, raising=False)
+    monkeypatch.delenv("APPLICATIONINSIGHTS_CONNECTION_STRING", raising=False)
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,
+        mock.patch.object(
+            observability, "_build_agent_identity_processors", return_value=[]
+        ),
+        mock.patch.object(observability, "_enable_genai_tracing"),
+    ):
+        observability.configure_observability()
+
+    options = use_otel.call_args.kwargs["instrumentation_options"]
+    assert options["fastapi"] == {"exclude_spans": ["send"]}
+    assert options["openai_agents"] == {"enabled": False}
+
+
+def test_configure_observability_can_trace_asgi_send_spans(monkeypatch):
+    monkeypatch.setenv(_TRACE_ASGI_SEND_ENV, "true")
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,
+        mock.patch.object(
+            observability, "_build_agent_identity_processors", return_value=[]
+        ),
+        mock.patch.object(observability, "_enable_genai_tracing"),
+    ):
+        observability.configure_observability()
+
+    options = use_otel.call_args.kwargs["instrumentation_options"]
+    assert options["fastapi"] == {}
 
 
 if __name__ == "__main__":  # pragma: no cover

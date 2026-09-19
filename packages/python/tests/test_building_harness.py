@@ -323,8 +323,11 @@ def test_port_probe_reports_occupied_port():
             _ensure_port_available("127.0.0.1", port)
 
 
-def test_responses_stream_uses_stream_handler_for_sse():
+def test_responses_stream_uses_stream_handler_for_sse(monkeypatch):
+    from castia.hosting import server
+
     app = Agent()
+    stream_attributes = {}
 
     @app.responses()
     async def reply(text: str):
@@ -335,6 +338,11 @@ def test_responses_stream_uses_stream_handler_for_sse():
         yield "stream:"
         yield text
 
+    def record_stream_attributes(**attributes):
+        stream_attributes.update(attributes)
+
+    monkeypatch.setattr(server, "_record_stream_attributes", record_stream_attributes)
+
     async def run():
         async with AgentTestHarness(app) as test:
             response = await test.client.post(
@@ -344,6 +352,13 @@ def test_responses_stream_uses_stream_handler_for_sse():
                 response,
                 deltas=["stream:", "hello"],
                 output_text="stream:hello",
+            )
+            assert stream_attributes["chunk_count"] == 11
+            assert stream_attributes["bytes_sent"] == len(response.text.encode("utf-8"))
+            assert stream_attributes["first_chunk_at"] >= stream_attributes["started"]
+            assert (
+                stream_attributes["last_chunk_at"]
+                >= stream_attributes["first_chunk_at"]
             )
 
             response = await test.client.post(
