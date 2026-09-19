@@ -12,11 +12,17 @@ or network is touched.
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import ClassVar
 
 import pytest
 
-from castia.inference.model import Model, _instructions_param, _reasoning_param
+from castia.inference.model import (
+    Model,
+    _instructions_param,
+    _reasoning_param,
+    _user_message_input,
+)
 from castia.integrations.toolbox import toolbox_mcp_tool
 
 
@@ -79,7 +85,7 @@ def test_respond_threads_instructions():
     out = asyncio.run(model.respond("hi"))
     assert out == "ok"
     assert sink["instructions"] == "be terse"
-    assert sink["input"] == "hi"
+    assert sink["input"] == _user_message_input("hi")
     assert sink["model"] == "dep"
 
 
@@ -98,6 +104,7 @@ def test_stream_threads_instructions():
 
     asyncio.run(_drain())
     assert sink["instructions"] == "stream prompt"
+    assert sink["input"] == _user_message_input("hi")
     assert sink["stream"] is True
 
 
@@ -108,6 +115,16 @@ def test_respond_with_tools_threads_instructions():
     )
     assert out == "ok"
     assert sink["instructions"] == "tool prompt"
+    assert sink["input"] == _user_message_input("hi")
+
+
+def test_user_message_input_uses_recordable_content_part():
+    assert _user_message_input("show me policy") == [
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "show me policy"}],
+        }
+    ]
 
 
 def test_respond_with_tools_applies_toolbox_rewrites_to_extra_specs():
@@ -139,6 +156,69 @@ def test_respond_with_tools_applies_toolbox_rewrites_to_extra_specs():
     assert "x-castia-optimizer-tool-definitions" not in sent_spec
     assert "x-castia-server-description" not in sent_spec
     assert "Rewritten guidance." in sent_spec["server_description"]
+
+
+def test_respond_with_tools_keeps_recordable_input_and_emits_phase_events(monkeypatch):
+    events = []
+
+    class Span:
+        def is_recording(self):
+            return True
+
+        def add_event(self, name, attributes=None):
+            events.append((name, attributes or {}))
+
+    class Tool:
+        name = "lookup_policy"
+
+        def spec(self):
+            return {"type": "function", "function": {"name": self.name}}
+
+        async def run(self, activity, **kwargs):
+            return {"ok": True, "policy": kwargs["policy"]}
+
+    class Responses:
+        def __init__(self):
+            self.inputs = []
+
+        async def create(self, **kwargs):
+            self.inputs.append(copy.deepcopy(kwargs["input"]))
+            if len(self.inputs) == 1:
+                return type("Response", (), {
+                    "output": [
+                        type("Call", (), {
+                            "type": "function_call",
+                            "call_id": "call-1",
+                            "name": "lookup_policy",
+                            "arguments": '{"policy":"travel"}',
+                        })()
+                    ],
+                    "output_text": "",
+                })()
+            return type("Response", (), {"output": [], "output_text": "done"})()
+
+    responses = Responses()
+    model = Model.__new__(Model)
+    model._deployment = "dep"
+    model._instructions = None
+    model._reasoning = {}
+    model._tool_definitions = ()
+    model._client = type("Client", (), {
+        "get_openai_client": lambda self: type("OpenAI", (), {"responses": responses})()
+    })()
+    monkeypatch.setattr("opentelemetry.trace.get_current_span", lambda: Span())
+
+    out = asyncio.run(model.respond_with_tools("check travel", tools=[Tool()], activity=object()))
+
+    assert out == "done"
+    assert responses.inputs[0] == _user_message_input("check travel")
+    assert responses.inputs[1][0] == _user_message_input("check travel")[0]
+    assert responses.inputs[1][-1]["type"] == "function_call_output"
+    event_names = [name for name, _ in events]
+    assert "castia.model.tool_calls.requested" in event_names
+    assert "castia.tool.call.started" in event_names
+    assert "castia.tool.call.completed" in event_names
+    assert "castia.model.final_response.completed" in event_names
 
 
 # -- reasoning-effort passthrough (RFT / model-switch) ----------------------
