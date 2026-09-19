@@ -2439,10 +2439,23 @@ function renderHtml() {
     let agentMenuOpen = false;
     let foundryPanelOpen = false;
     let localRefreshTimer = null;
+    let hostedWaitTimer = null;
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
       statusText.textContent = text;
+    }
+
+    function clearHostedWaitTimer() {
+      if (hostedWaitTimer) {
+        clearInterval(hostedWaitTimer);
+        hostedWaitTimer = null;
+      }
+    }
+
+    function setHostedWaitingStatus(startedAt) {
+      const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+      setStatus("warn", "Waiting on Foundry hosted agent... " + seconds + "s");
     }
 
     function renderSnapshot(state) {
@@ -2453,7 +2466,7 @@ function renderHtml() {
       failCount.textContent = state.stats.failed + " fail";
       avgLatency.textContent = state.stats.averageMs + "ms avg";
       renderMessages(state.visibleMessages || []);
-      if (state.lastHealth) {
+      if (state.target !== "hosted" && state.lastHealth) {
         setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms");
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.running) {
         setStatus("ok", "Local agent started.");
@@ -2726,7 +2739,17 @@ function renderHtml() {
       lastSend = { input, at: now };
       inFlight = true;
       sendButton.disabled = true;
-      setStatus("", "Sending prompt...");
+      const waitingOnHosted = latestState?.target === "hosted";
+      const sendStartedAt = Date.now();
+      clearHostedWaitTimer();
+      if (waitingOnHosted) {
+        setHostedWaitingStatus(sendStartedAt);
+        hostedWaitTimer = setInterval(() => {
+          if (inFlight) setHostedWaitingStatus(sendStartedAt);
+        }, 1000);
+      } else {
+        setStatus("", "Sending prompt...");
+      }
       try {
         await saveEndpointFromInput();
         const response = await fetch("/api/responses/stream", {
@@ -2757,7 +2780,11 @@ function renderHtml() {
             if (latest?.response?.streaming) {
               const text = responseText(latest.response.body);
               const hasText = String(text || "").trim();
-              setStatus("", hasText && latest.response.delivery?.upstreamStreaming ? "Streaming response..." : "Waiting for response...");
+              if (waitingOnHosted && !latest.response.delivery?.upstreamStreaming) {
+                setHostedWaitingStatus(sendStartedAt);
+              } else {
+                setStatus("", hasText && latest.response.delivery?.upstreamStreaming ? "Streaming response..." : "Waiting for response...");
+              }
             } else if (latest?.response) {
               setStatus(latest.response.ok ? "ok" : "fail", "Response " + latest.response.status + " in " + latest.response.durationMs + "ms");
             }
@@ -2766,6 +2793,7 @@ function renderHtml() {
       } catch (error) {
         setStatus("fail", error.message);
       } finally {
+        clearHostedWaitTimer();
         inFlight = false;
         renderView();
       }
