@@ -13,6 +13,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from inspect import isawaitable
 from typing import Any
@@ -31,6 +32,25 @@ _DEFAULT_PROMPTY_SPANS = {"turn_async", "run_async"}
 _logger = logging.getLogger("agent")
 
 TokenProvider = Callable[[], str | Awaitable[str]]
+
+
+@dataclass
+class _TurnTimeline:
+    include_content: bool
+    events: list[dict[str, Any]]
+    _next_step: int = 1
+
+    def append(self, event: dict[str, Any]) -> dict[str, Any]:
+        event.setdefault("step", self._next_step)
+        self._next_step += 1
+        self.events.append(event)
+        return event
+
+
+_CURRENT_TIMELINE: ContextVar[_TurnTimeline | None] = ContextVar(
+    "castia_prompty_timeline",
+    default=None,
+)
 
 
 class PromptyIntegrationError(RuntimeError):
@@ -120,6 +140,7 @@ def _prompty_otel_backend(
                 if key == "result" and isinstance(value, dict) and "exception" in value:
                     _record_prompty_exception(span, value["exception"])
                     return
+                _record_prompty_timeline_event(key, value, include_content=include_content)
                 if key in {"inputs", "result"} and not include_content:
                     return
                 _set_prompty_span_attribute(span, key, sanitize(key, value), to_dict=to_dict)
@@ -128,6 +149,7 @@ def _prompty_otel_backend(
 
             try:
                 yield filtered_add
+                _set_prompty_timeline_attributes(span)
                 span.set_status(Status(StatusCode.OK))
             except Exception as exc:
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
@@ -148,6 +170,50 @@ def _should_trace_prompty_span(span_name: str, *, include_internal: bool) -> boo
 
 def _prompty_noop_add(_key: str, _value: Any) -> None:
     return None
+
+
+def _record_prompty_timeline_event(key: str, value: Any, *, include_content: bool) -> None:
+    timeline = _CURRENT_TIMELINE.get()
+    if timeline is None:
+        return
+    if key == "inputs":
+        text = _input_text(value)
+        event: dict[str, Any] = {"type": "turn_start"}
+        if include_content and text:
+            event["input"] = text
+        timeline.append(event)
+    elif key == "result":
+        text = value if isinstance(value, str) else _safe_json(value)
+        event = {"type": "turn_end"}
+        if include_content and text:
+            event["output"] = text
+        timeline.append(event)
+
+
+def _set_prompty_timeline_attributes(span: Any) -> None:
+    timeline = _CURRENT_TIMELINE.get()
+    if timeline is None or not timeline.events:
+        return
+    try:
+        span.set_attribute("castia.turn.timeline", _safe_json(timeline.events))
+        span.set_attribute("castia.turn.summary", _timeline_summary(timeline.events))
+        span.set_attribute(
+            "castia.turn.tool_call_count",
+            sum(1 for event in timeline.events if event.get("type") == "tool"),
+        )
+    except Exception:
+        _logger.debug("Failed to set Prompty turn timeline attributes", exc_info=True)
+
+
+def _timeline_summary(events: Sequence[Mapping[str, Any]]) -> str:
+    labels = []
+    for event in events:
+        kind = event.get("type")
+        if kind == "tool":
+            labels.append(f"tool:{event.get('name', 'unknown')}")
+        else:
+            labels.append(str(kind or "event"))
+    return " -> ".join(labels)
 
 
 def _set_prompty_span_attribute(span: Any, key: str, value: Any, *, to_dict: Callable[[Any], Any]) -> None:
@@ -299,12 +365,17 @@ class PromptyRunner:
     async def turn(self, text: str, **inputs: object) -> str:
         """Run one external user turn through Prompty and return text."""
         prompty = _prompty()
-        result = await prompty.turn_async(
-            self.agent,
-            {"text": text, **inputs},
-            tools=_traced_tool_functions(self.tool_functions or {}),
-            max_iterations=self.max_iterations,
-        )
+        timeline = _TurnTimeline(include_content=_content_recording_enabled(), events=[])
+        token = _CURRENT_TIMELINE.set(timeline)
+        try:
+            result = await prompty.turn_async(
+                self.agent,
+                {"text": text, **inputs},
+                tools=_traced_tool_functions(self.tool_functions or {}),
+                max_iterations=self.max_iterations,
+            )
+        finally:
+            _CURRENT_TIMELINE.reset(token)
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -315,14 +386,93 @@ def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> 
     for name, tool_function in tool_functions.items():
 
         async def call_tool(*args: Any, _name: str = name, _tool_function: Callable[..., Any] = tool_function, **kwargs: Any) -> Any:
-            with execute_tool(_name):
-                result = _tool_function(*args, **kwargs)
-                if isawaitable(result):
-                    return await result
-                return result
+            timeline = _CURRENT_TIMELINE.get()
+            event = _tool_timeline_event(timeline, _name, args, kwargs)
+            with execute_tool(_name) as span:
+                _set_tool_span_start_attributes(span, event, _name, args, kwargs)
+                try:
+                    result = _tool_function(*args, **kwargs)
+                    if isawaitable(result):
+                        result = await result
+                except Exception as exc:
+                    _set_tool_span_error_attributes(span, event, exc)
+                    raise
+                else:
+                    _set_tool_span_success_attributes(span, event, result)
+                    return result
 
         traced[name] = call_tool
     return traced
+
+
+def _tool_timeline_event(
+    timeline: _TurnTimeline | None,
+    name: str,
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    if timeline is None:
+        return None
+    event: dict[str, Any] = {"type": "tool", "name": name, "status": "running"}
+    if timeline.include_content:
+        event["arguments"] = _tool_arguments(args, kwargs)
+    return timeline.append(event)
+
+
+def _set_tool_span_start_attributes(
+    span: Any,
+    event: Mapping[str, Any] | None,
+    name: str,
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> None:
+    _safe_set_attribute(span, "castia.step.kind", "tool")
+    _safe_set_attribute(span, "castia.tool.status", "running")
+    _safe_set_attribute(span, "gen_ai.tool.name", name)
+    if event is not None:
+        _safe_set_attribute(span, "castia.step.index", int(event["step"]))
+    if _content_recording_enabled():
+        _safe_set_attribute(span, "gen_ai.tool.arguments", _safe_json(_tool_arguments(args, kwargs)))
+
+
+def _set_tool_span_success_attributes(span: Any, event: dict[str, Any] | None, result: Any) -> None:
+    text = result if isinstance(result, str) else _safe_json(result)
+    _safe_set_attribute(span, "castia.tool.status", "ok")
+    if event is not None:
+        event["status"] = "ok"
+        if event.get("arguments") is None and _content_recording_enabled():
+            event["arguments"] = {}
+        if _content_recording_enabled() and text:
+            event["output"] = text
+    if _content_recording_enabled() and text:
+        _safe_set_attribute(span, "gen_ai.tool.output", text)
+
+
+def _set_tool_span_error_attributes(span: Any, event: dict[str, Any] | None, exc: Exception) -> None:
+    message = str(exc)
+    _safe_set_attribute(span, "castia.tool.status", "error")
+    _safe_set_attribute(span, "castia.tool.error_type", type(exc).__name__)
+    _safe_set_attribute(span, "castia.tool.error", message)
+    if event is not None:
+        event["status"] = "error"
+        event["error_type"] = type(exc).__name__
+        event["error"] = message
+
+
+def _tool_arguments(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    arguments: dict[str, Any] = {}
+    if args:
+        arguments["args"] = list(args)
+    if kwargs:
+        arguments["kwargs"] = dict(kwargs)
+    return arguments
+
+
+def _safe_set_attribute(span: Any, key: str, value: Any) -> None:
+    try:
+        span.set_attribute(key, value)
+    except Exception:
+        _logger.debug("Failed to set Prompty tool trace attribute", exc_info=True)
 
 
 def configured_prompty_runner(

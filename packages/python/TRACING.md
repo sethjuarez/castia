@@ -174,6 +174,19 @@ The lower-level Prompty lifecycle spans (`prepare_async`, `render_async`,
 and `process_async`) are useful when debugging Prompty itself, but they add deep
 nesting to ordinary agent trajectories.
 
+The aggregate `prompty turn_async` span also carries a Castia-owned observed
+timeline:
+
+- `castia.turn.summary` gives a compact ordered path such as
+  `turn_start -> tool:local_agent_fact -> tool:local_trace_marker -> turn_end`.
+- `castia.turn.timeline` is JSON with the observed turn/tool events in order.
+- `castia.turn.tool_call_count` counts local/toolbox tool executions.
+
+Each `execute_tool ...` span carries `castia.step.index`,
+`castia.step.kind=tool`, `castia.tool.status`, and `gen_ai.tool.name`. When
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`, tool arguments and
+outputs are also attached as `gen_ai.tool.arguments` and `gen_ai.tool.output`.
+
 Set `CASTIA_PROMPTY_TRACE_INTERNAL=true` to restore those lower-level Prompty
 pipeline spans for a process. Content on Prompty spans still follows the normal
 `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true` privacy gate.

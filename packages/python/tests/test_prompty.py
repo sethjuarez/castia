@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 
+import castia.prompty as castia_prompty
 from castia.optimizing.config import AgentConfig
 
 prompty = pytest.importorskip("prompty")
@@ -169,6 +170,101 @@ def test_prompty_otel_registration_traces_internal_spans_when_enabled(monkeypatc
 
     assert provider.tracer_names == ["castia-prompty"]
     assert provider.spans[0].name == "prompty prepare_async"
+
+
+def test_prompty_timeline_records_turn_and_tool_details(monkeypatch):
+    from contextlib import contextmanager
+
+    provider = FakeProvider()
+    tool_span = FakeSpan("execute_tool local_tool", {})
+    timeline = castia_prompty._TurnTimeline(include_content=True, events=[])
+    token = castia_prompty._CURRENT_TIMELINE.set(timeline)
+
+    monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
+
+    @contextmanager
+    def fake_execute_tool(_name):
+        yield tool_span
+
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", fake_execute_tool)
+    backend = castia_prompty._prompty_otel_backend(
+        tracer_name="prompty",
+        provider=provider,
+        include_content=True,
+        include_internal=False,
+    )
+
+    try:
+        with backend("turn_async") as add:
+            add("inputs", {"text": "hello"})
+            traced = castia_prompty._traced_tool_functions(
+                {"local_tool": lambda topic: "tool result"}
+            )
+            assert asyncio.run(traced["local_tool"](topic="canvas")) == "tool result"
+            add("result", "answer")
+    finally:
+        castia_prompty._CURRENT_TIMELINE.reset(token)
+
+    turn_timeline = json.loads(provider.spans[0].attributes["castia.turn.timeline"])
+    assert [event["type"] for event in turn_timeline] == ["turn_start", "tool", "turn_end"]
+    assert turn_timeline[0] == {"type": "turn_start", "input": "hello", "step": 1}
+    assert turn_timeline[1] == {
+        "type": "tool",
+        "name": "local_tool",
+        "status": "ok",
+        "arguments": {"kwargs": {"topic": "canvas"}},
+        "step": 2,
+        "output": "tool result",
+    }
+    assert turn_timeline[2] == {"type": "turn_end", "output": "answer", "step": 3}
+    assert provider.spans[0].attributes["castia.turn.summary"] == "turn_start -> tool:local_tool -> turn_end"
+    assert provider.spans[0].attributes["castia.turn.tool_call_count"] == 1
+    assert tool_span.attributes["castia.step.index"] == 2
+    assert tool_span.attributes["castia.step.kind"] == "tool"
+    assert tool_span.attributes["gen_ai.tool.arguments"] == '{"kwargs": {"topic": "canvas"}}'
+    assert tool_span.attributes["gen_ai.tool.output"] == "tool result"
+
+
+def test_prompty_timeline_omits_content_without_opt_in(monkeypatch):
+    from contextlib import contextmanager
+
+    provider = FakeProvider()
+    tool_span = FakeSpan("execute_tool local_tool", {})
+    timeline = castia_prompty._TurnTimeline(include_content=False, events=[])
+    token = castia_prompty._CURRENT_TIMELINE.set(timeline)
+
+    @contextmanager
+    def fake_execute_tool(_name):
+        yield tool_span
+
+    monkeypatch.delenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", raising=False)
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", fake_execute_tool)
+    backend = castia_prompty._prompty_otel_backend(
+        tracer_name="prompty",
+        provider=provider,
+        include_content=False,
+        include_internal=False,
+    )
+
+    try:
+        with backend("turn_async") as add:
+            add("inputs", {"text": "private prompt"})
+            traced = castia_prompty._traced_tool_functions(
+                {"local_tool": lambda topic: "private result"}
+            )
+            assert asyncio.run(traced["local_tool"](topic="canvas")) == "private result"
+            add("result", "private answer")
+    finally:
+        castia_prompty._CURRENT_TIMELINE.reset(token)
+
+    turn_timeline = json.loads(provider.spans[0].attributes["castia.turn.timeline"])
+    assert turn_timeline == [
+        {"type": "turn_start", "step": 1},
+        {"type": "tool", "name": "local_tool", "status": "ok", "step": 2},
+        {"type": "turn_end", "step": 3},
+    ]
+    assert "gen_ai.tool.arguments" not in tool_span.attributes
+    assert "gen_ai.tool.output" not in tool_span.attributes
 
 
 class FakeProvider:
