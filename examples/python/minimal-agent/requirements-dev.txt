@@ -1,1 +1,2 @@
--e .[test]
+-r requirements.txt
+pytest>=8

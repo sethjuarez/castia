@@ -372,11 +372,20 @@ def preflight(
             try:
                 requirements = _local_file(root, "requirements.txt").read_text(encoding="utf-8").strip()
                 pyproject = _local_file(root, "pyproject.toml").read_text(encoding="utf-8")
-                if requirements == "-e ." and "package = false" in pyproject:
+                requirement_lines = [
+                    line.strip()
+                    for line in requirements.splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")
+                ]
+                has_editable_self = any(
+                    line in {"-e .", "--editable ."} or line.startswith("-e .[")
+                    for line in requirement_lines
+                )
+                if has_editable_self and "package = false" in pyproject:
                     add(
                         "build.requirements.txt",
                         "fail",
-                        "Remove stale editable requirements shim; package=false remote build resolves pyproject dependencies directly.",
+                        "Replace stale editable requirements shim with direct runtime dependencies; package=false remote build must not use -e .",
                     )
                 elif requirements:
                     add(
@@ -388,6 +397,12 @@ def preflight(
                     add("build.requirements.txt", "fail", "Compatibility requirements file is empty.")
             except (OSError, ValueError):
                 add("build.requirements.txt", "fail", "Compatibility requirements file is unreadable.")
+        elif code_mode:
+            add(
+                "build.requirements.txt",
+                "fail",
+                "Foundry hosted Oryx remote build expects requirements.txt; add direct runtime dependencies, not -e .",
+            )
         if code_mode:
             add("build.Dockerfile", "skipped", "Dockerfile is optional for code deployment.")
         add("container", "skipped", "Remote build, image build and cloud deployment were not run.")
