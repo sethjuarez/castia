@@ -41,6 +41,7 @@ Implementation code lives in capability packages under `src/castia`.
 | `messaging` | Activity routing, Teams surfaces, replies, cards, entities, invoke helpers, streaming, connector |
 | `inference` | Model calls and executable tool definitions |
 | `integrations` | Foundry toolbox adapters and Graph operations under `integrations.graph` |
+| `prompty` | Optional Prompty runtime/eval harness adapters (`castia[prompty]`) |
 | `building` | Scaffolding, readiness checks, offline protocol testing |
 | `evaluation` | Evaluation-suite configuration, rubric validation, azd evaluation commands |
 | `observe` | Telemetry configuration and tracing, execution records, queries, drift checks |
@@ -228,6 +229,92 @@ container — declare that env passthrough on your container yourself (there is 
 > `knowledge_base_mcp_tool` (Foundry IQ), connection-backed tools (Azure AI
 > Search / remote-MCP / A2A), the Activity path with a toolbox, and
 > approval-gated tools (`require_approval` other than `"never"`).
+
+### Experimental Prompty runtime harness
+
+The default Castia runtime path remains `Model.respond(...)` and
+`Model.respond_with_tools(...)`. Prompty support is optional and does not load
+from `import castia`; install it explicitly when you want Prompty's runtime/eval
+harness:
+
+```powershell
+uv pip install "castia[prompty]"
+```
+
+`.agent_configs` remains the Foundry Agent Optimizer contract. The Prompty helper
+projects the resolved Castia config into an in-memory Prompty agent instead of
+replacing optimizer files:
+
+```python
+from pathlib import Path
+
+from castia import Agent, load_agent_config
+from castia.prompty import (
+    configured_prompty_runner,
+    register_foundry_default_connection,
+    register_prompty_otel_tracing,
+)
+
+app = Agent(name="contracts-agent")
+config = load_agent_config(Path(__file__).parent / ".agent_configs")
+
+register_foundry_default_connection()
+register_prompty_otel_tracing()  # no-op unless content recording is enabled
+runner = configured_prompty_runner(config)
+
+
+@app.responses()
+async def reply(text: str) -> str:
+    return await runner.turn(text)
+```
+
+For sidecar-first experiments, pass `prompty_path="agent.prompty"` to
+`configured_prompty_runner(...)` and keep `.agent_configs` beside it for
+optimizer baselines/candidates.
+
+Prompty's OTel tracer is gated by the same privacy switch Castia uses for GenAI
+content recording:
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`. Without that opt-in,
+`register_prompty_otel_tracing()` does not register the backend because Prompty's
+generic trace attributes can include inputs and results. When Castia
+observability is configured, the same agent-identity span processor stamps
+Prompty OTel spans with Foundry agent/project metadata.
+
+For a Prompty-owned tool loop, Castia provides a local toolbox MCP executor.
+This is different from the default server-side Responses `mcp` spec above:
+Prompty receives a model function-tool call, Castia calls the toolbox MCP
+endpoint host-side, then Prompty feeds the result back into the loop.
+
+```python
+from castia.prompty import (
+    ToolboxMcpClient,
+    configured_prompty_runner,
+    register_toolbox_function,
+    toolbox_prompty_tools,
+)
+
+tools = toolbox_prompty_tools(
+    ("contracts-kb-mcp___knowledge_base_retrieve",),
+    descriptions={
+        "contracts-kb-mcp___knowledge_base_retrieve":
+            "Retrieve cited grounding passages from contracts and policies.",
+    },
+    param_guidance={
+        "contracts-kb-mcp___knowledge_base_retrieve": {
+            "query": "A concise policy search query.",
+        }
+    },
+)
+
+client = ToolboxMcpClient()  # resolves TOOLBOX_* env and mints ai.azure.com tokens
+register_toolbox_function("contracts-kb-mcp___knowledge_base_retrieve", client=client)
+runner = configured_prompty_runner(config, tools=tools)
+```
+
+This first slice is experimental. It provides connection/tracing registration,
+config projection, sidecar loading, and a toolbox MCP JSON-RPC path. It does not
+replace `Model.respond_with_tools`, and server-side Foundry MCP execution remains
+the validated default path.
 
 The newer [issue #13 consumer proof](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#what-has-been-verified-live)
 verified direct and applied-candidate web guidance from a local process against

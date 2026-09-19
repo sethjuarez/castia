@@ -53,6 +53,9 @@ deploy = ["ruamel.yaml>=0.18"]
 # degrades to env defaults when it is absent, so it stays optional. ruamel.yaml
 # is used by the `python -m castia optimize` baseline reconciler.
 optimize = ["azure-ai-agentserver-optimization>=1.0.0b1", "ruamel.yaml>=0.18"]
+# Experimental Prompty runtime/eval harness integration. Kept optional so the
+# base Castia runtime and imports do not load Prompty or OpenAI client packages.
+prompty = ["prompty[foundry,otel]>=2.0.2"]
 # Test-time only. Includes ruamel.yaml because the eval-suite tests parse real
 # eval.yaml / rubric fixtures.
 test = ["pytest>=8", "ruamel.yaml>=0.18"]

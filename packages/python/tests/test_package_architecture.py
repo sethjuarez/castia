@@ -156,7 +156,7 @@ def test_root_import_does_not_load_host_clients_or_cli():
     loaded = json.loads(result.stdout)
     forbidden = (
         "azure", "openai", "httpx", "fastapi", "uvicorn",
-        "ruamel", "opentelemetry",
+        "prompty", "ruamel", "opentelemetry",
         "castia.building", "castia.delivery", "castia.evaluation",
         "castia.finetuning", "castia.lifecycle",
         "castia.optimizing.jobs", "castia.optimizing.baseline",
