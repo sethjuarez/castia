@@ -27,7 +27,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     report = scaffold_project(root, name="test-agent", model="gpt-4o")
     assert report.app_target == "main:app"
     assert report.to_dict()["provisioned"] is False
-    assert len(report.files) == 15
+    assert len(report.files) == 13
     for filename in root.rglob("*.py"):
         compile(filename.read_text(encoding="utf-8"), str(filename), "exec")
     module = load_main(root)
@@ -43,15 +43,16 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert 'requires = ["setuptools>=68"]' in pyproject
     assert 'py-modules = ["main"]' in pyproject
     assert "package = false" in pyproject
-    assert (root / "requirements.txt").read_text() == "-e .\n"
-    assert (root / "requirements-dev.txt").read_text() == "-e .[test]\n"
+    assert not (root / "requirements.txt").exists()
+    assert not (root / "requirements-dev.txt").exists()
     assert (root / ".env.example").read_text() == (
         "FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>\n"
         "AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>\n"
     )
     assert "EXPOSE 8088" in (root / "Dockerfile").read_text()
     assert '"main.py"' in (root / "Dockerfile").read_text()
-    assert "COPY pyproject.toml requirements.txt main.py ./" in (root / "Dockerfile").read_text()
+    assert "COPY pyproject.toml main.py ./" in (root / "Dockerfile").read_text()
+    assert "pip install --no-cache-dir ." in (root / "Dockerfile").read_text()
     assert "FROM python:3.13-slim" in (root / "Dockerfile").read_text()
     main_py = (root / "main.py").read_text()
     assert "app.startup_check(validate_startup)" in main_py
@@ -84,7 +85,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "does not create a project" in guide
     assert "uv run --directory" in guide
     assert "do not declare it under `services.<agent>.env`" in guide
-    assert "`requirements.txt` exists only as the Foundry remote-build entrypoint" in guide
+    assert "do not add a runtime `requirements.txt` containing `-e .`" in guide
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-W", "error", str(root / "tests")],
         cwd=root, capture_output=True, text=True, check=False,
@@ -200,8 +201,6 @@ def test_generated_project_passes_readiness_without_writes(tmp_path):
     assert report.ok, report.to_dict()
     assert report.protocols == ("activity", "responses", "invocations")
     diagnostics = {item.check: item.message for item in report.diagnostics}
-    assert diagnostics["build.requirements.txt"] == (
-        "Foundry remote-build shim installs local pyproject dependencies."
-    )
+    assert diagnostics["build.pyproject.toml"] == "Local build artifact is present."
     after = {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert before == after

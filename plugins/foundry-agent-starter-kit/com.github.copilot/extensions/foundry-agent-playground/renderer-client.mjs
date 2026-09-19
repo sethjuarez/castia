@@ -5,6 +5,9 @@ export function localReadinessState(state) {
     if (state?.lastHealth?.ok) {
         return { ready: true, reason: null };
     }
+    if (isStartupReadinessPending(state)) {
+        return { ready: false, reason: "Local agent is running; waiting for readiness." };
+    }
     if (state?.lastHealth && !state.lastHealth.ok) {
         const status = state.lastHealth.status ? " (" + state.lastHealth.status + ")" : "";
         const detail = state.lastHealth.body ? ": " + String(state.lastHealth.body).slice(0, 160) : "";
@@ -17,6 +20,21 @@ export function localReadinessState(state) {
         return { ready: false, reason: "Local agent stopped. Start local again before chatting." };
     }
     return { ready: false, reason: "Start local before chatting." };
+}
+
+export function isStartupReadinessPending(state) {
+    return Boolean(
+        state?.localRun?.running &&
+        state.localRun.readiness?.status === "starting" &&
+        state?.lastHealth?.source !== "manual",
+    );
+}
+
+export function responseDetailsKey(turn, index = 0) {
+    const responseId = turn?.response?.id || turn?.response?.body?.id || turn?.id;
+    if (responseId) return "response:" + String(responseId);
+    if (turn?.createdAt) return "created:" + String(turn.createdAt) + ":" + String(turn.target || "local");
+    return "index:" + String(index);
 }
 
 export function composerGate(state, { activeView = "chat", inFlight = false } = {}) {
@@ -47,7 +65,9 @@ export function composerGate(state, { activeView = "chat", inFlight = false } = 
 }
 
 export const rendererClientScript = `
+    const isStartupReadinessPending = ${isStartupReadinessPending.toString()};
     const localReadinessState = ${localReadinessState.toString()};
+    const responseDetailsKey = ${responseDetailsKey.toString()};
     const composerGate = ${composerGate.toString()};
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
@@ -114,6 +134,7 @@ export const rendererClientScript = `
     let localRefreshTimer = null;
     let hostedWaitTimer = null;
     let deployRefreshTimer = null;
+    const expandedResponseDetails = new Set();
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
@@ -140,11 +161,11 @@ export const rendererClientScript = `
       failCount.textContent = state.stats.failed + " fail";
       avgLatency.textContent = state.stats.averageMs + "ms avg";
       renderMessages(state.visibleMessages || []);
-      if (state.target !== "hosted" && state.lastHealth) {
+      if (state.target !== "hosted" && state.lastHealth && !isStartupReadinessPending(state)) {
         const detail = !state.lastHealth.ok && state.lastHealth.body ? " · " + String(state.lastHealth.body).slice(0, 160) : "";
         setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms" + detail);
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.running) {
-        setStatus("ok", "Local agent started.");
+        setStatus("", "Local agent is running; waiting for readiness.");
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
         setStatus(state.localRun.exitCode === 0 ? "" : "fail", state.localRun.exitCode === 0 ? "Local agent stopped." : "Local agent exited with code " + state.localRun.exitCode + ".");
       }
@@ -429,6 +450,8 @@ export const rendererClientScript = `
         return;
       }
       transcript.innerHTML = messages.map((turn, index) => {
+        const detailsKey = responseDetailsKey(turn, index);
+        const detailsOpen = expandedResponseDetails.has(detailsKey);
         const ok = turn.response?.ok;
         const streaming = turn.response?.streaming;
         const answer = responseText(turn.response?.body);
@@ -446,12 +469,25 @@ export const rendererClientScript = `
           '<section class="bubble agent">' +
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
-          '<details><summary>Details</summary><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></details>' +
+          '<button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '">Details</button>' +
+          '<div class="details-panel" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
       }).join("");
       transcript.scrollTop = transcript.scrollHeight;
     }
+
+    transcript.addEventListener("click", (event) => {
+      const toggle = event.target.closest(".details-toggle");
+      if (!toggle) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const key = toggle.dataset.detailsKey;
+      if (!key) return;
+      if (expandedResponseDetails.has(key)) expandedResponseDetails.delete(key);
+      else expandedResponseDetails.add(key);
+      renderMessages(latestState?.visibleMessages || []);
+    });
 
     async function sendPrompt() {
       if (inFlight) return;
@@ -775,7 +811,7 @@ export const rendererClientScript = `
         }
         const state = payload;
         renderSnapshot(state);
-        setStatus(state.localRun?.running ? "ok" : "", state.localRun?.running ? "Local agent started." : "Local agent starting.");
+        setStatus("", state.localRun?.running ? "Local agent is running; waiting for readiness." : "Local agent starting.");
         scheduleLocalRefresh();
       } catch (error) {
         setStatus("fail", error.message);

@@ -105,6 +105,26 @@ def test_code_mode_does_not_require_optional_dockerfile(tmp_path):
     assert "requires" not in warning
 
 
+def test_code_mode_rejects_stale_editable_requirements_shim(tmp_path):
+    scaffold_project(tmp_path)
+    (tmp_path / "requirements.txt").write_text("-e .\n")
+    report = preflight(tmp_path, required_env=())
+    assert not report.ok
+    diagnostic = next(item for item in report.diagnostics if item.check == "build.requirements.txt")
+    assert diagnostic.status == "fail"
+    assert "Remove stale editable requirements shim" in diagnostic.message
+
+
+def test_code_mode_allows_explicit_compatibility_requirements(tmp_path):
+    scaffold_project(tmp_path)
+    (tmp_path / "requirements.txt").write_text("castia[optimize]\npython-dotenv>=1.0.1\n")
+    report = preflight(tmp_path, required_env=())
+    assert report.ok, report.to_dict()
+    diagnostic = next(item for item in report.diagnostics if item.check == "build.requirements.txt")
+    assert diagnostic.status == "pass"
+    assert "explicit runtime entries" in diagnostic.message
+
+
 def test_container_mode_still_requires_dockerfile(tmp_path):
     scaffold_project(tmp_path)
     manifest = tmp_path / "azure.yaml"

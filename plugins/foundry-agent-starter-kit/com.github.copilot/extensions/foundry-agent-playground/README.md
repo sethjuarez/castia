@@ -102,10 +102,11 @@ The Foundry step keeps hosted state visible in the main playground context.
   when azd env outputs are missing.
 
 For scaffolded Castia agents, `pyproject.toml` is the canonical dependency
-source. `requirements.txt` exists only as the Foundry remote-build entrypoint
-and should contain `-e .`, so pip installs the selected local project and reads
-the dependency list from `pyproject.toml`. If local agent code uses a newer SDK
-API than the Castia dependency pinned in `pyproject.toml`, the hosted session can
+source. `package = false` apps should not carry a runtime `requirements.txt`
+containing `-e .`; current Foundry remote build resolves dependencies from
+`pyproject.toml`. If a requirements file is kept for external compatibility, it
+must list runtime dependencies directly. If local agent code uses a newer SDK API
+than the Castia dependency pinned in `pyproject.toml`, the hosted session can
 fail readiness even though deployment succeeds.
 
 The Teams view keeps the Microsoft 365 handoff lightweight.
