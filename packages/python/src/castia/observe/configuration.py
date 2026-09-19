@@ -62,6 +62,7 @@ def configure_observability(
     if agent_version:
         attributes["service.version"] = agent_version
 
+    _configure_azure_core_tracing()
     identity_processors = _build_agent_identity_processors()
 
     use_microsoft_opentelemetry(
@@ -258,18 +259,7 @@ def _enable_genai_tracing(
             _logger.info("GenAI tracing instrumentor disabled")
             return
 
-        # The instrumentor creates spans through azure-core's tracing
-        # abstraction, which must point at the OpenTelemetry span implementation.
-        # use_microsoft_opentelemetry sets this when Azure Monitor is enabled;
-        # set it explicitly so tracing also works with only the Agent 365
-        # exporter active, and so ordering can never leave it unset.
-        from azure.core.settings import settings
-        tracing_implementation = _azure_core_tracing_implementation()
-
-        current_tracing = settings.tracing_implementation()
-        if current_tracing is None or _is_stock_azure_otel_span(current_tracing):
-            settings.tracing_implementation = tracing_implementation
-
+        _configure_azure_core_tracing()
         from azure.ai.projects.telemetry import AIProjectInstrumentor
 
         # Whether the model call's input/output *content* is recorded onto the
@@ -344,6 +334,15 @@ def _azure_core_tracing_implementation():
             super().__init__(span=span, name=name, **kwargs)
 
     return CastiaOpenTelemetrySpan
+
+
+def _configure_azure_core_tracing() -> None:
+    """Install Castia's Azure SDK tracing implementation before SDK clients run."""
+    from azure.core.settings import settings
+
+    current_tracing = settings.tracing_implementation()
+    if current_tracing is None or _is_stock_azure_otel_span(current_tracing):
+        settings.tracing_implementation = _azure_core_tracing_implementation()
 
 
 def _is_msi_token_span_name(name: str | None) -> bool:

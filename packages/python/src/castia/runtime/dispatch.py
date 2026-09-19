@@ -31,6 +31,12 @@ ActivityDispatch = Callable[[Activity], Awaitable[str | None]]
 InvokeDispatch = Callable[[Activity], Awaitable[dict | None]]
 
 
+def _ambient_span():
+    from opentelemetry import trace
+
+    return trace.get_current_span()
+
+
 def make_dispatch(func: Handler) -> ActivityDispatch:
     """Adapt a user handler to the activity dispatch shape.
 
@@ -48,6 +54,8 @@ def make_dispatch(func: Handler) -> ActivityDispatch:
             return None
 
         try:
+            ambient_span = _ambient_span()
+            record_turn_input(ambient_span, text)
             with invoke_agent() as span:
                 record_turn_input(span, text)
                 kwargs: dict[str, Any] = {}
@@ -67,6 +75,7 @@ def make_dispatch(func: Handler) -> ActivityDispatch:
                 output = result if isinstance(result, str) and result else None
                 if output:
                     record_turn_output(span, output)
+                    record_turn_output(ambient_span, output)
                 return output
         finally:
             # Frozen hosted containers may never flush the batch processors on
@@ -96,6 +105,7 @@ def make_invoke_dispatch(func: Handler) -> InvokeDispatch:
 
     async def dispatch(activity: Activity) -> dict | None:
         try:
+            ambient_span = _ambient_span()
             with invoke_agent() as span:
                 kwargs: dict[str, Any] = {}
                 for param in parameters:
@@ -113,7 +123,9 @@ def make_invoke_dispatch(func: Handler) -> InvokeDispatch:
                 result = await func(**kwargs)
                 output = result if isinstance(result, dict) else None
                 if output:
-                    record_turn_output(span, json.dumps(output, ensure_ascii=False, default=str))
+                    serialized = json.dumps(output, ensure_ascii=False, default=str)
+                    record_turn_output(span, serialized)
+                    record_turn_output(ambient_span, serialized)
                 return output
         finally:
             flush_telemetry()
@@ -143,6 +155,8 @@ def make_return_dispatch(func: Handler) -> Callable[[str], Awaitable[str]]:
 
     async def dispatch(text: str) -> str:
         try:
+            ambient_span = _ambient_span()
+            record_turn_input(ambient_span, text)
             with invoke_agent() as span:
                 record_turn_input(span, text)
                 kwargs: dict[str, Any] = {}
@@ -157,6 +171,7 @@ def make_return_dispatch(func: Handler) -> Callable[[str], Awaitable[str]]:
                 result = await func(**kwargs)
                 output = result if isinstance(result, str) else ""
                 record_turn_output(span, output)
+                record_turn_output(ambient_span, output)
                 return output
         finally:
             flush_telemetry()
@@ -178,6 +193,8 @@ def make_stream_dispatch(func: Handler) -> Callable[[str], AsyncIterator[str]]:
 
     async def dispatch(text: str) -> AsyncIterator[str]:
         try:
+            ambient_span = _ambient_span()
+            record_turn_input(ambient_span, text)
             with invoke_agent() as span:
                 record_turn_input(span, text)
                 kwargs: dict[str, Any] = {}
@@ -201,7 +218,9 @@ def make_stream_dispatch(func: Handler) -> Callable[[str], AsyncIterator[str]]:
                 elif isinstance(result, str) and result:
                     chunks.append(result)
                     yield result
-                record_turn_output(span, "".join(chunks))
+                output = "".join(chunks)
+                record_turn_output(span, output)
+                record_turn_output(ambient_span, output)
         finally:
             flush_telemetry()
 

@@ -14,6 +14,7 @@ class FakeSpan:
 
 def test_return_dispatch_records_input_output_when_content_recording_enabled(monkeypatch):
     span = FakeSpan()
+    ambient_span = FakeSpan()
 
     @contextmanager
     def fake_invoke_agent():
@@ -24,6 +25,7 @@ def test_return_dispatch_records_input_output_when_content_recording_enabled(mon
 
     monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
     monkeypatch.setattr(runtime_dispatch, "invoke_agent", fake_invoke_agent)
+    monkeypatch.setattr(runtime_dispatch, "_ambient_span", lambda: ambient_span)
     monkeypatch.setattr(runtime_dispatch, "flush_telemetry", lambda: None)
 
     result = asyncio.run(runtime_dispatch.make_return_dispatch(reply)("hello"))
@@ -31,6 +33,8 @@ def test_return_dispatch_records_input_output_when_content_recording_enabled(mon
     assert result == "answer: hello"
     assert span.attributes["gen_ai.input.messages"] == '[{"role": "user", "content": "hello"}]'
     assert span.attributes["gen_ai.output.messages"] == '[{"role": "assistant", "content": "answer: hello"}]'
+    assert ambient_span.attributes["gen_ai.input.messages"] == '[{"role": "user", "content": "hello"}]'
+    assert ambient_span.attributes["gen_ai.output.messages"] == '[{"role": "assistant", "content": "answer: hello"}]'
 
 
 def test_return_dispatch_omits_content_by_default(monkeypatch):
