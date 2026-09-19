@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createConnection } from "node:net";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
@@ -16,6 +17,24 @@ const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
 const servers = new Map();
 const tokenCache = new Map();
+
+function cleanupManagedLocalRuns() {
+    for (const entry of servers.values()) {
+        const child = entry.state?.localRun?.process;
+        if (child && !child.killed) {
+            child.kill();
+        }
+    }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, () => {
+        cleanupManagedLocalRuns();
+        process.exit(0);
+    });
+}
+
+process.once("exit", cleanupManagedLocalRuns);
 
 async function exists(path) {
     try {
@@ -172,6 +191,34 @@ function selectedAgent(state) {
 function selectedLocalEndpoint(state) {
     const agent = selectedAgent(state);
     return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
+}
+
+function endpointPort(endpoint) {
+    try {
+        const parsed = new URL(endpoint);
+        return Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+    } catch {
+        return null;
+    }
+}
+
+function endpointWithPort(endpoint, port) {
+    const parsed = new URL(endpoint);
+    parsed.hostname = "127.0.0.1";
+    parsed.port = String(port);
+    return parsed.toString().replace(/\/+$/, "");
+}
+
+function addLocalEvent(state, kind, text) {
+    state.localRun ||= {};
+    state.localRun.events = [
+        ...(state.localRun.events || []),
+        { kind, text, at: new Date().toISOString() },
+    ].slice(-5);
+}
+
+function hasFoundryProjectValues(state) {
+    return Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
 }
 
 function emptyHostedContext(agent) {
@@ -599,11 +646,21 @@ async function discoverPythonPath(start) {
 
 async function startLocalAgent(state) {
     if (state.localRun?.running) return;
+    state.lastHealth = null;
     const agent = selectedAgent(state);
     const local = await localStartCommand(agent);
     if (!local) {
         throw new CanvasError("local_start_unsupported", "No local start command was discovered for this agent.");
     }
+    const initialEndpoint = selectedLocalEndpoint(state);
+    if (await isEndpointPortOpen(initialEndpoint)) {
+        addLocalEvent(state, "warn", `${initialEndpoint} is already in use.`);
+        const correctedEndpoint = await nextAvailableLocalEndpoint(initialEndpoint);
+        state.localEndpoints[agent.id] = correctedEndpoint;
+        addLocalEvent(state, "ok", `Using ${correctedEndpoint} instead.`);
+    }
+    const endpoint = selectedLocalEndpoint(state);
+    const port = endpointPort(endpoint);
     state.localRun = {
         running: true,
         command: `${local.command} ${local.args.join(" ")}`,
@@ -611,14 +668,17 @@ async function startLocalAgent(state) {
         completedAt: null,
         exitCode: null,
         log: [`$ ${local.command} ${local.args.join(" ")}\n`],
+        events: state.localRun?.events || [],
         process: null,
     };
+    addLocalEvent(state, "", `Starting local agent on ${endpoint}.`);
     const child = spawn(local.command, local.args, {
         cwd: agent.root,
         shell: false,
         env: {
             ...process.env,
             ...(local.env || {}),
+            ...(port ? { PORT: String(port) } : {}),
             FOUNDRY_PROJECT_ENDPOINT: state.foundryConnection.projectEndpoint || process.env.FOUNDRY_PROJECT_ENDPOINT || "",
             AZURE_AI_MODEL_DEPLOYMENT_NAME: state.foundryConnection.modelDeployment || process.env.AZURE_AI_MODEL_DEPLOYMENT_NAME || "",
         },
@@ -632,13 +692,83 @@ async function startLocalAgent(state) {
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = 1;
         state.localRun.log.push(`${error.name}: ${error.message}\n`);
+        addLocalEvent(state, "fail", error.message);
     });
     child.on("close", (code) => {
         state.localRun.running = false;
         state.localRun.completedAt = new Date().toISOString();
         state.localRun.exitCode = code ?? 0;
+        addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
         delete state.localRun.process;
     });
+    waitForLocalReadiness(state).then((health) => {
+        state.lastHealth = health;
+        addLocalEvent(state, health.ok ? "ok" : "fail", health.ok ? `Local agent ready at ${endpoint}.` : `Local readiness failed: ${health.body || health.status}`);
+    }).catch((error) => {
+        addLocalEvent(state, "fail", error instanceof Error ? error.message : String(error));
+    });
+}
+
+async function isEndpointPortOpen(endpoint) {
+    if (!isLoopbackEndpoint(endpoint)) return false;
+    let parsed;
+    try {
+        parsed = new URL(endpoint);
+    } catch {
+        return false;
+    }
+    const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+    if (!Number.isInteger(port) || port <= 0) return false;
+    const host = parsed.hostname === "localhost" ? "127.0.0.1" : parsed.hostname;
+    return new Promise((resolve) => {
+        const socket = createConnection({ host, port });
+        const finish = (open) => {
+            socket.removeAllListeners();
+            socket.destroy();
+            resolve(open);
+        };
+        socket.setTimeout(300);
+        socket.once("connect", () => finish(true));
+        socket.once("timeout", () => finish(false));
+        socket.once("error", () => finish(false));
+    });
+}
+
+async function nextAvailableLocalEndpoint(endpoint) {
+    const basePort = endpointPort(endpoint) || 8088;
+    for (let port = basePort + 1; port < basePort + 100; port += 1) {
+        const candidate = endpointWithPort(endpoint, port);
+        if (!(await isEndpointPortOpen(candidate))) return candidate;
+    }
+    throw new CanvasError("local_port_unavailable", `No free local port was found after ${basePort}.`);
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForLocalReadiness(state) {
+    const deadline = Date.now() + 15000;
+    let latest = null;
+    while (Date.now() < deadline) {
+        if (!state.localRun?.running) {
+            return {
+                ok: false,
+                status: state.localRun?.exitCode ?? 0,
+                durationMs: 0,
+                body: "Local agent exited before it became ready.",
+            };
+        }
+        latest = await checkReadiness(selectedLocalEndpoint(state), { timeoutMs: 1000 });
+        if (latest.ok) return latest;
+        await sleep(300);
+    }
+    return latest || {
+        ok: false,
+        status: 0,
+        durationMs: 15000,
+        body: "Timed out waiting for local readiness.",
+    };
 }
 
 function stopLocalAgent(state) {
@@ -652,8 +782,10 @@ function stopLocalAgent(state) {
         completedAt: new Date().toISOString(),
         exitCode: state.localRun?.exitCode ?? null,
         log: [...(state.localRun?.log || []), "$ stopped local agent\n"],
+        events: [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }].slice(-5),
         process: null,
     };
+    state.lastHealth = null;
 }
 
 async function refreshHostedContext(state) {
@@ -906,6 +1038,12 @@ function transcriptStats(messages) {
     };
 }
 
+function messagesForTarget(state) {
+    return state.messages.filter((message) =>
+        state.target === "hosted" ? message.target === "hosted" : message.target !== "hosted",
+    );
+}
+
 async function callAgentStream(endpoint, payload, onDelta) {
     const started = Date.now();
     try {
@@ -952,6 +1090,7 @@ async function callAgentStream(endpoint, payload, onDelta) {
                 .map((line) => line.slice(6))
                 .join("\n");
             if (!data) return;
+            if (data.trim() === "[DONE]") return;
             const payload = JSON.parse(data);
             if (eventName === "response.output_text.delta") {
                 const delta = String(payload.delta || "");
@@ -1043,7 +1182,7 @@ async function callAgent(endpoint, path, payload) {
     }
 }
 
-async function checkReadiness(endpoint) {
+async function checkReadiness(endpoint, { timeoutMs = 10000 } = {}) {
     const started = Date.now();
     if (isFoundryResponsesEndpoint(endpoint)) {
         return {
@@ -1055,7 +1194,7 @@ async function checkReadiness(endpoint) {
     }
     try {
         const response = await fetch(`${endpoint}/readiness`, {
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(timeoutMs),
         });
         const text = await response.text();
         return {
@@ -1076,6 +1215,7 @@ async function checkReadiness(endpoint) {
 
 function stateSnapshot(state) {
     const agent = selectedAgent(state);
+    const visibleMessages = messagesForTarget(state);
     return {
         endpoint: activeEndpoint(state),
         localEndpoint: selectedLocalEndpoint(state),
@@ -1094,8 +1234,9 @@ function stateSnapshot(state) {
         },
         teams: state.teams,
         messages: state.messages,
+        visibleMessages,
         lastHealth: state.lastHealth,
-        stats: transcriptStats(state.messages),
+        stats: transcriptStats(visibleMessages),
     };
 }
 
@@ -1253,18 +1394,6 @@ function renderHtml() {
       outline: 2px solid var(--cp-accent);
       outline-offset: 2px;
     }
-    .checkbox-row {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--cp-text-muted);
-      font-size: 12px;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .checkbox-row input {
-      width: auto;
-    }
     code, pre {
       font-family: var(--font-mono, Consolas, "Courier New", Courier, monospace);
       font-size: var(--text-code-inline, 12px);
@@ -1407,6 +1536,33 @@ function renderHtml() {
       font-size: 13px;
       margin-top: 2px;
     }
+    .local-ticker {
+      display: flex;
+      gap: 6px;
+      align-items: baseline;
+      margin-top: 8px;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      min-height: 16px;
+    }
+    .local-ticker[hidden] { display: none; }
+    .ticker-mark {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--cp-text-muted);
+      flex: 0 0 auto;
+      margin-top: 6px;
+    }
+    .local-ticker.ok .ticker-mark { background: var(--cp-success); }
+    .local-ticker.warn .ticker-mark { background: var(--cp-warning); }
+    .local-ticker.fail .ticker-mark { background: var(--cp-danger); }
+    .ticker-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
     .action-buttons {
       display: flex;
       gap: 8px;
@@ -1417,18 +1573,6 @@ function renderHtml() {
     }
     .secondary {
       color: var(--cp-text-muted);
-    }
-    .advanced-row {
-      display: grid;
-      grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(120px, 0.6fr) minmax(130px, 0.6fr) auto auto auto;
-      gap: 8px;
-      align-items: center;
-    }
-    .advanced-row[hidden] { display: none; }
-    .project-hint {
-      grid-column: 1 / -1;
-      color: var(--cp-text-muted);
-      font-size: 12px;
     }
     .agent-picker {
       position: relative;
@@ -1519,7 +1663,7 @@ function renderHtml() {
     .view[hidden] { display: none; }
     .panel {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
       min-height: 0;
       background: var(--cp-panel);
       overflow: hidden;
@@ -1566,7 +1710,62 @@ function renderHtml() {
     }
     .dot.ok { background: var(--cp-success); }
     .dot.fail { background: var(--cp-danger); }
+    .foundry-status {
+      display: grid;
+      gap: 8px;
+      margin: 0 2px 10px;
+      padding: 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-surface-soft);
+    }
+    .foundry-status[hidden] { display: none; }
+    .foundry-status-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+    }
+    .foundry-status-title {
+      font-weight: 800;
+    }
+    .foundry-status-copy {
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      margin-top: 2px;
+    }
+    .foundry-status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .foundry-status-item {
+      min-width: 0;
+      padding: 8px;
+      border-radius: 12px;
+      background: var(--cp-surface);
+    }
+    .foundry-status-label {
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .foundry-status-value {
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+    .foundry-status-value.endpoint {
+      font-family: var(--font-mono, Consolas, "Courier New", Courier, monospace);
+      font-size: 12px;
+      font-weight: 500;
+    }
     .transcript {
+      grid-row: 3;
       height: 100%;
       overflow: auto;
       padding: 8px 2px 16px;
@@ -1948,9 +2147,41 @@ function renderHtml() {
       display: flex;
       gap: 8px;
     }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: color-mix(in srgb, var(--cp-bg) 72%, transparent);
+    }
+    .modal-backdrop[hidden] { display: none; }
+    .modal-card {
+      width: min(560px, 100%);
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      border: 1px solid var(--cp-border);
+      border-radius: 18px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 800;
+    }
+    .modal-copy {
+      color: var(--cp-text-muted);
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
     @media (max-width: 820px) {
-      .advanced-row,
       .action-card,
+      .foundry-status-grid,
       .deploy-summary,
       .content {
         grid-template-columns: 1fr;
@@ -1995,7 +2226,8 @@ function renderHtml() {
       <div class="action-card">
         <div>
           <div id="guideTitle" class="action-title">Make it work locally</div>
-          <div id="guideCopy" class="action-copy">Check the local agent, then send a prompt.</div>
+          <div id="guideCopy" class="action-copy">Start or stop the local agent.</div>
+          <div id="localTicker" class="local-ticker" hidden></div>
         </div>
         <div class="action-buttons">
           <div class="agent-picker hero-picker">
@@ -2010,17 +2242,6 @@ function renderHtml() {
           <button id="testHostedAction" class="secondary" type="button" hidden>Test hosted</button>
           <button id="advancedToggle" class="secondary" type="button" hidden>Refresh .env</button>
         </div>
-      </div>
-      <div id="advancedRow" class="advanced-row" hidden>
-        <input id="endpoint" aria-label="Agent endpoint" spellcheck="false" placeholder="http://127.0.0.1:8088" />
-        <input id="foundryEndpoint" aria-label="Foundry project endpoint" spellcheck="false" placeholder="https://.../api/projects/..." />
-        <input id="modelDeployment" aria-label="Model deployment" spellcheck="false" placeholder="gpt-6-astra" />
-        <input id="toolboxName" aria-label="Toolbox name" spellcheck="false" placeholder="contract-toolbox" />
-        <label class="checkbox-row"><input id="overwriteExisting" type="checkbox" /> Overwrite existing values</label>
-        <button id="connectFoundry" type="button">Save project</button>
-        <button id="checkHealth" type="button">Check readiness</button>
-        <button id="startLocal" type="button">Start local</button>
-        <div class="project-hint">Paste the Foundry project endpoint URL. The canvas writes only non-secret values into gitignored .env files; existing values are preserved unless overwrite is checked.</div>
       </div>
     </section>
     <main class="content">
@@ -2037,6 +2258,33 @@ function renderHtml() {
           </div>
           <div class="health"><span id="statusDot" class="dot"></span><span id="statusText">Not checked yet.</span></div>
         </div>
+        <section id="foundryStatus" class="foundry-status" hidden>
+          <div class="foundry-status-head">
+            <div>
+              <div id="foundryStatusTitle" class="foundry-status-title">Foundry hosted agent</div>
+              <div id="foundryStatusCopy" class="foundry-status-copy">Discovering hosted state...</div>
+            </div>
+            <span id="foundryStatusBadge" class="badge">Not deployed</span>
+          </div>
+          <div class="foundry-status-grid">
+            <div class="foundry-status-item">
+              <div class="foundry-status-label">Agent</div>
+              <div id="foundryStatusAgent" class="foundry-status-value">Not resolved</div>
+            </div>
+            <div class="foundry-status-item">
+              <div class="foundry-status-label">Hosted release</div>
+              <div id="foundryStatusRelease" class="foundry-status-value">Not deployed</div>
+            </div>
+            <div class="foundry-status-item">
+              <div class="foundry-status-label">State</div>
+              <div id="foundryStatusState" class="foundry-status-value">Unknown</div>
+            </div>
+            <div class="foundry-status-item">
+              <div class="foundry-status-label">Responses endpoint</div>
+              <div id="foundryStatusEndpoint" class="foundry-status-value endpoint">Not discovered</div>
+            </div>
+          </div>
+        </section>
         <div id="transcript" class="transcript">
           <div class="empty">Send a prompt to test <code>POST /responses</code>.</div>
         </div>
@@ -2107,14 +2355,21 @@ function renderHtml() {
         </div>
       </div>
     </section>
+    <div id="projectEndpointDialog" class="modal-backdrop" hidden>
+      <form id="projectEndpointForm" class="modal-card">
+        <div>
+          <div class="modal-title">Foundry project endpoint</div>
+          <div class="modal-copy">Paste the endpoint ending in <code>/api/projects/&lt;project&gt;</code>. The playground writes only non-secret values into gitignored <code>.env</code> files, then starts the local agent.</div>
+        </div>
+        <input id="projectEndpointDialogInput" aria-label="Foundry project endpoint" spellcheck="false" placeholder="https://<account>.services.ai.azure.com/api/projects/<project>" required />
+        <div class="modal-actions">
+          <button id="projectEndpointCancel" class="secondary" type="button">Cancel</button>
+          <button id="projectEndpointSubmit" class="primary" type="submit">Save and start</button>
+        </div>
+      </form>
+    </div>
   </div>
   <script>
-    const endpointInput = document.getElementById("endpoint");
-    const foundryEndpointInput = document.getElementById("foundryEndpoint");
-    const modelDeploymentInput = document.getElementById("modelDeployment");
-    const toolboxNameInput = document.getElementById("toolboxName");
-    const overwriteExistingInput = document.getElementById("overwriteExisting");
-    const connectFoundryButton = document.getElementById("connectFoundry");
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
     const agentMenu = document.getElementById("agentMenu");
@@ -2129,13 +2384,21 @@ function renderHtml() {
     const teamsStepState = document.getElementById("teamsStepState");
     const guideTitle = document.getElementById("guideTitle");
     const guideCopy = document.getElementById("guideCopy");
+    const localTicker = document.getElementById("localTicker");
     const primaryGuideAction = document.getElementById("primaryGuideAction");
     const testHostedAction = document.getElementById("testHostedAction");
     const advancedToggle = document.getElementById("advancedToggle");
-    const advancedRow = document.getElementById("advancedRow");
     const chatView = document.getElementById("chatView");
     const deployView = document.getElementById("deployView");
     const teamsView = document.getElementById("teamsView");
+    const foundryStatus = document.getElementById("foundryStatus");
+    const foundryStatusTitle = document.getElementById("foundryStatusTitle");
+    const foundryStatusCopy = document.getElementById("foundryStatusCopy");
+    const foundryStatusBadge = document.getElementById("foundryStatusBadge");
+    const foundryStatusAgent = document.getElementById("foundryStatusAgent");
+    const foundryStatusRelease = document.getElementById("foundryStatusRelease");
+    const foundryStatusState = document.getElementById("foundryStatusState");
+    const foundryStatusEndpoint = document.getElementById("foundryStatusEndpoint");
     const foundryTarget = document.getElementById("foundryTarget");
     const hostedAgent = document.getElementById("hostedAgent");
     const hostedVersion = document.getElementById("hostedVersion");
@@ -2143,8 +2406,6 @@ function renderHtml() {
     const teamsStatus = document.getElementById("teamsStatus");
     const teamsAgent = document.getElementById("teamsAgent");
     const teamsVersion = document.getElementById("teamsVersion");
-    const checkHealthButton = document.getElementById("checkHealth");
-    const startLocalButton = document.getElementById("startLocal");
     const stopLocalAction = document.getElementById("stopLocalAction");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
@@ -2159,12 +2420,18 @@ function renderHtml() {
     const deployButton = document.getElementById("deployButton");
     const teamsTestedButton = document.getElementById("teamsTestedButton");
     const clearButton = document.getElementById("clear");
+    const projectEndpointDialog = document.getElementById("projectEndpointDialog");
+    const projectEndpointForm = document.getElementById("projectEndpointForm");
+    const projectEndpointDialogInput = document.getElementById("projectEndpointDialogInput");
+    const projectEndpointCancel = document.getElementById("projectEndpointCancel");
+    const projectEndpointSubmit = document.getElementById("projectEndpointSubmit");
     let inFlight = false;
     let lastSend = { input: "", at: 0 };
     let activeView = "chat";
     let latestState = null;
     let agentMenuOpen = false;
-    let settingsOpen = false;
+    let foundryPanelOpen = false;
+    let localRefreshTimer = null;
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
@@ -2174,23 +2441,55 @@ function renderHtml() {
     function renderSnapshot(state) {
       latestState = state;
       renderAgentPicker(state);
-      endpointInput.value = state.target === "hosted" ? (state.hosted.responsesEndpoint || "") : state.localEndpoint;
-      endpointInput.placeholder = state.target === "hosted" ? "Foundry Responses endpoint not discovered yet" : "http://127.0.0.1:8088";
-      if (document.activeElement !== foundryEndpointInput) foundryEndpointInput.value = state.foundryConnection?.projectEndpoint || state.hosted?.projectEndpoint || foundryEndpointInput.value || "";
-      if (document.activeElement !== modelDeploymentInput) modelDeploymentInput.value = state.foundryConnection?.modelDeployment || state.hosted?.modelDeployment || modelDeploymentInput.value || "gpt-6-astra";
-      if (document.activeElement !== toolboxNameInput) toolboxNameInput.value = toolboxNameInput.value || "contract-toolbox";
       turnCount.textContent = state.stats.total + " turns";
       passCount.textContent = state.stats.completed + " pass";
       failCount.textContent = state.stats.failed + " fail";
       avgLatency.textContent = state.stats.averageMs + "ms avg";
-      renderMessages(state.messages || []);
+      renderMessages(state.visibleMessages || []);
       if (state.lastHealth) {
         setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms");
+      } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.running) {
+        setStatus("ok", "Local agent started.");
+      } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
+        setStatus(state.localRun.exitCode === 0 ? "" : "fail", state.localRun.exitCode === 0 ? "Local agent stopped." : "Local agent exited with code " + state.localRun.exitCode + ".");
       }
+      renderFoundryStatus(state);
       renderDeploy(state);
       renderTeams(state);
+      renderLocalTicker(state);
       renderJourney(state);
       renderView();
+    }
+
+    function renderLocalTicker(state) {
+      const events = state.target === "hosted" ? [] : (state.localRun?.events || []);
+      localTicker.hidden = !events.length || activeView !== "chat";
+      if (!events.length || activeView !== "chat") {
+        localTicker.innerHTML = "";
+        localTicker.className = "local-ticker";
+        return;
+      }
+      const event = events.at(-1);
+      const kind = event.kind || "";
+      localTicker.className = "local-ticker " + kind;
+      localTicker.innerHTML = '<span class="ticker-mark" aria-hidden="true"></span>' +
+        '<span class="ticker-text">' + escapeHtml(event.text) + '</span>';
+    }
+
+    function scheduleLocalRefresh() {
+      if (localRefreshTimer) window.clearTimeout(localRefreshTimer);
+      const tick = async () => {
+        try {
+          const state = await request("/api/state");
+          renderSnapshot(state);
+          if (state.localRun?.running && !state.lastHealth) {
+            localRefreshTimer = window.setTimeout(tick, 1000);
+          }
+        } catch (error) {
+          setStatus("fail", error.message);
+        }
+      };
+      localRefreshTimer = window.setTimeout(tick, 800);
     }
 
     function setActiveStep(step) {
@@ -2206,13 +2505,14 @@ function renderHtml() {
       const foundryOk = Boolean(state.hosted?.version || state.hosted?.responsesEndpoint);
       const versionLabel = state.hosted?.version ? "v" + state.hosted.version : "";
       const teamsOk = Boolean(state.teams?.testedAt);
+      const showingFoundryContext = activeView === "chat" && (foundryPanelOpen || state.target === "hosted");
       localStep.classList.toggle("done", localOk);
       foundryStep.classList.toggle("done", foundryOk);
       teamsStep.classList.toggle("done", teamsOk);
-      localStepText.textContent = !connected ? "Project" : localRunning && !localOk ? "Starting" : localOk ? "Answered" : "Run it";
-      foundryStepText.textContent = foundryOk ? "Hosted" : "Deploy it";
+      localStepText.textContent = localRunning && !localOk ? "Starting" : localOk ? "Answered" : "Run it";
+      foundryStepText.textContent = foundryOk ? "Hosted" : connected ? "Not deployed" : "Needs project";
       teamsStepText.textContent = teamsOk ? "Tested" : "Hire it";
-      localStepState.textContent = !connected ? "First" : localOk ? "Done" : "Start";
+      localStepState.textContent = localOk ? "Done" : "Start";
       foundryStepState.textContent = versionLabel || (foundryOk ? "Ready" : localOk ? "Next" : "Later");
       teamsStepState.textContent = teamsOk ? "Done" : foundryOk ? "Next" : "Later";
       if (activeView === "deploy") {
@@ -2221,13 +2521,13 @@ function renderHtml() {
         testHostedAction.hidden = !(connected && foundryOk);
         guideTitle.textContent = !connected ? "Connect Foundry project" : "Make it work in Foundry";
         guideCopy.textContent = !connected
-          ? "Save the project endpoint to discover deployed versions or deploy the first one."
+          ? "Ask Copilot for the Foundry project endpoint so it can bootstrap .env, then refresh discovery here."
           : needsProvision
           ? "Prepare this repo for hosted deployment into the connected Foundry project."
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? "Save project" : needsProvision ? "Prepare deploy" : "Deploy";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : foundryOk ? "Deploy new version" : "Deploy first version";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = false;
@@ -2236,28 +2536,36 @@ function renderHtml() {
         guideCopy.textContent = "Confirm the active Foundry version, publish it to Microsoft 365, approve it if needed, hire it in Teams, then run the same smoke prompt.";
         primaryGuideAction.textContent = teamsOk ? "Teams tested" : "Mark Teams tested";
         setActiveStep("teams");
-      } else {
-        primaryGuideAction.hidden = connected && state.target !== "hosted" && localOk;
-        testHostedAction.hidden = true;
-        guideTitle.textContent = !connected ? "Connect Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
+      } else if (showingFoundryContext) {
+        const needsProvision = Boolean(state.deployment?.needsProvision);
+        primaryGuideAction.hidden = false;
+        testHostedAction.hidden = !(connected && foundryOk && state.target !== "hosted");
+        guideTitle.textContent = !connected ? "Connect Foundry project" : foundryOk ? "Test it in Foundry" : "Deploy to Foundry";
         guideCopy.textContent = !connected
-          ? "Save the project endpoint to discover deployed versions or deploy the first one."
+          ? "Project endpoint needed before hosted chat."
+          : needsProvision
+          ? "Prepare deploy, then return here to test hosted."
+          : foundryOk
+          ? "Hosted " + (state.hosted?.version ? "v" + state.hosted.version : "agent") + " ready. Send a prompt below."
+          : "No hosted release found. Deploy the first version when local is ready.";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : foundryOk ? "Deploy new version" : "Deploy first version";
+        setActiveStep("foundry");
+      } else {
+        primaryGuideAction.hidden = state.target !== "hosted" && localRunning;
+        testHostedAction.hidden = true;
+        guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Local agent";
+        guideCopy.textContent = state.target === "hosted" && !connected
+          ? "Ask Copilot for the Foundry project endpoint so it can bootstrap .env, then refresh discovery here."
           : state.target === "hosted"
           ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
           : localRunning
-          ? "Local agent is starting. Check readiness, then send a prompt."
-          : "Start the local agent, check readiness, then send a prompt.";
-        primaryGuideAction.textContent = !connected ? "Save project" : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : localRunning ? "Check local" : "Start local";
+          ? "Local agent is running."
+          : "Start the local agent. If Foundry values are missing, this will ask for the project endpoint.";
+        primaryGuideAction.textContent = state.target === "hosted" && !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : "Start local";
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
       }
-      if (!connected) settingsOpen = true;
-      advancedRow.hidden = !settingsOpen;
-      connectFoundryButton.hidden = false;
-      connectFoundryButton.textContent = connected ? "Update project" : "Save project";
-      checkHealthButton.hidden = !connected && activeView !== "chat";
-      startLocalButton.hidden = !connected || activeView !== "chat" || state.target === "hosted";
-      advancedToggle.hidden = false;
-      advancedToggle.textContent = settingsOpen ? "Hide project" : "Project settings";
+      advancedToggle.hidden = true;
+      advancedToggle.textContent = "Refresh .env";
     }
 
     function renderAgentPicker(state) {
@@ -2294,25 +2602,51 @@ function renderHtml() {
 
     function renderView() {
       const connected = Boolean(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment);
-      const localBlocked = activeView === "chat" && latestState?.target !== "hosted" && !connected;
+      const hostedBlocked = activeView === "chat" && latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint;
+      const localBlocked = activeView === "chat" && latestState?.target !== "hosted" && !latestState?.lastHealth?.ok;
       chatView.hidden = activeView !== "chat";
       deployView.hidden = activeView !== "deploy";
       teamsView.hidden = activeView !== "teams";
       sendButton.hidden = activeView !== "chat";
-      sendButton.disabled = inFlight || localBlocked;
+      sendButton.disabled = inFlight || hostedBlocked || localBlocked;
       provisionButton.hidden = true;
       deployButton.hidden = true;
       teamsTestedButton.hidden = true;
       promptInput.hidden = activeView !== "chat";
-      promptInput.disabled = localBlocked;
-      checkHealthButton.disabled = localBlocked;
-      startLocalButton.hidden = activeView !== "chat" || latestState?.target === "hosted";
-      startLocalButton.disabled = localBlocked;
-      startLocalButton.textContent = latestState?.localRun?.running ? "Stop local" : "Start local";
+      promptInput.disabled = hostedBlocked || localBlocked;
+      promptInput.placeholder = localBlocked
+        ? "Start local and wait for readiness before chatting."
+        : "Ask the agent something... Enter sends, Shift+Enter adds a line.";
       stopLocalAction.hidden = !(activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running);
       stopLocalAction.disabled = false;
+      if (activeView === "deploy") {
+        provisionButton.hidden = !latestState?.deployment?.needsProvision;
+        deployButton.hidden = Boolean(latestState?.deployment?.needsProvision);
+        deployButton.textContent = latestState?.hosted?.version || latestState?.hosted?.responsesEndpoint ? "Deploy new version" : "Deploy first version";
+      }
       clearButton.hidden = activeView === "teams";
       clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
+    }
+
+    function renderFoundryStatus(state) {
+      foundryStatus.hidden = true;
+      return;
+      const hosted = state.hosted || {};
+      const connected = Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
+      const showingFoundryContext = foundryPanelOpen || state.target === "hosted";
+      const hasHosted = Boolean(hosted.version || hosted.responsesEndpoint);
+      foundryStatus.hidden = !connected || !showingFoundryContext;
+      if (!connected || !showingFoundryContext) return;
+      foundryStatusTitle.textContent = hasHosted ? "Foundry hosted agent is ready" : "Foundry hosted agent is not deployed yet";
+      foundryStatusCopy.textContent = hasHosted
+        ? "Use the same transcript against the hosted Responses endpoint, or deploy a new version intentionally when local changes are ready."
+        : "Foundry discovery loaded the project but did not find a hosted release for this agent. Local testing remains available while you prepare the first deploy.";
+      foundryStatusBadge.textContent = hasHosted ? "Hosted ready" : "First deploy needed";
+      foundryStatusBadge.className = "badge " + (hasHosted ? "ok" : "");
+      foundryStatusAgent.textContent = hosted.agentName || state.selectedAgent?.displayName || "Not resolved";
+      foundryStatusRelease.textContent = hosted.version ? "Current release v" + hosted.version : "Not deployed";
+      foundryStatusState.textContent = hosted.status || (hasHosted ? "deployed" : "not_deployed");
+      foundryStatusEndpoint.textContent = hosted.responsesEndpoint || "Not discovered";
     }
 
     function renderDeploy(state) {
@@ -2327,7 +2661,7 @@ function renderHtml() {
       deployLog.textContent = lines.length ? lines.join("") : [
         "$ azd env get-values\\n",
         discoveryLine,
-        "Save the Foundry project endpoint before deploying.\\n",
+        "Ask Copilot to collect the Foundry project endpoint, bootstrap .env, then refresh discovery here.\\n",
         "Then discover the deployed Foundry agent version and protocol endpoints.\\n\\n",
         "$ azd deploy " + (state.selectedAgent?.serviceName || "minimal-agent") + " --no-prompt\\n",
         "Deploy changes to Foundry and register a new hosted version.\\n",
@@ -2374,8 +2708,8 @@ function renderHtml() {
 
     async function sendPrompt() {
       if (inFlight) return;
-      if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment) && latestState?.target !== "hosted") {
-        setStatus("fail", "Fill .env from .env.example with FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh.");
+      if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
+        setStatus("fail", "No hosted Responses endpoint is discovered yet. Ask Copilot for the Foundry project endpoint, bootstrap .env, then refresh.");
         return;
       }
       const input = promptInput.value.trim();
@@ -2630,36 +2964,13 @@ function renderHtml() {
     }
 
     async function saveEndpointFromInput() {
+      const endpoint = latestState?.target === "hosted"
+        ? latestState?.hosted?.responsesEndpoint || ""
+        : latestState?.localEndpoint || "http://127.0.0.1:8088";
       return request("/api/endpoint", {
         method: "POST",
-        body: JSON.stringify({ endpoint: endpointInput.value, target: latestState?.target || "local" }),
+        body: JSON.stringify({ endpoint, target: latestState?.target || "local" }),
       });
-    }
-
-    async function connectFoundryFromInputs() {
-      connectFoundryButton.disabled = true;
-      primaryGuideAction.disabled = true;
-      setStatus("", "Saving Foundry project settings...");
-      try {
-        const payload = await request("/api/env/bootstrap", {
-          method: "POST",
-          body: JSON.stringify({
-            projectEndpoint: foundryEndpointInput.value,
-            modelDeployment: modelDeploymentInput.value,
-            toolboxName: toolboxNameInput.value,
-            overwrite: overwriteExistingInput.checked,
-          }),
-        });
-        const state = payload.state;
-        settingsOpen = false;
-        renderSnapshot(state);
-        setStatus("ok", "Saved project settings in " + payload.result.written.length + " .env file" + (payload.result.written.length === 1 ? "" : "s") + ".");
-      } catch (error) {
-        setStatus("fail", error.message);
-      } finally {
-        connectFoundryButton.disabled = false;
-        primaryGuideAction.disabled = false;
-      }
     }
 
     async function refreshConfigFromDisk() {
@@ -2679,14 +2990,29 @@ function renderHtml() {
     }
 
     async function startLocalFromCanvas() {
-      startLocalButton.disabled = true;
+      foundryPanelOpen = false;
       primaryGuideAction.disabled = true;
       setStatus("", "Starting local agent...");
       try {
-        const state = await request("/api/local/start", { method: "POST" });
+        const response = await fetch("/api/local/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const payload = await response.json();
+        if (response.status === 409 && payload.needsProjectEndpoint) {
+          renderSnapshot(payload.state);
+          showProjectEndpointDialog();
+          setStatus("", "Foundry project endpoint is required before starting local.");
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to start local agent.");
+        }
+        const state = payload;
         renderSnapshot(state);
-        setStatus("", "Local agent starting: " + (state.localRun?.command || "agent"));
-        window.setTimeout(() => void load(), 1200);
+        setStatus(state.localRun?.running ? "ok" : "", state.localRun?.running ? "Local agent started." : "Local agent starting.");
+        scheduleLocalRefresh();
       } catch (error) {
         setStatus("fail", error.message);
       } finally {
@@ -2695,14 +3021,53 @@ function renderHtml() {
       }
     }
 
+    function showProjectEndpointDialog() {
+      projectEndpointDialog.hidden = false;
+      projectEndpointDialogInput.value = latestState?.foundryConnection?.projectEndpoint || latestState?.hosted?.projectEndpoint || "";
+      window.setTimeout(() => projectEndpointDialogInput.focus(), 0);
+    }
+
+    function hideProjectEndpointDialog() {
+      projectEndpointDialog.hidden = true;
+      projectEndpointSubmit.disabled = false;
+    }
+
+    async function bootstrapProjectAndStartLocal() {
+      const projectEndpoint = projectEndpointDialogInput.value.trim();
+      if (!projectEndpoint) return;
+      projectEndpointSubmit.disabled = true;
+      primaryGuideAction.disabled = true;
+      setStatus("", "Saving Foundry project endpoint...");
+      try {
+        const payload = await request("/api/env/bootstrap", {
+          method: "POST",
+          body: JSON.stringify({
+            projectEndpoint,
+            modelDeployment: "gpt-6-astra",
+            toolboxName: "contract-toolbox",
+            overwrite: true,
+          }),
+        });
+        renderSnapshot(payload.state);
+        hideProjectEndpointDialog();
+        setStatus("ok", "Updated Foundry .env values. Starting local agent...");
+        await startLocalFromCanvas();
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        projectEndpointSubmit.disabled = false;
+        primaryGuideAction.disabled = false;
+      }
+    }
+
     async function stopLocalFromCanvas() {
-      startLocalButton.disabled = true;
       stopLocalAction.disabled = true;
       primaryGuideAction.disabled = true;
       setStatus("", "Stopping local agent...");
       try {
         const state = await request("/api/local/stop", { method: "POST" });
         renderSnapshot(state);
+        if (localRefreshTimer) window.clearTimeout(localRefreshTimer);
         setStatus("", "Local agent stopped.");
       } catch (error) {
         setStatus("fail", error.message);
@@ -2727,28 +3092,36 @@ function renderHtml() {
       }
     }
 
-    endpointInput.addEventListener("change", async () => {
+    async function checkReadinessFromCanvas() {
+      if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
+        setStatus("fail", "No hosted Responses endpoint is discovered yet. Ask Copilot for the Foundry project endpoint, bootstrap .env, then refresh.");
+        return;
+      }
+      primaryGuideAction.disabled = true;
+      setStatus("", "Checking readiness...");
       try {
-        renderSnapshot(await saveEndpointFromInput());
+        await saveEndpointFromInput();
+        renderSnapshot(await request("/api/health", { method: "POST" }));
       } catch (error) {
         setStatus("fail", error.message);
+      } finally {
+        primaryGuideAction.disabled = false;
+        renderView();
       }
-    });
-
-    connectFoundryButton.addEventListener("click", async () => {
-      await connectFoundryFromInputs();
-    });
-
-    startLocalButton.addEventListener("click", async () => {
-      if (latestState?.localRun?.running) {
-        await stopLocalFromCanvas();
-      } else {
-        await startLocalFromCanvas();
-      }
-    });
+    }
 
     stopLocalAction.addEventListener("click", async () => {
       await stopLocalFromCanvas();
+    });
+
+    projectEndpointCancel.addEventListener("click", () => {
+      hideProjectEndpointDialog();
+      setStatus("fail", "Foundry project endpoint is required before starting local.");
+    });
+
+    projectEndpointForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void bootstrapProjectAndStartLocal();
     });
 
     agentPickerButton.addEventListener("click", () => {
@@ -2772,6 +3145,7 @@ function renderHtml() {
 
     async function showLocal() {
       activeView = "chat";
+      foundryPanelOpen = false;
       const state = await request("/api/target", {
         method: "POST",
         body: JSON.stringify({ target: "local" }),
@@ -2783,7 +3157,7 @@ function renderHtml() {
     async function showFoundryChat() {
       setStatus("", "Discovering Foundry target...");
       activeView = "chat";
-      settingsOpen = false;
+      foundryPanelOpen = true;
       const state = await request("/api/target", {
         method: "POST",
         body: JSON.stringify({ target: "hosted", refresh: true }),
@@ -2794,7 +3168,6 @@ function renderHtml() {
 
     async function showDeploy() {
       activeView = "deploy";
-      settingsOpen = false;
       const state = await request("/api/hosted/refresh", { method: "POST" });
       renderSnapshot(state);
       setStatus("", "Foundry step.");
@@ -2802,10 +3175,10 @@ function renderHtml() {
 
     async function showFoundry() {
       setStatus("", "Refreshing Foundry...");
-      settingsOpen = false;
+      activeView = "chat";
+      foundryPanelOpen = true;
       const refreshed = await request("/api/hosted/refresh", { method: "POST" });
       if (refreshed.hosted?.version || refreshed.hosted?.responsesEndpoint) {
-        activeView = "chat";
         const state = await request("/api/target", {
           method: "POST",
           body: JSON.stringify({ target: "hosted" }),
@@ -2814,9 +3187,8 @@ function renderHtml() {
         setStatus(state.hosted?.responsesEndpoint ? "ok" : "fail", state.hosted?.responsesEndpoint ? "Foundry target selected." : "Foundry endpoint not discovered.");
         return;
       }
-      activeView = "deploy";
       renderSnapshot(refreshed);
-      setStatus("", "Foundry step.");
+      setStatus("", "No hosted release found yet. Local testing is still available; deploy when ready.");
     }
 
     async function showTeams() {
@@ -2844,7 +3216,11 @@ function renderHtml() {
 
     primaryGuideAction.addEventListener("click", () => {
       if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment)) {
-        void connectFoundryFromInputs();
+        if (latestState?.target === "hosted" || foundryPanelOpen) {
+          void refreshConfigFromDisk();
+        } else {
+          void startLocalFromCanvas();
+        }
         return;
       }
       if (activeView === "deploy") {
@@ -2855,36 +3231,19 @@ function renderHtml() {
         }
       } else if (activeView === "teams") {
         void markTeamsTested();
-      } else if (latestState?.target === "hosted") {
-        void showDeploy();
-      } else if (latestState?.lastHealth?.ok || latestState?.messages?.some((message) => message.target !== "hosted" && message.response?.ok)) {
-        promptInput.focus();
+      } else if (foundryPanelOpen || latestState?.target === "hosted") {
+        if (latestState?.deployment?.needsProvision) {
+          void runProvision();
+        } else {
+          void runDeploy();
+        }
       } else if (!latestState?.localRun?.running) {
         void startLocalFromCanvas();
-      } else {
-        checkHealthButton.click();
       }
     });
 
     testHostedAction.addEventListener("click", () => {
       void showFoundryChat();
-    });
-
-    checkHealthButton.addEventListener("click", async () => {
-      if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment) && latestState?.target !== "hosted") {
-        setStatus("fail", "Fill .env from .env.example with FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh.");
-        return;
-      }
-      checkHealthButton.disabled = true;
-      setStatus("", "Checking readiness...");
-      try {
-        await saveEndpointFromInput();
-        renderSnapshot(await request("/api/health", { method: "POST" }));
-      } catch (error) {
-        setStatus("fail", error.message);
-      } finally {
-        renderView();
-      }
     });
 
     promptInput.addEventListener("keydown", (event) => {
@@ -3089,6 +3448,14 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/start") {
+            if (!hasFoundryProjectValues(state)) {
+                sendJson(res, 409, {
+                    error: "Foundry project endpoint is required before starting local.",
+                    needsProjectEndpoint: true,
+                    state: stateSnapshot(state),
+                });
+                return;
+            }
             await startLocalAgent(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
@@ -3103,6 +3470,10 @@ async function handleRequest(req, res, state) {
             const input = String(body.input || "").trim();
             if (!input) {
                 sendJson(res, 400, { error: "Input is required." });
+                return;
+            }
+            if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending a prompt." });
                 return;
             }
             const turn = {
@@ -3121,6 +3492,10 @@ async function handleRequest(req, res, state) {
             const input = String(body.input || "").trim();
             if (!input) {
                 sendJson(res, 400, { error: "Input is required." });
+                return;
+            }
+            if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending a prompt." });
                 return;
             }
             res.writeHead(200, {
@@ -3169,7 +3544,11 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/clear") {
+            const keep = state.messages.filter((message) =>
+                state.target === "hosted" ? message.target !== "hosted" : message.target === "hosted",
+            );
             state.messages.length = 0;
+            state.messages.push(...keep);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -3221,6 +3600,7 @@ async function startServer(ctx) {
         localEndpoints: { [selectedAgentId]: normalizeEndpoint(ctx.input?.endpoint) },
         hostedByAgent: { [selectedAgentId]: hosted },
         hosted,
+        instanceId: ctx.instanceId,
         foundryConnection: emptyFoundryConnection(),
         envBootstrap: null,
         deployment: {
@@ -3239,6 +3619,7 @@ async function startServer(ctx) {
             completedAt: null,
             exitCode: null,
             log: [],
+            events: [],
         },
         teams: {
             testedAt: null,
@@ -3259,6 +3640,14 @@ async function startServer(ctx) {
 }
 
 await joinSession({
+    systemMessage: {
+        mode: "append",
+        content: [
+            "When using the Foundry Agent Playground canvas and Foundry project values are missing, clicking Start local opens an in-canvas question box that asks the user for the Foundry project endpoint.",
+            "After the user provides the endpoint, the canvas writes non-secret Foundry values into gitignored .env files with the same bootstrap logic exposed through the bootstrap_env action.",
+            "Do not tell the user to paste the project endpoint into the canvas; the canvas intentionally keeps project bootstrap out of the visible UI.",
+        ].join("\n"),
+    },
     canvases: [
         createCanvas({
             id: "foundry-agent-playground",
