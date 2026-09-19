@@ -290,30 +290,15 @@ export const rendererStyles = `
     }
     .local-ticker[hidden] { display: none; }
     .deploy-ticker {
-      display: grid;
-      gap: 2px;
+      display: flex;
       margin-top: 8px;
       color: var(--cp-text-muted);
       font-size: 12px;
-      min-height: 32px;
+      min-height: 16px;
+      width: min(100%, 520px);
     }
     .deploy-ticker[hidden] { display: none; }
     .deploy-ticker-row {
-      display: flex;
-      gap: 6px;
-      align-items: baseline;
-      min-width: 0;
-    }
-    .health .deploy-ticker {
-      margin-top: 0;
-      min-height: 0;
-      width: clamp(280px, 38vw, 460px);
-      padding: 4px 8px;
-      border: 1px solid var(--cp-border);
-      border-radius: 999px;
-      background: var(--cp-surface-soft);
-    }
-    .health .deploy-ticker-row {
       align-items: center;
       width: 100%;
       display: grid;
