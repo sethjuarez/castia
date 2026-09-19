@@ -445,6 +445,11 @@ async function readAgentEnv(agent) {
 }
 
 function localEnvHasFoundryProjectValues(env) {
+    const values = localEnvFoundryProjectValues(env);
+    return Boolean(values.projectEndpoint && values.modelDeployment);
+}
+
+function localEnvFoundryProjectValues(env) {
     const values = env?.values || {};
     const projectEndpoint =
         values.FOUNDRY_PROJECT_ENDPOINT ||
@@ -455,7 +460,7 @@ function localEnvHasFoundryProjectValues(env) {
         values.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
         values.AZURE_OPENAI_DEPLOYMENT_NAME ||
         null;
-    return Boolean(projectEndpoint && modelDeployment);
+    return { projectEndpoint, modelDeployment };
 }
 
 async function refreshLocalEnvState(state) {
@@ -467,6 +472,52 @@ async function refreshLocalEnvState(state) {
         loadedAt: new Date().toISOString(),
     };
     return env;
+}
+
+async function syncLocalBootstrapForStart(state) {
+    const agent = selectedAgent(state);
+    let env = await refreshLocalEnvState(state);
+    let localValues = localEnvFoundryProjectValues(env);
+    if (localValues.projectEndpoint && localValues.modelDeployment) {
+        if (!hasFoundryProjectValues(state)) {
+            await hydrateFoundryConnectionFromDotEnv(state);
+        }
+        const azd = parseAzdEnv((await runCommand("azd", ["env", "get-values"], { cwd: agent.root })).output);
+        const azdProjectEndpoint =
+            azd.FOUNDRY_PROJECT_ENDPOINT ||
+            azd.AZURE_AI_PROJECT_ENDPOINT ||
+            azd.AZURE_AIPROJECT_ENDPOINT ||
+            null;
+        const azdModelDeployment =
+            azd.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
+            azd.AZURE_OPENAI_DEPLOYMENT_NAME ||
+            null;
+        if (!azdProjectEndpoint || !azdModelDeployment) {
+            await setAzdEnvValues(agent.root, bootstrapEnvValues({
+                projectEndpoint: localValues.projectEndpoint,
+                modelDeployment: localValues.modelDeployment,
+                toolboxName: null,
+            }));
+        }
+        return { ok: true, source: "env" };
+    }
+    if (state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment) {
+        const targetPath = relative(process.cwd(), join(agent.root, ".env"));
+        await bootstrapLocalEnv(state, {
+            projectEndpoint: state.foundryConnection.projectEndpoint,
+            modelDeployment: state.foundryConnection.modelDeployment,
+            toolboxName: DEFAULT_TOOLBOX_NAME,
+            overwrite: false,
+            targetPaths: [targetPath],
+        });
+        env = await refreshLocalEnvState(state);
+        localValues = localEnvFoundryProjectValues(env);
+        return {
+            ok: Boolean(localValues.projectEndpoint && localValues.modelDeployment),
+            source: "azd",
+        };
+    }
+    return { ok: false, source: "missing" };
 }
 
 function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
@@ -1084,17 +1135,14 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/start") {
-            const localEnv = await refreshLocalEnvState(state);
-            if (!localEnvHasFoundryProjectValues(localEnv)) {
+            const sync = await syncLocalBootstrapForStart(state);
+            if (!sync.ok) {
                 sendJson(res, 409, {
-                    error: "Foundry project endpoint is required in the local .env before starting local.",
+                    error: "Foundry project endpoint is required before starting local.",
                     needsProjectEndpoint: true,
                     state: stateSnapshot(state),
                 });
                 return;
-            }
-            if (!hasFoundryProjectValues(state)) {
-                await hydrateFoundryConnectionFromDotEnv(state);
             }
             await startLocalAgent(state);
             sendJson(res, 200, stateSnapshot(state));
