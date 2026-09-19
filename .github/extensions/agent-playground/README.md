@@ -57,10 +57,12 @@ The deploy view runs from the selected agent folder:
 - after deployment, the canvas refreshes hosted metadata so the Hosted target can
   show the latest version and Responses endpoint if azd exposes one.
 
-The hosted container installs the selected agent's deployment dependencies, such
-as `requirements.txt`; it does not run against editable local SDK source. If the
-local agent uses a newer SDK API than the deployed dependency provides, the
-hosted session can fail readiness even though deployment succeeds.
+For scaffolded Castia agents, `pyproject.toml` is the canonical dependency
+source. `requirements.txt` exists only as the Foundry remote-build entrypoint
+and should contain `-e .`, so pip installs the selected local project and reads
+the dependency list from `pyproject.toml`. If local agent code uses a newer SDK
+API than the Castia dependency pinned in `pyproject.toml`, the hosted session can
+fail readiness even though deployment succeeds.
 
 The Teams view keeps the Microsoft 365 handoff lightweight:
 

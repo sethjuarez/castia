@@ -40,13 +40,18 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     pyproject = (root / "pyproject.toml").read_text()
     assert 'name = "test-agent"' in pyproject
     assert "python-dotenv>=1.0.1" in pyproject
+    assert 'requires = ["setuptools>=68"]' in pyproject
+    assert 'py-modules = ["main"]' in pyproject
     assert "package = false" in pyproject
+    assert (root / "requirements.txt").read_text() == "-e .\n"
+    assert (root / "requirements-dev.txt").read_text() == "-e .[test]\n"
     assert (root / ".env.example").read_text() == (
         "FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>\n"
         "AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>\n"
     )
     assert "EXPOSE 8088" in (root / "Dockerfile").read_text()
     assert '"main.py"' in (root / "Dockerfile").read_text()
+    assert "COPY pyproject.toml requirements.txt main.py ./" in (root / "Dockerfile").read_text()
     assert "FROM python:3.13-slim" in (root / "Dockerfile").read_text()
     main_py = (root / "main.py").read_text()
     assert 'os.environ.get("HOST", "0.0.0.0")' in main_py
@@ -79,6 +84,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "does not create a project" in guide
     assert "uv run --directory" in guide
     assert "do not declare it under `services.<agent>.env`" in guide
+    assert "`requirements.txt` exists only as the Foundry remote-build entrypoint" in guide
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-W", "error", str(root / "tests")],
         cwd=root, capture_output=True, text=True, check=False,
@@ -193,5 +199,9 @@ def test_generated_project_passes_readiness_without_writes(tmp_path):
     })
     assert report.ok, report.to_dict()
     assert report.protocols == ("activity", "responses", "invocations")
+    diagnostics = {item.check: item.message for item in report.diagnostics}
+    assert diagnostics["build.requirements.txt"] == (
+        "Foundry remote-build shim installs local pyproject dependencies."
+    )
     after = {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert before == after

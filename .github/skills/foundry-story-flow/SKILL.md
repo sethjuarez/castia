@@ -124,9 +124,10 @@ Local is complete when the agent answers.
 ## Foundry step
 
 Before deploying, verify that the selected agent boots with the same dependency
-surface the hosted container will install. Do not rely only on editable local SDK
-tests if `requirements.txt` pins a published SDK version. If agent code uses a
-new local SDK API, either publish/bump the deployed dependency or add a
+surface the hosted container will install. For scaffolded Castia agents,
+`pyproject.toml` is canonical and `requirements.txt` should contain only `-e .`
+as the Foundry remote-build shim. If agent code uses a new local SDK API, either
+publish/bump the Castia dependency pinned in `pyproject.toml` or add a
 backwards-compatible fallback before deploy.
 
 Start with `azd deploy <service> --no-prompt` from the selected agent folder.

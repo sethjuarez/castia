@@ -36,7 +36,7 @@ def _project_files(name: str, model: str) -> dict[str, str]:
         requirement = f"castia[optimize]=={version('castia')}"
     except PackageNotFoundError:
         requirement = "castia[optimize]"
-    requirements = requirement + "\npython-dotenv>=1.0.1\n"
+    requirements = "-e .\n"
     main = f'''"""Minimal Castia starter for local and hosted Foundry agent demos."""
 
 import os
@@ -186,18 +186,23 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "test = [\n"
             "    \"pytest>=8\",\n"
             "]\n\n"
+            "[build-system]\n"
+            "requires = [\"setuptools>=68\"]\n"
+            "build-backend = \"setuptools.build_meta\"\n\n"
+            "[tool.setuptools]\n"
+            "py-modules = [\"main\"]\n\n"
             "[tool.uv]\n"
             "package = false\n"
         ),
         "requirements.txt": requirements,
-        "requirements-dev.txt": "-r requirements.txt\npytest>=8\n",
+        "requirements-dev.txt": "-e .[test]\n",
         "Dockerfile": (
             "# Optional container alternative; azure.yaml defaults to remote code build.\n"
             "FROM python:3.13-slim\nWORKDIR /app\n"
             "ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1\n"
-            "COPY requirements.txt .\n"
+            "COPY pyproject.toml requirements.txt main.py ./\n"
+            "COPY .agent_configs .agent_configs\n"
             "RUN python -m pip install --no-cache-dir -r requirements.txt\n"
-            "COPY main.py .\nCOPY .agent_configs .agent_configs\n"
             "EXPOSE 8088\nCMD [\"python\", \"main.py\"]\n"
         ),
         ".dockerignore": ".git\n.venv\n.env\n.env.*\n__pycache__\ntests\n",
@@ -246,6 +251,10 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local dev or "
             "in host-side process/azd context for Castia checks; do not declare it "
             "under `services.<agent>.env` in `azure.yaml`.\n\n"
+            "`pyproject.toml` is the canonical dependency source. "
+            "`requirements.txt` exists only as the Foundry remote-build entrypoint "
+            "and contains `-e .` so pip installs this local project and reads the "
+            "dependency list from `pyproject.toml`.\n\n"
             "The default manifest uses Python 3.13 with remote dependency build; no "
             "local Docker/ACR setup is needed for this mode. The included Dockerfile is "
             "an explicit alternative; see the commented manifest instructions.\n"

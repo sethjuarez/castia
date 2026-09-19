@@ -361,9 +361,20 @@ def preflight(
         build_files = ("requirements.txt",) if code_mode else ("Dockerfile", "requirements.txt")
         for filename in build_files:
             try:
-                if not _local_file(root, filename).read_text(encoding="utf-8").strip():
+                content = _local_file(root, filename).read_text(encoding="utf-8").strip()
+                if not content:
                     raise ValueError("Empty build artifact.")
-                add(f"build.{filename}", "pass", "Local build artifact is present.")
+                if filename == "requirements.txt" and content == "-e .":
+                    pyproject = _local_file(root, "pyproject.toml").read_text(encoding="utf-8")
+                    if "dependencies" not in pyproject:
+                        raise ValueError("Editable requirements shim needs pyproject dependencies.")
+                    add(
+                        f"build.{filename}",
+                        "pass",
+                        "Foundry remote-build shim installs local pyproject dependencies.",
+                    )
+                else:
+                    add(f"build.{filename}", "pass", "Local build artifact is present.")
             except (OSError, ValueError):
                 add(f"build.{filename}", "fail", "Required build artifact is missing or empty.")
         if code_mode:
