@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
+import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
 const DEFAULT_SERVICE_NAME = "minimal-agent";
@@ -304,76 +305,6 @@ async function discoverManagementContext(agent, endpoint) {
     };
 }
 
-function serviceEnvPrefix(serviceName) {
-    return `AGENT_${String(serviceName || "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase()}`;
-}
-
-function normalizeRootLabel(root) {
-    const label = relative(process.cwd(), root) || ".";
-    return label.split(/[\\/]+/).join("\\");
-}
-
-function parseHostedServices(yaml, filePath) {
-    const root = dirname(filePath);
-    const lines = yaml.split(/\r?\n/);
-    const servicesLine = lines.findIndex((line) => /^services:\s*$/.test(line));
-    if (servicesLine === -1) return [];
-    const services = [];
-    let current = null;
-    for (const line of lines.slice(servicesLine + 1)) {
-        const serviceMatch = line.match(/^ {2}([A-Za-z0-9_-]+):\s*$/);
-        if (serviceMatch) {
-            if (current?.isHosted) services.push(current);
-            current = {
-                serviceName: serviceMatch[1],
-                displayName: serviceMatch[1],
-                project: ".",
-                isHosted: false,
-            };
-            continue;
-        }
-        if (!current) continue;
-        if (/^\S/.test(line)) break;
-        const propertyMatch = line.match(/^ {4}([A-Za-z0-9_]+):\s*(.*)$/);
-        if (!propertyMatch) continue;
-        const [, key, rawValue] = propertyMatch;
-        const value = rawValue.trim().replace(/^['"]|['"]$/g, "");
-        if (key === "host" && value === "azure.ai.agent") current.isHosted = true;
-        if (key === "kind" && value === "hosted") current.isHosted = true;
-        if (key === "project") current.project = value || ".";
-        if (key === "name" && value) current.displayName = value;
-    }
-    if (current?.isHosted) services.push(current);
-    return services.map((service) => {
-        const agentRoot = join(root, service.project || ".");
-        const rootLabel = normalizeRootLabel(agentRoot);
-        return {
-            id: `${rootLabel}:${service.serviceName}`,
-            serviceName: service.serviceName,
-            displayName: service.displayName,
-            root: agentRoot,
-            rootLabel,
-            envPrefix: serviceEnvPrefix(service.serviceName),
-        };
-    });
-}
-
-async function findAzureYamlFiles(dir, depth = 0) {
-    if (depth > 4) return [];
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    const files = [];
-    for (const entry of entries) {
-        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".venv") continue;
-        const path = join(dir, entry.name);
-        if (entry.isFile() && entry.name === "azure.yaml") {
-            files.push(path);
-        } else if (entry.isDirectory()) {
-            files.push(...(await findAzureYamlFiles(path, depth + 1)));
-        }
-    }
-    return files;
-}
-
 async function findEnvExampleFiles(dir, depth = 0) {
     if (depth > 6) return [];
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -545,29 +476,6 @@ async function bootstrapLocalEnv(state, input = {}) {
         })),
     };
     return state.envBootstrap;
-}
-
-async function discoverAgents() {
-    const files = await findAzureYamlFiles(process.cwd());
-    const agents = [];
-    for (const file of files) {
-        const yaml = await readFile(file, "utf8").catch(() => "");
-        agents.push(...parseHostedServices(yaml, file));
-    }
-    if (agents.length) {
-        return agents.sort((a, b) => a.rootLabel.localeCompare(b.rootLabel) || a.serviceName.localeCompare(b.serviceName));
-    }
-    const rootLabel = normalizeRootLabel(DEFAULT_AGENT_ROOT);
-    return [
-        {
-            id: `${rootLabel}:${DEFAULT_SERVICE_NAME}`,
-            serviceName: DEFAULT_SERVICE_NAME,
-            displayName: DEFAULT_SERVICE_NAME,
-            root: DEFAULT_AGENT_ROOT,
-            rootLabel,
-            envPrefix: serviceEnvPrefix(DEFAULT_SERVICE_NAME),
-        },
-    ];
 }
 
 function setSelectedAgent(state, agentId) {
