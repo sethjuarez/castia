@@ -737,20 +737,53 @@ export const rendererStyles = `
       0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
       40% { transform: translateY(-3px); opacity: 1; }
     }
-    details {
-      padding: 0 12px 10px;
-    }
-    summary {
-      cursor: pointer;
+    .details-toggle {
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      width: auto;
+      margin: 0 12px 10px;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
       color: var(--cp-link);
       font-size: 12px;
-      font-weight: 500;
-      list-style-position: inside;
+      font-weight: 600;
+      line-height: 16px;
+      text-align: left;
+      text-decoration: none;
+      box-shadow: none;
     }
-    pre {
+    .details-toggle::before {
+      content: "▸";
+      color: currentColor;
+      font-size: 10px;
+      line-height: 1;
+    }
+    .details-toggle[aria-expanded="true"]::before {
+      content: "▾";
+    }
+    .details-toggle:hover {
+      border-color: transparent;
+      background: transparent;
+      text-decoration: underline;
+    }
+    .details-toggle:focus {
+      outline: none;
+    }
+    .details-toggle:focus-visible {
+      outline: 2px solid var(--cp-accent);
+      outline-offset: 2px;
+    }
+    .details-panel {
+      padding: 0 12px 12px;
+    }
+    .details-panel pre {
       max-height: 240px;
       overflow: auto;
-      margin: 8px 0 0;
+      margin: 0;
       padding: 10px;
       border-radius: 0.625rem;
       background: var(--cp-surface-soft);

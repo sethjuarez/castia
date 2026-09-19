@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { composerGate, localReadinessState, responseDetailsKey } from "./renderer-client.mjs";
+import { composerGate, localReadinessState, responseDetailsKey, responseDetailsPanelId } from "./renderer-client.mjs";
 
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {
@@ -122,5 +122,12 @@ test("response details keys prefer response identity and fall back to createdAt"
     assert.equal(
         responseDetailsKey({ createdAt: "2026-09-19T00:00:00Z", target: "hosted" }, 3),
         "created:2026-09-19T00:00:00Z:hosted",
+    );
+});
+
+test("response details panel ids are stable attribute-safe ids", () => {
+    assert.equal(
+        responseDetailsPanelId("created:2026-09-19T00:00:00Z:hosted"),
+        "response-details-created-2026-09-19T00-00-00Z-hosted",
     );
 });

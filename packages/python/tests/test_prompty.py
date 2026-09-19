@@ -9,6 +9,7 @@ import pytest
 from castia.optimizing.config import AgentConfig
 
 prompty = pytest.importorskip("prompty")
+pytest.importorskip("jinja2")
 
 from castia.prompty import (
     McpToolboxError,
@@ -28,7 +29,8 @@ def test_prompty_agent_from_config_projects_optimizer_config():
     agent = prompty_agent_from_config(config, connection_name="foundry-default")
 
     assert agent.name == "castia-prompty-agent"
-    assert agent.instructions == "Answer from policy."
+    assert agent.inputs[0].name == "text"
+    assert agent.instructions == "system:\nAnswer from policy.\n\nuser:\n{{ text }}"
     assert agent.model.id == "gpt-6-astra"
     assert agent.model.provider == "foundry"
     assert agent.model.api_type == "responses"
@@ -42,8 +44,25 @@ def test_configured_prompty_runner_wraps_in_memory_agent():
         enable_otel=False,
     )
 
-    assert runner.agent.instructions == "Be brief."
+    assert runner.agent.instructions == "system:\nBe brief.\n\nuser:\n{{ text }}"
     assert runner.agent.model.id == "gpt-4o"
+
+
+def test_prompty_runner_turn_does_not_request_structured_cast(monkeypatch):
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Be brief.", "default"),
+        enable_otel=False,
+    )
+    calls = []
+
+    async def fake_invoke_async(agent, inputs, **kwargs):
+        calls.append((agent, inputs, kwargs))
+        return "plain text answer"
+
+    monkeypatch.setattr(prompty, "invoke_async", fake_invoke_async)
+
+    assert asyncio.run(runner.turn("hello")) == "plain text answer"
+    assert calls == [(runner.agent, {"text": "hello"}, {})]
 
 
 def test_prompty_otel_registration_respects_content_recording_opt_in(monkeypatch):

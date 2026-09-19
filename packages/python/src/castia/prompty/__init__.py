@@ -116,9 +116,22 @@ def prompty_agent_from_config(
     schema for a runtime or eval harness.
     """
     prompty = _prompty()
+    from prompty.model.contracts.templates import (  # type: ignore[import-not-found]
+        Jinja2Format,
+        PromptyParser,
+    )
+
     resolved = config or load_agent_config()
     return prompty.PromptAgent(
         name=name,
+        inputs=[
+            prompty.Property(
+                name="text",
+                kind="string",
+                description="The external user turn text.",
+                required=True,
+            )
+        ],
         model=prompty.Model(
             id=resolved.model,
             provider="foundry",
@@ -126,7 +139,11 @@ def prompty_agent_from_config(
             connection=prompty.ReferenceConnection(name=connection_name),
         ),
         tools=list(tools),
-        instructions=resolved.instructions,
+        template=prompty.Template(
+            format=Jinja2Format(),
+            parser=PromptyParser(),
+        ),
+        instructions="system:\n" + resolved.instructions + "\n\nuser:\n{{ text }}",
         metadata={
             "castia.agent_config_source": resolved.source,
             "castia.optimizer_contract": ".agent_configs",
@@ -152,7 +169,6 @@ class PromptyRunner:
         result = await prompty.invoke_async(
             self.agent,
             {"text": text, **inputs},
-            target_type=str,
         )
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
 
