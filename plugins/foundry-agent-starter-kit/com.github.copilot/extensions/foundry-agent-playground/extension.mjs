@@ -204,6 +204,12 @@ async function setAzdEnvValues(cwd, values, log) {
     return exitCode;
 }
 
+async function deploymentStamp(cwd) {
+    const revision = await runCommand("git", ["rev-parse", "--short=12", "HEAD"], { cwd });
+    const source = revision.code === 0 && revision.output.trim() ? revision.output.trim() : "unknown";
+    return `${source}-${new Date().toISOString()}`;
+}
+
 async function discoverManagementContext(agent, endpoint) {
     const parsed = parseFoundryProjectEndpoint(endpoint);
     if (!parsed.accountName || !parsed.projectName) {
@@ -990,7 +996,7 @@ async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
     return { discovery, exitCode };
 }
 
-async function ensureAzdDeploymentContext(state, log) {
+async function ensureAzdDeploymentContext(state, log, { stampDeployment = false } = {}) {
     const agent = selectedAgent(state);
     const endpoint =
         state.foundryConnection.projectEndpoint ||
@@ -1016,6 +1022,9 @@ async function ensureAzdDeploymentContext(state, log) {
         AZURE_AI_ACCOUNT_NAME: discovery.accountName,
         AZURE_AI_PROJECT_NAME: discovery.projectName,
     };
+    if (stampDeployment) {
+        values.CASTIA_DEPLOYMENT_STAMP = await deploymentStamp(agent.root);
+    }
     const exitCode = await setAzdEnvValues(agent.root, values, log);
     state.foundryConnection = {
         ...state.foundryConnection,
@@ -1054,9 +1063,10 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
     }
     try {
         if (commandName === "deploy" || commandName === "provision") {
-            await ensureAzdDeploymentContext(state, state.deployment.log);
+            await ensureAzdDeploymentContext(state, state.deployment.log, { stampDeployment: commandName === "deploy" });
         }
         writeEvent(res, "snapshot", stateSnapshot(state));
+        const previousVersion = commandName === "deploy" ? state.hosted?.version : null;
         const result = await runCommand("azd", args, {
             cwd: agent.root,
             onOutput: (text) => {
@@ -1080,6 +1090,11 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
             if (state.hosted.lastRemoteDiscoveryStatus || state.hosted.lastRemoteDiscoveryMessage) {
                 state.deployment.log.push(
                     `Foundry discovery: ${state.hosted.lastRemoteDiscoveryStatus || "unknown"}${state.hosted.lastRemoteDiscoveryMessage ? ` — ${state.hosted.lastRemoteDiscoveryMessage}` : ""}\n`,
+                );
+            }
+            if (commandName === "deploy" && previousVersion && state.hosted.version === previousVersion) {
+                state.deployment.log.push(
+                    `\nDeploy completed, but Foundry discovery still reports version ${previousVersion}. The hosted agent service may have reused the existing version; send a hosted prompt only if you expect that version to contain the latest package.\n`,
                 );
             }
         }
