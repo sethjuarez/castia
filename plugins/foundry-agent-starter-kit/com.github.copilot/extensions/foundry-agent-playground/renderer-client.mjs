@@ -697,6 +697,7 @@ export const rendererClientScript = `
     }
 
     async function startLocalFromCanvas() {
+      activeView = "chat";
       foundryPanelOpen = false;
       primaryGuideAction.disabled = true;
       setStatus("", "Starting local agent...");

@@ -1140,6 +1140,7 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/start") {
+            state.target = "local";
             const sync = await syncLocalBootstrapForStart(state);
             if (!sync.ok) {
                 sendJson(res, 409, {
@@ -1150,6 +1151,7 @@ async function handleRequest(req, res, state) {
                 return;
             }
             await startLocalAgent(state);
+            state.target = "local";
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
