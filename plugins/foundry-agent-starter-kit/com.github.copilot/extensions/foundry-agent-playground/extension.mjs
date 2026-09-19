@@ -5,6 +5,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } fro
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
+import { discoverHostedContextFromFoundry, hostedContextFromAzd } from "./hosted-discovery.mjs";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
 const DEFAULT_SERVICE_NAME = "minimal-agent";
@@ -183,8 +184,13 @@ function emptyHostedContext(agent) {
         invocationsEndpoint: null,
         projectEndpoint: null,
         modelDeployment: null,
+        status: "not_deployed",
+        deployedAt: null,
         lastRefresh: null,
         lastRefreshExitCode: null,
+        lastRefreshSource: null,
+        lastRemoteDiscoveryStatus: null,
+        lastRemoteDiscoveryMessage: null,
     };
 }
 
@@ -654,32 +660,34 @@ async function refreshHostedContext(state) {
     const agent = selectedAgent(state);
     const result = await runCommand("azd", ["env", "get-values"], { cwd: agent.root });
     const values = parseAzdEnv(result.output);
-    const prefix = agent.envPrefix;
-    state.hostedByAgent[agent.id] = {
-        ...state.hostedByAgent[agent.id],
-        agentName: values[`${prefix}_NAME`] || state.hostedByAgent[agent.id].agentName,
-        agentId: values[`${prefix}_ID`] || state.hostedByAgent[agent.id].agentId,
-        version: values[`${prefix}_VERSION`] || state.hostedByAgent[agent.id].version,
-        responsesEndpoint:
-            values[`${prefix}_RESPONSES_ENDPOINT`] || state.hostedByAgent[agent.id].responsesEndpoint,
-        activityEndpoint:
-            values[`${prefix}_ACTIVITY_ENDPOINT`] || state.hostedByAgent[agent.id].activityEndpoint,
-        invocationsEndpoint:
-            values[`${prefix}_INVOCATIONS_ENDPOINT`] || state.hostedByAgent[agent.id].invocationsEndpoint,
-        projectEndpoint:
-            values.AZURE_AI_PROJECT_ENDPOINT ||
-            values.AZURE_AIPROJECT_ENDPOINT ||
-            values.FOUNDRY_PROJECT_ENDPOINT ||
-            state.foundryConnection.projectEndpoint ||
-            state.hostedByAgent[agent.id].projectEndpoint,
-        modelDeployment:
-            values.AZURE_AI_MODEL_DEPLOYMENT_NAME ||
-            values.AZURE_OPENAI_DEPLOYMENT_NAME ||
-            state.foundryConnection.modelDeployment ||
-            state.hostedByAgent[agent.id].modelDeployment,
-        lastRefresh: new Date().toISOString(),
-        lastRefreshExitCode: result.code,
-    };
+    const now = new Date();
+    const currentHosted = state.hostedByAgent[agent.id] || emptyHostedContext(agent);
+    let hosted = hostedContextFromAzd({
+        agent,
+        currentHosted,
+        foundryConnection: state.foundryConnection,
+        values,
+        exitCode: result.code,
+        now,
+    });
+    try {
+        const remote = await discoverHostedContextFromFoundry({
+            agent,
+            currentHosted: hosted,
+            foundryConnection: state.foundryConnection,
+            accessTokenProvider: azureAccessToken,
+            now,
+        });
+        if (remote.attempted) hosted = remote.hosted;
+    } catch (error) {
+        hosted = {
+            ...hosted,
+            lastRefresh: now.toISOString(),
+            lastRemoteDiscoveryStatus: "error",
+            lastRemoteDiscoveryMessage: error instanceof Error ? error.message : String(error),
+        };
+    }
+    state.hostedByAgent[agent.id] = hosted;
     state.hosted = state.hostedByAgent[agent.id];
     if (state.hosted.projectEndpoint && state.hosted.modelDeployment) {
         state.foundryConnection = {
@@ -775,7 +783,11 @@ async function hydrateFoundryConnectionFromDotEnv(state) {
 }
 
 async function hydrateFoundryConnection(state) {
+    await hydrateFoundryConnectionFromAzd(state);
     await hydrateFoundryConnectionFromDotEnv(state);
+    if (state.foundryConnection.projectEndpoint) {
+        await refreshHostedContext(state);
+    }
 }
 
 async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
@@ -861,6 +873,11 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         state.deployment.log.push(`\n$ azd env get-values\n`);
         const refresh = await refreshHostedContext(state);
         state.deployment.log.push(refresh.result.output || "(no output)\n");
+        if (state.hosted.lastRemoteDiscoveryStatus || state.hosted.lastRemoteDiscoveryMessage) {
+            state.deployment.log.push(
+                `Foundry discovery: ${state.hosted.lastRemoteDiscoveryStatus || "unknown"}${state.hosted.lastRemoteDiscoveryMessage ? ` — ${state.hosted.lastRemoteDiscoveryMessage}` : ""}\n`,
+            );
+        }
     }
     if (commandName === "provision" && result.code === 0) {
         state.deployment.log.push("\nDeploy prep complete. Deploy is ready.\n");
@@ -2000,10 +2017,10 @@ function renderHtml() {
         <input id="modelDeployment" aria-label="Model deployment" spellcheck="false" placeholder="gpt-6-astra" />
         <input id="toolboxName" aria-label="Toolbox name" spellcheck="false" placeholder="contract-toolbox" />
         <label class="checkbox-row"><input id="overwriteExisting" type="checkbox" /> Overwrite existing values</label>
-        <button id="connectFoundry" type="button">Create .env</button>
+        <button id="connectFoundry" type="button">Save project</button>
         <button id="checkHealth" type="button">Check readiness</button>
         <button id="startLocal" type="button">Start local</button>
-        <div class="project-hint">First run: paste a Foundry project URL to create or update only gitignored .env files. Existing values are preserved unless overwrite is checked. No secrets are requested or written.</div>
+        <div class="project-hint">Paste the Foundry project endpoint URL. The canvas writes only non-secret values into gitignored .env files; existing values are preserved unless overwrite is checked.</div>
       </div>
     </section>
     <main class="content">
@@ -2202,15 +2219,15 @@ function renderHtml() {
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk);
-        guideTitle.textContent = !connected ? "Bootstrap local .env" : "Make it work in Foundry";
+        guideTitle.textContent = !connected ? "Connect Foundry project" : "Make it work in Foundry";
         guideCopy.textContent = !connected
-          ? "Paste a Foundry project URL to write non-secret values into gitignored .env files."
+          ? "Save the project endpoint to discover deployed versions or deploy the first one."
           : needsProvision
           ? "Prepare this repo for hosted deployment into the connected Foundry project."
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? "Create .env" : needsProvision ? "Prepare deploy" : "Deploy";
+        primaryGuideAction.textContent = !connected ? "Save project" : needsProvision ? "Prepare deploy" : "Deploy";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = false;
@@ -2222,21 +2239,21 @@ function renderHtml() {
       } else {
         primaryGuideAction.hidden = connected && state.target !== "hosted" && localOk;
         testHostedAction.hidden = true;
-        guideTitle.textContent = !connected ? "Bootstrap local .env" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
+        guideTitle.textContent = !connected ? "Connect Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
         guideCopy.textContent = !connected
-          ? "Paste a Foundry project URL to write non-secret values into gitignored .env files."
+          ? "Save the project endpoint to discover deployed versions or deploy the first one."
           : state.target === "hosted"
           ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
           : localRunning
           ? "Local agent is starting. Check readiness, then send a prompt."
           : "Start the local agent, check readiness, then send a prompt.";
-        primaryGuideAction.textContent = !connected ? "Create .env" : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : localRunning ? "Check local" : "Start local";
+        primaryGuideAction.textContent = !connected ? "Save project" : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : localRunning ? "Check local" : "Start local";
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
       }
       if (!connected) settingsOpen = true;
       advancedRow.hidden = !settingsOpen;
       connectFoundryButton.hidden = false;
-      connectFoundryButton.textContent = connected ? "Update .env" : "Create .env";
+      connectFoundryButton.textContent = connected ? "Update project" : "Save project";
       checkHealthButton.hidden = !connected && activeView !== "chat";
       startLocalButton.hidden = !connected || activeView !== "chat" || state.target === "hosted";
       advancedToggle.hidden = false;
@@ -2304,9 +2321,14 @@ function renderHtml() {
       hostedAgent.textContent = (hosted.agentName || state.selectedAgent?.displayName || "minimal-agent") + " · " + (state.selectedAgent?.rootLabel || "");
       hostedVersion.textContent = hosted.version ? "Version " + hosted.version : "Not deployed";
       const lines = state.deployment?.log || [];
+      const discoveryLine = hosted.lastRemoteDiscoveryStatus
+        ? "Foundry discovery: " + hosted.lastRemoteDiscoveryStatus + (hosted.lastRemoteDiscoveryMessage ? " — " + hosted.lastRemoteDiscoveryMessage : "") + "\\n\\n"
+        : "";
       deployLog.textContent = lines.length ? lines.join("") : [
         "$ azd env get-values\\n",
-        "Discover the deployed Foundry agent version and protocol endpoints.\\n\\n",
+        discoveryLine,
+        "Save the Foundry project endpoint before deploying.\\n",
+        "Then discover the deployed Foundry agent version and protocol endpoints.\\n\\n",
         "$ azd deploy " + (state.selectedAgent?.serviceName || "minimal-agent") + " --no-prompt\\n",
         "Deploy changes to Foundry and register a new hosted version.\\n",
       ].join("");
@@ -2617,7 +2639,7 @@ function renderHtml() {
     async function connectFoundryFromInputs() {
       connectFoundryButton.disabled = true;
       primaryGuideAction.disabled = true;
-      setStatus("", "Creating gitignored .env files...");
+      setStatus("", "Saving Foundry project settings...");
       try {
         const payload = await request("/api/env/bootstrap", {
           method: "POST",
@@ -2631,7 +2653,7 @@ function renderHtml() {
         const state = payload.state;
         settingsOpen = false;
         renderSnapshot(state);
-        setStatus("ok", "Bootstrapped " + payload.result.written.length + " .env file" + (payload.result.written.length === 1 ? "" : "s") + ".");
+        setStatus("ok", "Saved project settings in " + payload.result.written.length + " .env file" + (payload.result.written.length === 1 ? "" : "s") + ".");
       } catch (error) {
         setStatus("fail", error.message);
       } finally {
@@ -3014,6 +3036,7 @@ async function handleRequest(req, res, state) {
             const body = await readBody(req);
             setSelectedAgent(state, body.agentId);
             state.lastHealth = null;
+            await refreshHostedContext(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -3023,12 +3046,16 @@ async function handleRequest(req, res, state) {
                 projectEndpoint: body.projectEndpoint,
                 modelDeployment: body.modelDeployment,
             });
+            await refreshHostedContext(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/env/bootstrap") {
             const body = await readBody(req);
             const result = await bootstrapLocalEnv(state, body);
+            if (state.foundryConnection.projectEndpoint) {
+                await refreshHostedContext(state);
+            }
             sendJson(res, 200, { result, state: stateSnapshot(state) });
             return;
         }
