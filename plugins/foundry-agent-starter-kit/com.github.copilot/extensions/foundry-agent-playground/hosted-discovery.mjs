@@ -1,4 +1,4 @@
-const FOUNDRY_API_VERSION = "v1";
+export const FOUNDRY_API_VERSION = "v1";
 
 function compact(values) {
     return values.filter((value) => value !== null && value !== undefined && String(value).trim());
@@ -157,6 +157,26 @@ function protocolFromUrl(value) {
     return null;
 }
 
+export function normalizeHostedResponsesEndpoint(endpoint) {
+    if (!endpoint) return null;
+    try {
+        const url = new URL(endpoint);
+        if (!/\/endpoint\/protocols\/openai\/responses$/i.test(url.pathname)) {
+            return String(endpoint).replace(/\/+$/, "");
+        }
+        url.pathname = url.pathname.replace(
+            /(\/agents\/[^/]+)\/versions\/[^/]+\/endpoint\/protocols\/openai\/responses$/i,
+            "$1/endpoint/protocols/openai/responses",
+        );
+        if (!url.searchParams.has("api-version")) {
+            url.searchParams.set("api-version", FOUNDRY_API_VERSION);
+        }
+        return url.toString();
+    } catch {
+        return String(endpoint).replace(/\/+$/, "");
+    }
+}
+
 function endpointFieldForProtocol(protocol) {
     const normalized = String(protocol || "").toLowerCase();
     if (normalized === "responses" || normalized === "openai") return "responsesEndpoint";
@@ -173,9 +193,10 @@ function isFoundryProtocolEndpoint(value, { projectEndpoint, agentName, version 
         const path = decodeURIComponent(endpoint.pathname).toLowerCase();
         const name = String(agentName).toLowerCase();
         const selectedVersion = String(version).toLowerCase();
+        if (endpoint.origin.toLowerCase() !== project.origin.toLowerCase()) return false;
         return (
-            endpoint.origin.toLowerCase() === project.origin.toLowerCase() &&
-            path.includes(`/agents/${name}/versions/${selectedVersion}/endpoint/protocols/`)
+            path.includes(`/agents/${name}/versions/${selectedVersion}/endpoint/protocols/`) ||
+            path.includes(`/agents/${name}/endpoint/protocols/`)
         );
     } catch {
         return false;
@@ -187,7 +208,7 @@ function collectEndpointUrls(value, options = {}, parentKey = "", depth = 0, out
     if (typeof value === "string") {
         const protocol = protocolFromKey(parentKey) || protocolFromUrl(value);
         if (protocol && !output[protocol] && /^https?:\/\//i.test(value) && isFoundryProtocolEndpoint(value, options)) {
-            output[protocol] = value.replace(/\/+$/, "");
+            output[protocol] = protocol === "responsesEndpoint" ? normalizeHostedResponsesEndpoint(value) : value.replace(/\/+$/, "");
         }
         return output;
     }
@@ -233,7 +254,7 @@ function constructProtocolEndpoint(projectEndpoint, agentName, version, protocol
     const encodedVersion = encodeURIComponent(version);
     const normalized = String(protocol || "").toLowerCase();
     if (normalized === "responses" || normalized === "openai") {
-        return `${base}/agents/${encodedAgent}/versions/${encodedVersion}/endpoint/protocols/openai/responses`;
+        return normalizeHostedResponsesEndpoint(`${base}/agents/${encodedAgent}/endpoint/protocols/openai/responses`);
     }
     if (normalized === "activity") {
         return `${base}/agents/${encodedAgent}/versions/${encodedVersion}/endpoint/protocols/activity`;
@@ -367,7 +388,7 @@ export function hostedContextFromAzd({ agent, currentHosted, foundryConnection, 
         agentName: values[`${prefix}_NAME`] || baseHosted.agentName,
         agentId: values[`${prefix}_ID`] || baseHosted.agentId,
         version: values[`${prefix}_VERSION`] || baseHosted.version,
-        responsesEndpoint: values[`${prefix}_RESPONSES_ENDPOINT`] || baseHosted.responsesEndpoint,
+        responsesEndpoint: normalizeHostedResponsesEndpoint(values[`${prefix}_RESPONSES_ENDPOINT`] || baseHosted.responsesEndpoint),
         activityEndpoint: values[`${prefix}_ACTIVITY_ENDPOINT`] || baseHosted.activityEndpoint,
         invocationsEndpoint: values[`${prefix}_INVOCATIONS_ENDPOINT`] || baseHosted.invocationsEndpoint,
         projectEndpoint,

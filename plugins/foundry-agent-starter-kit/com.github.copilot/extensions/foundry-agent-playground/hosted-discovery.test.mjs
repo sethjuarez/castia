@@ -68,7 +68,7 @@ test("remote Foundry discovery populates hosted context when azd env has no AGEN
                 name: "contract-expert",
                 active_version: "7",
                 agent_endpoints: {
-                    responses: `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/openai/responses`,
+                    responses: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
                     activity: `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/activity`,
                 },
             },
@@ -100,7 +100,7 @@ test("remote Foundry discovery populates hosted context when azd env has no AGEN
     assert.equal(result.hosted.agentName, "contract-expert");
     assert.equal(result.hosted.agentId, "agent-123");
     assert.equal(result.hosted.version, "7");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
     assert.equal(result.hosted.activityEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/activity`);
     assert.equal(result.hosted.invocationsEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/invocations`);
     assert.equal(result.hosted.lastRefreshSource, "foundry");
@@ -153,7 +153,7 @@ test("remote Foundry propagation lag preserves fresh azd deployment outputs", as
             AGENT_CONTRACT_EXPERT_NAME: "contract-expert",
             AGENT_CONTRACT_EXPERT_ID: "agent-from-azd",
             AGENT_CONTRACT_EXPERT_VERSION: "9",
-            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/versions/9/endpoint/protocols/openai/responses`,
+            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
         },
         exitCode: 0,
         now,
@@ -179,7 +179,7 @@ test("remote Foundry propagation lag preserves fresh azd deployment outputs", as
     assert.equal(result.ok, true);
     assert.equal(result.hosted.agentId, "agent-from-azd");
     assert.equal(result.hosted.version, "9");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/versions/9/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
     assert.equal(result.hosted.lastRefreshSource, "azd");
     assert.equal(result.hosted.lastRemoteDiscoveryStatus, "not_deployed_using_cache");
 });
@@ -193,7 +193,7 @@ test("switching Foundry projects clears cached deployment endpoints from the pre
             ...emptyHosted(selected),
             agentId: "old-agent",
             version: "6",
-            responsesEndpoint: `${oldProjectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/openai/responses`,
+            responsesEndpoint: `${oldProjectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
             activityEndpoint: `${oldProjectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/activity`,
             invocationsEndpoint: `${oldProjectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/invocations`,
             projectEndpoint: oldProjectEndpoint,
@@ -225,7 +225,7 @@ test("remote Foundry discovery error preserves azd deployment outputs as fallbac
             AGENT_CONTRACT_EXPERT_NAME: "contract-expert",
             AGENT_CONTRACT_EXPERT_ID: "agent-from-azd",
             AGENT_CONTRACT_EXPERT_VERSION: "9",
-            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/versions/9/endpoint/protocols/openai/responses`,
+            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
         },
         exitCode: 0,
         now,
@@ -249,7 +249,7 @@ test("remote Foundry discovery error preserves azd deployment outputs as fallbac
     assert.equal(result.ok, false);
     assert.equal(result.hosted.agentId, "agent-from-azd");
     assert.equal(result.hosted.version, "9");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/versions/9/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
     assert.equal(result.hosted.lastRefreshSource, "azd");
     assert.equal(result.hosted.lastRemoteDiscoveryStatus, "error");
     assert.match(result.hosted.lastRemoteDiscoveryMessage, /temporary Foundry outage/);
@@ -295,7 +295,7 @@ test("remote discovery ignores unrelated OpenAI URLs and derives versioned proto
     });
 
     assert.notEqual(result.hosted.responsesEndpoint, unrelatedOpenAiUrl);
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
 });
 
 test("remote Foundry discovery refreshes hosted state for the newly selected agent", async () => {
@@ -339,7 +339,7 @@ test("remote Foundry discovery refreshes hosted state for the newly selected age
     assert.equal(result.hosted.agentName, "policy-agent");
     assert.equal(result.hosted.agentId, "agent-policy");
     assert.equal(result.hosted.version, "4");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/policy-agent/versions/4/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/policy-agent/endpoint/protocols/openai/responses?api-version=v1`);
     assert.ok(fetchImpl.calls.some((url) => new URL(url).pathname.endsWith("/agents/policy-agent")));
 });
 
@@ -380,7 +380,7 @@ test("remote Foundry discovery can match a suffixed agent by cached agent id", a
     assert.equal(result.hosted.agentName, "contract-expert-dev");
     assert.equal(result.hosted.agentId, "agent-suffixed");
     assert.equal(result.hosted.version, "2");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert-dev/versions/2/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert-dev/endpoint/protocols/openai/responses?api-version=v1`);
 });
 
 test("remote Foundry discovery does not choose an ambiguous prefix agent match", async () => {
@@ -428,7 +428,7 @@ test("remote Foundry discovery advances from version n to n plus 1 after deploym
         values: {
             AGENT_CONTRACT_EXPERT_NAME: "contract-expert",
             AGENT_CONTRACT_EXPERT_VERSION: "5",
-            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/versions/5/endpoint/protocols/openai/responses`,
+            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
         },
         exitCode: 0,
         now,
@@ -470,7 +470,7 @@ test("remote Foundry discovery advances from version n to n plus 1 after deploym
     });
 
     assert.equal(result.hosted.version, "6");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
     assert.equal(result.hosted.activityEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/activity`);
     assert.equal(result.hosted.invocationsEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/invocations`);
     assert.equal(result.hosted.lastRefreshSource, "foundry");
@@ -485,7 +485,7 @@ test("remote Foundry stale version does not overwrite cached n plus 1 deployment
         values: {
             AGENT_CONTRACT_EXPERT_NAME: "contract-expert",
             AGENT_CONTRACT_EXPERT_VERSION: "6",
-            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/openai/responses`,
+            AGENT_CONTRACT_EXPERT_RESPONSES_ENDPOINT: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
         },
         exitCode: 0,
         now,
@@ -512,7 +512,7 @@ test("remote Foundry stale version does not overwrite cached n plus 1 deployment
     });
 
     assert.equal(result.hosted.version, "6");
-    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/openai/responses`);
+    assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
     assert.equal(result.hosted.lastRemoteDiscoveryStatus, "stale_remote_using_cache");
 });
 

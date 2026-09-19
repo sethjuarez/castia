@@ -6,7 +6,11 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } fro
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
-import { discoverHostedContextFromFoundry, hostedContextFromAzd } from "./hosted-discovery.mjs";
+import {
+    discoverHostedContextFromFoundry,
+    hostedContextFromAzd,
+    normalizeHostedResponsesEndpoint,
+} from "./hosted-discovery.mjs";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
 const DEFAULT_SERVICE_NAME = "minimal-agent";
@@ -129,7 +133,9 @@ function isFoundryResponsesEndpoint(endpoint) {
 }
 
 function responsesUrl(endpoint) {
-    if (isFoundryResponsesEndpoint(endpoint)) return endpoint;
+    if (isFoundryResponsesEndpoint(endpoint)) {
+        return normalizeHostedResponsesEndpoint(endpoint);
+    }
     return `${endpoint.replace(/\/+$/, "")}/responses`;
 }
 
