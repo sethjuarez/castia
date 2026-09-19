@@ -9,6 +9,7 @@ helpers let an app opt into Prompty as a runtime/eval harness while keeping
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
@@ -25,6 +26,7 @@ from castia.optimizing.config import AgentConfig, load_agent_config
 DEFAULT_FOUNDRY_CONNECTION = "foundry-default"
 DEFAULT_TOOLBOX_CONNECTION = "contract-toolbox"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
+_logger = logging.getLogger("agent")
 
 TokenProvider = Callable[[], str | Awaitable[str]]
 
@@ -84,23 +86,103 @@ def register_prompty_otel_tracing(
 
 
 def _prompty_otel_backend(*, tracer_name: str, provider: object, include_content: bool):
-    from prompty.tracing.otel import otel_tracer  # type: ignore[import-not-found]
+    import traceback
 
-    backend = otel_tracer(tracer_name=tracer_name, provider=provider)
+    from opentelemetry.trace import SpanKind, Status, StatusCode
+    from prompty.tracing.tracer import (  # type: ignore[import-not-found]
+        sanitize,
+        to_dict,
+    )
 
     @contextmanager
     def tracer(span_name: str):
-        with backend(f"prompty {span_name}") as add:
-            add("castia.prompty.span.name", span_name)
+        otel_tracer = provider.get_tracer(tracer_name)
+        with otel_tracer.start_as_current_span(
+            f"prompty {span_name}",
+            kind=SpanKind.INTERNAL,
+            attributes={"castia.prompty.span.name": span_name},
+        ) as span:
 
             def filtered_add(key: str, value: Any) -> None:
-                if not include_content and key in {"inputs", "result"}:
+                if key == "result" and isinstance(value, dict) and "exception" in value:
+                    _record_prompty_exception(span, value["exception"])
                     return
-                add(key, value)
+                if key in {"inputs", "result"} and not include_content:
+                    return
+                _set_prompty_span_attribute(span, key, sanitize(key, value), to_dict=to_dict)
+                if include_content:
+                    _map_prompty_content_attribute(span, key, value)
 
-            yield filtered_add
+            try:
+                yield filtered_add
+                span.set_status(Status(StatusCode.OK))
+            except Exception as exc:
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                span.record_exception(exc)
+                if exc.__traceback__:
+                    span.set_attribute(
+                        "exception.stacktrace",
+                        "".join(traceback.format_tb(exc.__traceback__)),
+                    )
+                raise
 
     return tracer
+
+
+def _set_prompty_span_attribute(span: Any, key: str, value: Any, *, to_dict: Callable[[Any], Any]) -> None:
+    try:
+        serialized = to_dict(value)
+        if isinstance(serialized, (dict, list)):
+            span.set_attribute(f"castia.prompty.{key}", _safe_json(serialized))
+        elif serialized is not None:
+            span.set_attribute(f"castia.prompty.{key}", str(serialized))
+    except Exception:
+        _logger.debug("Failed to set Prompty trace attribute", exc_info=True)
+
+
+def _record_prompty_exception(span: Any, exc_info: Mapping[str, Any]) -> None:
+    from opentelemetry.trace import Status, StatusCode
+
+    message = str(exc_info.get("message", ""))
+    span.set_status(Status(StatusCode.ERROR, message))
+    span.set_attribute("exception.type", str(exc_info.get("type", "")))
+    span.set_attribute("exception.message", message)
+    stacktrace = exc_info.get("traceback")
+    if stacktrace:
+        span.set_attribute(
+            "exception.stacktrace",
+            "".join(stacktrace) if isinstance(stacktrace, list) else str(stacktrace),
+        )
+
+
+def _map_prompty_content_attribute(span: Any, key: str, value: Any) -> None:
+    if key == "inputs":
+        text = _input_text(value)
+        if text:
+            span.set_attribute(
+                "gen_ai.input.messages",
+                _safe_json([{"role": "user", "content": text}]),
+            )
+    elif key == "result":
+        text = value if isinstance(value, str) else _safe_json(value)
+        if text:
+            span.set_attribute(
+                "gen_ai.output.messages",
+                _safe_json([{"role": "assistant", "content": text}]),
+            )
+
+
+def _input_text(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        text = value.get("text")
+        if isinstance(text, str):
+            return text
+        nested_inputs = value.get("inputs")
+        if isinstance(nested_inputs, Mapping):
+            nested_text = nested_inputs.get("text")
+            if isinstance(nested_text, str):
+                return nested_text
+    return None
 
 
 def register_foundry_default_connection(

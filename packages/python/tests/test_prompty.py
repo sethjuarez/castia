@@ -107,27 +107,12 @@ def test_prompty_runner_wraps_tool_functions_in_tool_spans(monkeypatch):
 
 def test_prompty_otel_registration_filters_content_without_opt_in(monkeypatch):
     calls = []
-    emitted = []
-
-    def fake_otel_tracer(*, tracer_name, provider):
-        def backend(name):
-            class Backend:
-                def __enter__(self):
-                    emitted.append(("span", name))
-                    return lambda key, value: emitted.append((key, value))
-
-                def __exit__(self, exc_type, exc, tb):
-                    return False
-
-            return Backend()
-
-        return backend
+    provider = FakeProvider()
 
     monkeypatch.delenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", raising=False)
     monkeypatch.setattr(prompty.Tracer, "add", lambda name, tracer: calls.append((name, tracer)))
-    monkeypatch.setattr("prompty.tracing.otel.otel_tracer", fake_otel_tracer)
 
-    assert register_prompty_otel_tracing() is True
+    assert register_prompty_otel_tracing(provider=provider) is True
     assert calls and calls[0][0] == "otel"
 
     with calls[0][1]("turn_async") as add:
@@ -135,34 +120,83 @@ def test_prompty_otel_registration_filters_content_without_opt_in(monkeypatch):
         add("inputs", {"text": "private prompt"})
         add("result", "private answer")
 
-    assert ("signature", "prompty.core.turn_async") in emitted
-    assert all(key not in {"inputs", "result"} for key, _value in emitted)
+    assert provider.spans[0].name == "prompty turn_async"
+    assert provider.spans[0].attributes["castia.prompty.signature"] == "prompty.core.turn_async"
+    assert "castia.prompty.inputs" not in provider.spans[0].attributes
+    assert "castia.prompty.result" not in provider.spans[0].attributes
+    assert "gen_ai.input.messages" not in provider.spans[0].attributes
+    assert "gen_ai.output.messages" not in provider.spans[0].attributes
 
     monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
     calls.clear()
-    assert register_prompty_otel_tracing() is True
+    provider = FakeProvider()
+    assert register_prompty_otel_tracing(provider=provider) is True
     with calls[0][1]("turn_async") as add:
         add("inputs", {"text": "recorded prompt"})
         add("result", "recorded answer")
-    assert ("inputs", {"text": "recorded prompt"}) in emitted
-    assert ("result", "recorded answer") in emitted
+    assert provider.spans[0].attributes["castia.prompty.inputs"] == '{"text": "recorded prompt"}'
+    assert provider.spans[0].attributes["castia.prompty.result"] == "recorded answer"
+    assert provider.spans[0].attributes["gen_ai.input.messages"] == '[{"role": "user", "content": "recorded prompt"}]'
+    assert provider.spans[0].attributes["gen_ai.output.messages"] == '[{"role": "assistant", "content": "recorded answer"}]'
+    assert provider.spans[0].status is not None
 
 
 def test_prompty_otel_registration_uses_active_provider(monkeypatch):
     calls = []
-
-    def fake_otel_tracer(*, tracer_name, provider):
-        calls.append(("otel_tracer", tracer_name, provider))
-        return "otel-backend"
+    provider = FakeProvider()
 
     monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
     monkeypatch.setattr(prompty.Tracer, "add", lambda name, tracer: calls.append(("add", name, tracer)))
-    monkeypatch.setattr("prompty.tracing.otel.otel_tracer", fake_otel_tracer)
 
-    assert register_prompty_otel_tracing(tracer_name="castia-prompty", provider="provider") is True
-    assert calls[0] == ("otel_tracer", "castia-prompty", "provider")
-    assert calls[1][0:2] == ("add", "otel")
-    assert callable(calls[1][2])
+    assert register_prompty_otel_tracing(tracer_name="castia-prompty", provider=provider) is True
+    assert calls[0][0:2] == ("add", "otel")
+    assert callable(calls[0][2])
+    with calls[0][2]("prepare_async"):
+        pass
+    assert provider.tracer_names == ["castia-prompty"]
+
+
+class FakeProvider:
+    def __init__(self):
+        self.spans = []
+        self.tracer_names = []
+
+    def get_tracer(self, name):
+        self.tracer_names.append(name)
+        return FakeTracer(self)
+
+
+class FakeTracer:
+    def __init__(self, provider):
+        self.provider = provider
+
+    def start_as_current_span(self, name, *, attributes=None, **_kwargs):
+        span = FakeSpan(name, attributes or {})
+        self.provider.spans.append(span)
+        return span
+
+
+class FakeSpan:
+    def __init__(self, name, attributes):
+        self.name = name
+        self.attributes = dict(attributes)
+        self.status = None
+        self.exceptions = []
+
+    def set_attribute(self, key, value):
+        self.attributes[key] = value
+
+    def set_status(self, status):
+        self.status = status
+
+    def record_exception(self, exc):
+        self.exceptions.append(exc)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_toolbox_mcp_client_lists_and_calls_tools_with_bearer():
