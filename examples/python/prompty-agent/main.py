@@ -70,6 +70,15 @@ def validate_startup() -> None:
 app.startup_check(validate_startup)
 
 
+def configure_prompty_tracing() -> None:
+    from castia.prompty import register_prompty_otel_tracing
+
+    register_prompty_otel_tracing()
+
+
+app.startup_check(configure_prompty_tracing)
+
+
 def allowed_tool_names() -> tuple[str, ...]:
     raw = os.environ.get("PROMPTY_TOOLBOX_ALLOWED_TOOLS", "")
     return tuple(name.strip() for name in raw.split(",") if name.strip())
@@ -137,12 +146,10 @@ def runner_provider():
         ToolboxMcpClient,
         configured_prompty_runner,
         register_foundry_default_connection,
-        register_prompty_otel_tracing,
         register_toolbox_function,
     )
 
     register_foundry_default_connection()
-    register_prompty_otel_tracing()
     register_local_functions()
 
     tool_names = allowed_tool_names()

@@ -55,23 +55,25 @@ def register_prompty_otel_tracing(
     enable_content_recording: bool | None = None,
     name: str = "otel",
     tracer_name: str = "prompty",
+    provider: object | None = None,
 ) -> bool:
     """Register Prompty's OTel backend only when content recording is enabled.
 
     Prompty's generic OTel tracer records structured ``inputs`` and ``result``
     attributes. To keep Castia privacy defaults aligned, this helper is a no-op
     unless explicitly enabled or the existing Foundry content-recording opt-in
-    environment variable is ``true``. The Microsoft OTel provider's Castia agent
-    identity span processor stamps the resulting spans when observability has
-    already been configured.
+    environment variable is ``true``. Call it after Castia observability has
+    been configured so the Prompty backend binds to the active Microsoft OTel
+    provider.
     """
     enabled = _content_recording_enabled() if enable_content_recording is None else enable_content_recording
     if not enabled:
         return False
     prompty = _prompty()
+    from opentelemetry import trace as otel_trace
     from prompty.tracing.otel import otel_tracer  # type: ignore[import-not-found]
 
-    prompty.Tracer.add(name, otel_tracer(tracer_name=tracer_name))
+    prompty.Tracer.add(name, otel_tracer(tracer_name=tracer_name, provider=provider or otel_trace.get_tracer_provider()))
     return True
 
 

@@ -31,9 +31,9 @@ export function isStartupReadinessPending(state) {
 }
 
 export function responseDetailsKey(turn, index = 0) {
+    if (turn?.createdAt) return "created:" + String(turn.createdAt) + ":" + String(turn.target || "local");
     const responseId = turn?.response?.id || turn?.response?.body?.id || turn?.id;
     if (responseId) return "response:" + String(responseId);
-    if (turn?.createdAt) return "created:" + String(turn.createdAt) + ":" + String(turn.target || "local");
     return "index:" + String(index);
 }
 
@@ -582,9 +582,36 @@ export const rendererClientScript = `
 
     function responseText(body) {
       if (body && typeof body === "object") {
-        return body.output_text ?? body.output ?? JSON.stringify(body, null, 2);
+        const direct = textOrEmpty(body.output_text);
+        if (direct) return direct;
+        const output = textFromResponsesOutput(body.output);
+        if (output) return output;
+        return body.output ?? JSON.stringify(body, null, 2);
       }
       return body ?? "";
+    }
+
+    function textOrEmpty(value) {
+      return typeof value === "string" && value.trim() ? value : "";
+    }
+
+    function textFromResponsesOutput(output) {
+      if (!Array.isArray(output)) return "";
+      const parts = [];
+      for (const item of output) {
+        if (!item || typeof item !== "object") continue;
+        if (typeof item.text === "string") {
+          parts.push(item.text);
+        }
+        const content = item.content;
+        if (!Array.isArray(content)) continue;
+        for (const part of content) {
+          if (part && typeof part === "object" && typeof part.text === "string") {
+            parts.push(part.text);
+          }
+        }
+      }
+      return parts.join("").trim();
     }
 
     function renderMarkdown(value) {

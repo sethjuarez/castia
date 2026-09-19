@@ -6,6 +6,7 @@ from castia.building import AgentTestHarness
 from main import (
     allowed_tool_names,
     app,
+    configure_prompty_tracing,
     local_agent_fact,
     local_function_tools,
     prompty_tool_definitions,
@@ -128,11 +129,6 @@ def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
         "register_foundry_default_connection",
         lambda: calls.append(("connection",)),
     )
-    monkeypatch.setattr(
-        castia.prompty,
-        "register_prompty_otel_tracing",
-        lambda: calls.append(("otel",)),
-    )
     monkeypatch.setattr(castia.prompty, "ToolboxMcpClient", FakeToolboxClient)
     monkeypatch.setattr(
         castia.prompty,
@@ -152,11 +148,26 @@ def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
 
     assert isinstance(runner_provider(), FakeRunner)
     assert calls[0] == ("connection",)
-    assert calls[1] == ("otel",)
-    assert calls[2][0:2] == ("toolbox", "lookup")
-    assert isinstance(calls[2][2], FakeToolboxClient)
-    assert calls[3][0:2] == ("runner", "gpt-5.5")
-    assert calls[3][2][0].name == "local_agent_fact"
-    assert calls[3][2][1:] == ["tool:lookup"]
-    assert set(calls[3][3]) == {"local_agent_fact", "lookup"}
-    assert calls[3][3]["local_agent_fact"] is local_agent_fact
+    assert calls[1][0:2] == ("toolbox", "lookup")
+    assert isinstance(calls[1][2], FakeToolboxClient)
+    assert calls[2][0:2] == ("runner", "gpt-5.5")
+    assert calls[2][2][0].name == "local_agent_fact"
+    assert calls[2][2][1:] == ["tool:lookup"]
+    assert set(calls[2][3]) == {"local_agent_fact", "lookup"}
+    assert calls[2][3]["local_agent_fact"] is local_agent_fact
+
+
+def test_configure_prompty_tracing_registers_at_startup(monkeypatch):
+    calls = []
+
+    import castia.prompty
+
+    monkeypatch.setattr(
+        castia.prompty,
+        "register_prompty_otel_tracing",
+        lambda: calls.append(("otel",)),
+    )
+
+    configure_prompty_tracing()
+
+    assert calls == [("otel",)]

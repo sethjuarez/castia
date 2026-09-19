@@ -89,6 +89,24 @@ def test_prompty_otel_registration_respects_content_recording_opt_in(monkeypatch
     assert calls and calls[0][0] == "otel"
 
 
+def test_prompty_otel_registration_uses_active_provider(monkeypatch):
+    calls = []
+
+    def fake_otel_tracer(*, tracer_name, provider):
+        calls.append(("otel_tracer", tracer_name, provider))
+        return "otel-backend"
+
+    monkeypatch.setenv("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "true")
+    monkeypatch.setattr(prompty.Tracer, "add", lambda name, tracer: calls.append(("add", name, tracer)))
+    monkeypatch.setattr("prompty.tracing.otel.otel_tracer", fake_otel_tracer)
+
+    assert register_prompty_otel_tracing(tracer_name="castia-prompty", provider="provider") is True
+    assert calls == [
+        ("otel_tracer", "castia-prompty", "provider"),
+        ("add", "otel", "otel-backend"),
+    ]
+
+
 def test_toolbox_mcp_client_lists_and_calls_tools_with_bearer():
     requests = []
 

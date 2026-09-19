@@ -240,3 +240,20 @@ test("responseText prefers Responses output_text", () => {
     assert.equal(responseText({ output_text: "hello", output: "fallback" }), "hello");
     assert.equal(responseText("plain"), "plain");
 });
+
+test("responseText falls back to nested Responses message content when output_text is blank", () => {
+    assert.equal(
+        responseText({
+            output_text: "",
+            output: [
+                {
+                    type: "message",
+                    content: [
+                        { type: "output_text", text: "nested answer" },
+                    ],
+                },
+            ],
+        }),
+        "nested answer",
+    );
+});

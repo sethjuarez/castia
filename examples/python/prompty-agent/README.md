@@ -32,6 +32,11 @@ Set-Location ..\..\examples\python\prompty-agent
 The tests monkeypatch the Prompty runner and toolbox client, so they do not
 require Azure credentials, model access, or network calls.
 
+This example's deployment files install Castia from the
+`sethjuarez/prompty-runtime-harness` branch while the Prompty runtime harness is
+pre-release. After a release includes `castia.prompty`, replace that direct Git
+dependency with the released `castia[optimize,prompty]` version.
+
 ## Local live run
 
 Copy `.env.example` to `.env`, fill `FOUNDRY_PROJECT_ENDPOINT` and
