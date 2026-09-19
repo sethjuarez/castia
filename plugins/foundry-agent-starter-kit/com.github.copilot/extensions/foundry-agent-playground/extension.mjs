@@ -2315,7 +2315,7 @@ function renderHtml() {
             </button>
             <div id="agentMenu" class="agent-menu" role="listbox" hidden></div>
           </div>
-          <button id="primaryGuideAction" class="primary" type="button">Choose project</button>
+          <button id="primaryGuideAction" class="primary" type="button">Start local</button>
           <button id="stopLocalAction" class="secondary danger" type="button" hidden>Stop local</button>
           <button id="testHostedAction" class="secondary" type="button" hidden>Test hosted</button>
           <button id="advancedToggle" class="secondary" type="button" hidden>Refresh .env</button>
@@ -2579,14 +2579,18 @@ function renderHtml() {
     }
 
     function latestDeployPhase(log) {
-      const text = (log || []).join("").replace(/\u001b\[[0-9;]*m/g, "");
-      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const text = (log || []).join("").replaceAll(String.fromCharCode(27), "");
+      const lines = text.replaceAll(String.fromCharCode(13), "").split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
       const line = [...lines].reverse().find((entry) =>
         /Deploying|Provisioning|Packaging|Uploading|Registering|Polling|Ensuring|Preparing|Checking|Updating|Waiting|Resolving|Done/i.test(entry)
       );
       if (!line) return "Starting deployment workflow";
-      const phase = line.match(/\((.*)\)\s*\[[^\]]+\]\s*$/)?.[1];
-      return phase || line.replace(/^\S+:\s*/, "").replace(/\s*\[[^\]]+\]\s*$/, "");
+      const phaseStart = line.indexOf("(");
+      const phaseEnd = line.lastIndexOf(") [");
+      if (phaseStart >= 0 && phaseEnd > phaseStart) return line.slice(phaseStart + 1, phaseEnd);
+      const withoutPrefix = line.includes(": ") ? line.slice(line.indexOf(": ") + 2) : line;
+      const bracketIndex = withoutPrefix.lastIndexOf(" [");
+      return bracketIndex >= 0 ? withoutPrefix.slice(0, bracketIndex) : withoutPrefix;
     }
 
     function renderDeployTicker(state) {
