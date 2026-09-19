@@ -10,6 +10,7 @@ app = Agent(name="prompty-agent")
 AGENT_ROOT = Path(__file__).parent
 CONFIG_ROOT = AGENT_ROOT / ".agent_configs"
 PROJECT_ENDPOINT = re.compile(r"^https://[^/\s]+/api/projects/[^/\s]+$")
+LOCAL_FACT_TOOL = "local_agent_fact"
 
 
 def load_local_env() -> None:
@@ -74,7 +75,42 @@ def allowed_tool_names() -> tuple[str, ...]:
     return tuple(name.strip() for name in raw.split(",") if name.strip())
 
 
-def prompty_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
+def local_agent_fact(topic: str = "prompty") -> str:
+    return (
+        f"Local function executed for '{topic}'. "
+        "This result came from Python code in examples/python/prompty-agent/main.py."
+    )
+
+
+def local_function_tools() -> list[object]:
+    import prompty
+
+    return [
+        prompty.FunctionTool(
+            name=LOCAL_FACT_TOOL,
+            description=(
+                "Return a deterministic local fact proving the Prompty loop can "
+                "call host-side Python functions."
+            ),
+            parameters=[
+                prompty.Property(
+                    name="topic",
+                    kind="string",
+                    description="Short topic label to include in the local function result.",
+                    required=False,
+                )
+            ],
+        )
+    ]
+
+
+def register_local_functions() -> None:
+    from prompty.core.tool_dispatch import register_tool
+
+    register_tool(LOCAL_FACT_TOOL, local_agent_fact)
+
+
+def toolbox_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
     if not tool_names:
         return []
     from castia.prompty import toolbox_prompty_tools
@@ -92,6 +128,10 @@ def prompty_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
     )
 
 
+def prompty_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
+    return [*local_function_tools(), *toolbox_tool_definitions(tool_names)]
+
+
 def runner_provider():
     from castia.prompty import (
         ToolboxMcpClient,
@@ -103,15 +143,21 @@ def runner_provider():
 
     register_foundry_default_connection()
     register_prompty_otel_tracing()
+    register_local_functions()
 
     tool_names = allowed_tool_names()
     tools = prompty_tool_definitions(tool_names)
+    tool_functions = {LOCAL_FACT_TOOL: local_agent_fact}
     if tool_names:
         client = ToolboxMcpClient()
         for name in tool_names:
-            register_toolbox_function(name, client=client)
+            tool_functions[name] = register_toolbox_function(name, client=client)
 
-    return configured_prompty_runner(resolved_agent_config(), tools=tools)
+    return configured_prompty_runner(
+        resolved_agent_config(),
+        tools=tools,
+        tool_functions=tool_functions,
+    )
 
 
 RunnerDependency = Depends(runner_provider)

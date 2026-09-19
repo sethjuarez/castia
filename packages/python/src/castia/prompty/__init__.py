@@ -162,13 +162,17 @@ class PromptyRunner:
     """Tiny async adapter around Prompty's top-level invocation pipeline."""
 
     agent: object
+    tool_functions: Mapping[str, Callable[..., Any]] | None = None
+    max_iterations: int = 10
 
     async def turn(self, text: str, **inputs: object) -> str:
         """Run one external user turn through Prompty and return text."""
         prompty = _prompty()
-        result = await prompty.invoke_async(
+        result = await prompty.turn_async(
             self.agent,
             {"text": text, **inputs},
+            tools=dict(self.tool_functions or {}),
+            max_iterations=self.max_iterations,
         )
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
 
@@ -179,6 +183,8 @@ def configured_prompty_runner(
     prompty_path: str | os.PathLike[str] | None = None,
     connection_name: str = DEFAULT_FOUNDRY_CONNECTION,
     tools: Sequence[object] = (),
+    tool_functions: Mapping[str, Callable[..., Any]] | None = None,
+    max_iterations: int = 10,
     enable_otel: bool | None = None,
 ) -> PromptyRunner:
     """Create an experimental Prompty-backed runner.
@@ -194,7 +200,11 @@ def configured_prompty_runner(
         if prompty_path is not None
         else prompty_agent_from_config(config, connection_name=connection_name, tools=tools)
     )
-    return PromptyRunner(agent)
+    return PromptyRunner(
+        agent,
+        tool_functions=dict(tool_functions or {}),
+        max_iterations=max_iterations,
+    )
 
 
 class ToolboxMcpClient:

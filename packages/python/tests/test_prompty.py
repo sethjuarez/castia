@@ -49,20 +49,31 @@ def test_configured_prompty_runner_wraps_in_memory_agent():
 
 
 def test_prompty_runner_turn_does_not_request_structured_cast(monkeypatch):
+    async def local_tool() -> str:
+        return "tool"
+
     runner = configured_prompty_runner(
         AgentConfig("gpt-4o", "Be brief.", "default"),
+        tool_functions={"local_tool": local_tool},
+        max_iterations=3,
         enable_otel=False,
     )
     calls = []
 
-    async def fake_invoke_async(agent, inputs, **kwargs):
+    async def fake_turn_async(agent, inputs, **kwargs):
         calls.append((agent, inputs, kwargs))
         return "plain text answer"
 
-    monkeypatch.setattr(prompty, "invoke_async", fake_invoke_async)
+    monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
 
     assert asyncio.run(runner.turn("hello")) == "plain text answer"
-    assert calls == [(runner.agent, {"text": "hello"}, {})]
+    assert calls == [
+        (
+            runner.agent,
+            {"text": "hello"},
+            {"tools": {"local_tool": local_tool}, "max_iterations": 3},
+        )
+    ]
 
 
 def test_prompty_otel_registration_respects_content_recording_opt_in(monkeypatch):

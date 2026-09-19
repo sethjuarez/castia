@@ -6,7 +6,10 @@ from castia.building import AgentTestHarness
 from main import (
     allowed_tool_names,
     app,
+    local_agent_fact,
+    local_function_tools,
     prompty_tool_definitions,
+    register_local_functions,
     runner_provider,
     validate_startup,
 )
@@ -63,11 +66,40 @@ def test_prompty_tool_definitions_use_castia_prompty_helpers(monkeypatch):
         fake_toolbox_prompty_tools,
     )
 
-    assert prompty_tool_definitions(("lookup",)) == ["tool:lookup"]
+    tools = prompty_tool_definitions(("lookup",))
+    assert tools[0].name == "local_agent_fact"
+    assert tools[1:] == ["tool:lookup"]
     names, descriptions, param_guidance = calls[0]
     assert names == ("lookup",)
     assert descriptions["lookup"] == "Call the configured Foundry toolbox MCP tool."
     assert param_guidance["lookup"]["query"] == "A concise search or retrieval query."
+
+
+def test_local_function_tool_dispatches_through_prompty_registry():
+    from prompty.core.tool_dispatch import clear_tools, dispatch_tool_async
+
+    async def check():
+        clear_tools()
+        register_local_functions()
+        result = await dispatch_tool_async(
+            "local_agent_fact",
+            '{"topic":"canvas"}',
+            {},
+            None,
+            {},
+        )
+        assert result == local_agent_fact("canvas")
+
+    asyncio.run(check())
+    clear_tools()
+
+
+def test_local_function_tool_definition_describes_parameter():
+    tool = local_function_tools()[0]
+
+    assert tool.kind == "function"
+    assert tool.name == "local_agent_fact"
+    assert tool.parameters[0].name == "topic"
 
 
 def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
@@ -79,8 +111,8 @@ def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
     class FakeRunner:
         pass
 
-    def fake_configured_runner(config, *, tools):
-        calls.append(("runner", config.model, tools))
+    def fake_configured_runner(config, *, tools, tool_functions):
+        calls.append(("runner", config.model, tools, tool_functions))
         return FakeRunner()
 
     import castia.prompty
@@ -123,4 +155,8 @@ def test_runner_provider_registers_prompty_and_optional_toolbox(monkeypatch):
     assert calls[1] == ("otel",)
     assert calls[2][0:2] == ("toolbox", "lookup")
     assert isinstance(calls[2][2], FakeToolboxClient)
-    assert calls[3] == ("runner", "gpt-5.5", ["tool:lookup"])
+    assert calls[3][0:2] == ("runner", "gpt-5.5")
+    assert calls[3][2][0].name == "local_agent_fact"
+    assert calls[3][2][1:] == ["tool:lookup"]
+    assert set(calls[3][3]) == {"local_agent_fact", "lookup"}
+    assert calls[3][3]["local_agent_fact"] is local_agent_fact

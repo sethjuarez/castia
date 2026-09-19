@@ -13,6 +13,7 @@ It demonstrates:
   `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`;
 - `configured_prompty_runner(config)` projecting `.agent_configs` into a
   Prompty-backed turn runner;
+- a local Python function tool named `local_agent_fact`;
 - optional host-side toolbox MCP execution through Prompty function tools.
 
 ## Offline validation
@@ -42,10 +43,12 @@ Invoke-RestMethod http://127.0.0.1:8088/readiness
 Invoke-RestMethod http://127.0.0.1:8088/responses `
   -Method Post `
   -ContentType "application/json" `
-  -Body '{"input":"Answer through the Prompty harness in one sentence."}'
+  -Body '{"input":"Use the local_agent_fact tool to prove local functions work."}'
 ```
 
-To expose toolbox-backed tools to the Prompty loop, set
+The `local_agent_fact` tool is always available and is registered in-process with
+Prompty's function-tool dispatcher. To expose toolbox-backed tools to the same
+Prompty loop, set
 `PROMPTY_TOOLBOX_ALLOWED_TOOLS` to a comma-separated list of MCP tool names, for
 example `contracts-kb-mcp___knowledge_base_retrieve`. The example resolves the
 toolbox endpoint through Castia's existing `TOOLBOX_*` environment conventions
