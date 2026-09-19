@@ -454,6 +454,12 @@ export const rendererClientScript = `
         transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
         return;
       }
+      const detailsScroll = new Map();
+      transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
+        const panel = pre.closest(".details-panel[data-details-key]");
+        if (panel?.dataset?.detailsKey) detailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
+      });
+      const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => {
         const detailsKey = responseDetailsKey(turn, index);
         const detailsPanelId = responseDetailsPanelId(detailsKey);
@@ -476,11 +482,16 @@ export const rendererClientScript = `
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
           '<button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsPanelId) + '">Details</button>' +
-          '<div id="' + escapeHtml(detailsPanelId) + '" class="details-panel" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
+          '<div id="' + escapeHtml(detailsPanelId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
       }).join("");
-      transcript.scrollTop = transcript.scrollHeight;
+      transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
+        const panel = pre.closest(".details-panel[data-details-key]");
+        const top = panel?.dataset?.detailsKey ? detailsScroll.get(panel.dataset.detailsKey) : undefined;
+        if (top !== undefined) pre.scrollTop = top;
+      });
+      if (shouldStickToBottom) transcript.scrollTop = transcript.scrollHeight;
     }
 
     transcript.addEventListener("click", (event) => {
