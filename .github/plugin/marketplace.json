@@ -12,7 +12,7 @@
     {
       "name": "foundry-agent-starter-kit",
       "description": "Build, test, and deploy Microsoft Foundry agents from Python repos.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Castia contributors",
         "url": "https://github.com/sethjuarez/castia"

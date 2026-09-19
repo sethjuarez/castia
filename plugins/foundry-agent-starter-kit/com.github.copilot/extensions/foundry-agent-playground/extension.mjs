@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { delimiter, dirname, join, relative } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:8088";
 const DEFAULT_SERVICE_NAME = "minimal-agent";
 const DEFAULT_AGENT_ROOT = join(process.cwd(), "examples", "python", "minimal-agent");
+const DEFAULT_MODEL_DEPLOYMENT = "gpt-6-astra";
+const DEFAULT_TOOLBOX_NAME = "contract-toolbox";
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
 const servers = new Map();
@@ -20,6 +22,16 @@ async function exists(path) {
     } catch {
         return false;
     }
+}
+
+function normalizeWorkspacePath(path) {
+    const workspace = resolve(process.cwd());
+    const resolved = isAbsolute(String(path || "")) ? resolve(path) : resolve(workspace, String(path || ""));
+    const rel = relative(workspace, resolved);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+        throw new CanvasError("path_outside_workspace", "Bootstrap targets must stay inside the current workspace.");
+    }
+    return { path: resolved, label: rel ? rel.split(/[\\/]+/).join("\\") : "." };
 }
 
 function normalizeEndpoint(value) {
@@ -203,6 +215,35 @@ function parseFoundryProjectEndpoint(endpoint) {
     }
 }
 
+function normalizeFoundryProjectEndpoint(endpoint) {
+    const normalized = String(endpoint || "").trim().replace(/\/+$/, "");
+    if (!/^https:\/\/[^/\s]+\/api\/projects\/[^/\s]+$/i.test(normalized)) {
+        throw new CanvasError("invalid_foundry_endpoint", "Enter a Foundry project endpoint ending in /api/projects/<project>.");
+    }
+    return normalized;
+}
+
+function bootstrapEnvValues({ projectEndpoint, modelDeployment, toolboxName }) {
+    const endpoint = normalizeFoundryProjectEndpoint(projectEndpoint);
+    const deployment = String(modelDeployment || DEFAULT_MODEL_DEPLOYMENT).trim() || DEFAULT_MODEL_DEPLOYMENT;
+    const toolbox = String(toolboxName || "").trim();
+    const parsed = parseFoundryProjectEndpoint(endpoint);
+    const values = {
+        FOUNDRY_PROJECT_ENDPOINT: endpoint,
+        AZURE_AI_PROJECT_ENDPOINT: endpoint,
+        AZURE_AIPROJECT_ENDPOINT: endpoint,
+        AZURE_AI_ACCOUNT_NAME: parsed.accountName || "",
+        AZURE_AI_PROJECT_NAME: parsed.projectName || "",
+        AZURE_AI_MODEL_DEPLOYMENT_NAME: deployment,
+    };
+    if (toolbox) {
+        const toolboxKey = toolbox.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase();
+        values.TOOLBOX_NAME = toolbox;
+        values[`TOOLBOX_${toolboxKey}_MCP_ENDPOINT`] = `${endpoint}/toolboxes/${encodeURIComponent(toolbox)}/mcp?api-version=v1`;
+    }
+    return Object.fromEntries(Object.entries(values).filter(([, value]) => value));
+}
+
 function subscriptionFromResourceId(id) {
     return String(id || "").match(/\/subscriptions\/([^/]+)/i)?.[1] || null;
 }
@@ -331,6 +372,179 @@ async function findAzureYamlFiles(dir, depth = 0) {
         }
     }
     return files;
+}
+
+async function findEnvExampleFiles(dir, depth = 0) {
+    if (depth > 6) return [];
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    const files = [];
+    for (const entry of entries) {
+        if (["node_modules", ".git", ".venv", "__pycache__", ".azure"].includes(entry.name)) continue;
+        const path = join(dir, entry.name);
+        if (entry.isFile() && entry.name === ".env.example") {
+            files.push(path);
+        } else if (entry.isDirectory()) {
+            files.push(...(await findEnvExampleFiles(path, depth + 1)));
+        }
+    }
+    return files;
+}
+
+function uniqueTargets(targets) {
+    const seen = new Set();
+    return targets.filter((target) => {
+        const key = target.path.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+async function commonEnvTargets(agents) {
+    const targets = [];
+    for (const file of await findEnvExampleFiles(process.cwd())) {
+        targets.push({ path: join(dirname(file), ".env"), source: ".env.example" });
+    }
+    for (const agent of agents || []) {
+        targets.push({ path: join(agent.root, ".env"), source: "discovered hosted agent" });
+    }
+    const modulesAgents = join(process.cwd(), "modules", "agents");
+    if (await exists(modulesAgents)) {
+        targets.push({ path: join(modulesAgents, ".env"), source: "modules\\agents layout" });
+        const entries = await readdir(modulesAgents, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith(".")) {
+                targets.push({ path: join(modulesAgents, entry.name, ".env"), source: "modules\\agents child" });
+            }
+        }
+    }
+    return uniqueTargets(targets)
+        .map((target) => ({ ...normalizeWorkspacePath(target.path), source: target.source }))
+        .filter((target) => basename(target.path) === ".env");
+}
+
+async function isGitIgnored(path) {
+    const { label } = normalizeWorkspacePath(path);
+    const result = await runCommand("git", ["check-ignore", "--quiet", "--", label], { cwd: process.cwd() });
+    return result.code === 0;
+}
+
+async function inspectEnvBootstrapTargets(agents, requestedTargets) {
+    const candidates = Array.isArray(requestedTargets) && requestedTargets.length
+        ? requestedTargets.map((target) => ({ ...normalizeWorkspacePath(target), source: "requested" }))
+        : await commonEnvTargets(agents);
+    const inspected = [];
+    for (const target of uniqueTargets(candidates)) {
+        const isEnv = basename(target.path) === ".env";
+        const ignored = isEnv ? await isGitIgnored(target.path) : false;
+        inspected.push({
+            path: target.path,
+            label: target.label,
+            source: target.source,
+            exists: await exists(target.path),
+            ignored,
+            writable: isEnv && ignored,
+            reason: !isEnv ? "Only .env files can be bootstrapped." : ignored ? null : "Not ignored by git.",
+        });
+    }
+    return inspected.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function mergeDotEnv(existing, values, overwrite) {
+    const touched = new Set();
+    const changed = [];
+    const preserved = [];
+    const lines = String(existing || "").split(/\r?\n/);
+    const output = lines.map((line) => {
+        const match = line.match(/^([A-Z0-9_]+)\s*=/);
+        if (!match || !(match[1] in values)) return line;
+        const key = match[1];
+        touched.add(key);
+        const current = line.slice(line.indexOf("=") + 1).trim();
+        if (current && !overwrite) {
+            preserved.push(key);
+            return line;
+        }
+        changed.push(key);
+        return `${key}=${values[key]}`;
+    });
+    for (const [key, value] of Object.entries(values)) {
+        if (touched.has(key)) continue;
+        output.push(`${key}=${value}`);
+        changed.push(key);
+    }
+    while (output.length && output[0] === "") output.shift();
+    while (output.length && output.at(-1) === "") output.pop();
+    return { content: `${output.join("\n")}\n`, changed, preserved };
+}
+
+async function bootstrapLocalEnv(state, input = {}) {
+    const values = bootstrapEnvValues({
+        projectEndpoint: input.projectEndpoint,
+        modelDeployment: input.modelDeployment,
+        toolboxName: input.toolboxName === undefined ? DEFAULT_TOOLBOX_NAME : input.toolboxName,
+    });
+    const targets = await inspectEnvBootstrapTargets(state.agents, input.targetPaths);
+    const writable = targets.filter((target) => target.writable);
+    if (!writable.length && !input.dryRun) {
+        throw new CanvasError("no_ignored_env_targets", "No gitignored .env targets were discovered. Add .env to .gitignore or pass ignored .env targetPaths.");
+    }
+    const overwrite = Boolean(input.overwrite);
+    const written = [];
+    const skipped = targets.filter((target) => !target.writable);
+    if (!input.dryRun) {
+        for (const target of writable) {
+            const existing = await readFile(target.path, "utf8").catch(() => "");
+            const merged = mergeDotEnv(existing, values, overwrite);
+            await mkdir(dirname(target.path), { recursive: true });
+            await writeFile(target.path, merged.content, "utf8");
+            written.push({
+                path: target.label,
+                existed: target.exists,
+                changedKeys: merged.changed,
+                preservedKeys: merged.preserved,
+            });
+        }
+        state.foundryConnection = {
+            ...state.foundryConnection,
+            projectEndpoint: values.FOUNDRY_PROJECT_ENDPOINT,
+            modelDeployment: values.AZURE_AI_MODEL_DEPLOYMENT_NAME,
+            accountName: values.AZURE_AI_ACCOUNT_NAME || null,
+            projectName: values.AZURE_AI_PROJECT_NAME || null,
+            connectedAt: new Date().toISOString(),
+            lastConnectExitCode: 0,
+            lastDiscoveryMessage: `Bootstrapped ${written.length} gitignored .env file${written.length === 1 ? "" : "s"}.`,
+        };
+        const agent = selectedAgent(state);
+        const hosted = state.hostedByAgent[agent.id] || emptyHostedContext(agent);
+        state.hostedByAgent[agent.id] = {
+            ...hosted,
+            projectEndpoint: values.FOUNDRY_PROJECT_ENDPOINT,
+            modelDeployment: values.AZURE_AI_MODEL_DEPLOYMENT_NAME,
+        };
+        state.hosted = state.hostedByAgent[agent.id];
+    }
+    state.envBootstrap = {
+        previewedAt: new Date().toISOString(),
+        dryRun: Boolean(input.dryRun),
+        overwrite,
+        values,
+        targets: targets.map((target) => ({
+            path: target.label,
+            source: target.source,
+            exists: target.exists,
+            ignored: target.ignored,
+            writable: target.writable,
+            reason: target.reason,
+        })),
+        written,
+        skipped: skipped.map((target) => ({
+            path: target.label,
+            source: target.source,
+            reason: target.reason,
+        })),
+    };
+    return state.envBootstrap;
 }
 
 async function discoverAgents() {
@@ -658,11 +872,8 @@ async function hydrateFoundryConnection(state) {
 
 async function connectFoundry(state, { projectEndpoint, modelDeployment }) {
     const agent = selectedAgent(state);
-    const endpoint = String(projectEndpoint || "").trim().replace(/\/+$/, "");
+    const endpoint = normalizeFoundryProjectEndpoint(projectEndpoint);
     const deployment = String(modelDeployment || "").trim();
-    if (!/^https:\/\/[^/\s]+\/api\/projects\/[^/\s]+$/i.test(endpoint)) {
-        throw new CanvasError("invalid_foundry_endpoint", "Enter a Foundry project endpoint ending in /api/projects/<project>.");
-    }
     if (!deployment) {
         throw new CanvasError("model_deployment_required", "Enter the model deployment name.");
     }
@@ -948,6 +1159,7 @@ function stateSnapshot(state) {
         selectedAgentId: state.selectedAgentId,
         selectedAgent: agent,
         foundryConnection: state.foundryConnection,
+        envBootstrap: state.envBootstrap,
         hosted: state.hosted,
         deployment: state.deployment,
         localEnv: state.localEnv,
@@ -1116,6 +1328,18 @@ function renderHtml() {
       outline: 2px solid var(--cp-accent);
       outline-offset: 2px;
     }
+    .checkbox-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .checkbox-row input {
+      width: auto;
+    }
     code, pre {
       font-family: var(--font-mono, Consolas, "Courier New", Courier, monospace);
       font-size: var(--text-code-inline, 12px);
@@ -1271,7 +1495,7 @@ function renderHtml() {
     }
     .advanced-row {
       display: grid;
-      grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(110px, 0.5fr) auto auto;
+      grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(120px, 0.6fr) minmax(130px, 0.6fr) auto auto auto;
       gap: 8px;
       align-items: center;
     }
@@ -1865,11 +2089,13 @@ function renderHtml() {
       <div id="advancedRow" class="advanced-row" hidden>
         <input id="endpoint" aria-label="Agent endpoint" spellcheck="false" placeholder="http://127.0.0.1:8088" />
         <input id="foundryEndpoint" aria-label="Foundry project endpoint" spellcheck="false" placeholder="https://.../api/projects/..." />
-        <input id="modelDeployment" aria-label="Model deployment" spellcheck="false" placeholder="gpt-5.5" />
-        <button id="connectFoundry" type="button" hidden>Use project</button>
+        <input id="modelDeployment" aria-label="Model deployment" spellcheck="false" placeholder="gpt-6-astra" />
+        <input id="toolboxName" aria-label="Toolbox name" spellcheck="false" placeholder="contract-toolbox" />
+        <label class="checkbox-row"><input id="overwriteExisting" type="checkbox" /> Overwrite existing values</label>
+        <button id="connectFoundry" type="button">Create .env</button>
         <button id="checkHealth" type="button">Check readiness</button>
         <button id="startLocal" type="button">Start local</button>
-        <div class="project-hint">Missing config? Copy .env.example to .env in the agent folder, fill FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh.</div>
+        <div class="project-hint">First run: paste a Foundry project URL to create or update only gitignored .env files. Existing values are preserved unless overwrite is checked. No secrets are requested or written.</div>
       </div>
     </section>
     <main class="content">
@@ -1961,6 +2187,8 @@ function renderHtml() {
     const endpointInput = document.getElementById("endpoint");
     const foundryEndpointInput = document.getElementById("foundryEndpoint");
     const modelDeploymentInput = document.getElementById("modelDeployment");
+    const toolboxNameInput = document.getElementById("toolboxName");
+    const overwriteExistingInput = document.getElementById("overwriteExisting");
     const connectFoundryButton = document.getElementById("connectFoundry");
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
@@ -2023,8 +2251,9 @@ function renderHtml() {
       renderAgentPicker(state);
       endpointInput.value = state.target === "hosted" ? (state.hosted.responsesEndpoint || "") : state.localEndpoint;
       endpointInput.placeholder = state.target === "hosted" ? "Foundry Responses endpoint not discovered yet" : "http://127.0.0.1:8088";
-      foundryEndpointInput.value = state.foundryConnection?.projectEndpoint || state.hosted?.projectEndpoint || "";
-      modelDeploymentInput.value = state.foundryConnection?.modelDeployment || state.hosted?.modelDeployment || "";
+      if (document.activeElement !== foundryEndpointInput) foundryEndpointInput.value = state.foundryConnection?.projectEndpoint || state.hosted?.projectEndpoint || foundryEndpointInput.value || "";
+      if (document.activeElement !== modelDeploymentInput) modelDeploymentInput.value = state.foundryConnection?.modelDeployment || state.hosted?.modelDeployment || modelDeploymentInput.value || "gpt-6-astra";
+      if (document.activeElement !== toolboxNameInput) toolboxNameInput.value = toolboxNameInput.value || "contract-toolbox";
       turnCount.textContent = state.stats.total + " turns";
       passCount.textContent = state.stats.completed + " pass";
       failCount.textContent = state.stats.failed + " fail";
@@ -2065,15 +2294,15 @@ function renderHtml() {
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk);
-        guideTitle.textContent = !connected ? "Fill .env first" : "Make it work in Foundry";
+        guideTitle.textContent = !connected ? "Bootstrap local .env" : "Make it work in Foundry";
         guideCopy.textContent = !connected
-          ? "Copy .env.example to .env, add FOUNDRY_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME, then refresh."
+          ? "Paste a Foundry project URL to write non-secret values into gitignored .env files."
           : needsProvision
           ? "Prepare this repo for hosted deployment into the connected Foundry project."
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : "Deploy";
+        primaryGuideAction.textContent = !connected ? "Create .env" : needsProvision ? "Prepare deploy" : "Deploy";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = false;
@@ -2085,21 +2314,25 @@ function renderHtml() {
       } else {
         primaryGuideAction.hidden = connected && state.target !== "hosted" && localOk;
         testHostedAction.hidden = true;
-        guideTitle.textContent = !connected ? "Fill .env first" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
+        guideTitle.textContent = !connected ? "Bootstrap local .env" : state.target === "hosted" ? "Test it in Foundry" : "Make it work locally";
         guideCopy.textContent = !connected
-          ? "Copy .env.example to .env in the selected agent folder, add the Foundry endpoint and model deployment, then refresh."
+          ? "Paste a Foundry project URL to write non-secret values into gitignored .env files."
           : state.target === "hosted"
           ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
           : localRunning
           ? "Local agent is starting. Check readiness, then send a prompt."
           : "Start the local agent, check readiness, then send a prompt.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : localRunning ? "Check local" : "Start local";
+        primaryGuideAction.textContent = !connected ? "Create .env" : state.target === "hosted" ? "Deploy" : localOk ? "Send prompt" : localRunning ? "Check local" : "Start local";
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
       }
-      settingsOpen = false;
-      advancedRow.hidden = true;
-      advancedToggle.hidden = true;
-      advancedToggle.textContent = "Refresh .env";
+      if (!connected) settingsOpen = true;
+      advancedRow.hidden = !settingsOpen;
+      connectFoundryButton.hidden = false;
+      connectFoundryButton.textContent = connected ? "Update .env" : "Create .env";
+      checkHealthButton.hidden = !connected && activeView !== "chat";
+      startLocalButton.hidden = !connected || activeView !== "chat" || state.target === "hosted";
+      advancedToggle.hidden = false;
+      advancedToggle.textContent = settingsOpen ? "Hide project" : "Project settings";
     }
 
     function renderAgentPicker(state) {
@@ -2476,18 +2709,21 @@ function renderHtml() {
     async function connectFoundryFromInputs() {
       connectFoundryButton.disabled = true;
       primaryGuideAction.disabled = true;
-      setStatus("", "Using Foundry project...");
+      setStatus("", "Creating gitignored .env files...");
       try {
-        const state = await request("/api/foundry/connect", {
+        const payload = await request("/api/env/bootstrap", {
           method: "POST",
           body: JSON.stringify({
             projectEndpoint: foundryEndpointInput.value,
             modelDeployment: modelDeploymentInput.value,
+            toolboxName: toolboxNameInput.value,
+            overwrite: overwriteExistingInput.checked,
           }),
         });
+        const state = payload.state;
         settingsOpen = false;
         renderSnapshot(state);
-        setStatus("ok", "Foundry project ready.");
+        setStatus("ok", "Bootstrapped " + payload.result.written.length + " .env file" + (payload.result.written.length === 1 ? "" : "s") + ".");
       } catch (error) {
         setStatus("fail", error.message);
       } finally {
@@ -2678,7 +2914,7 @@ function renderHtml() {
 
     primaryGuideAction.addEventListener("click", () => {
       if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment)) {
-        void refreshConfigFromDisk();
+        void connectFoundryFromInputs();
         return;
       }
       if (activeView === "deploy") {
@@ -2882,6 +3118,12 @@ async function handleRequest(req, res, state) {
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
+        if (req.method === "POST" && url.pathname === "/api/env/bootstrap") {
+            const body = await readBody(req);
+            const result = await bootstrapLocalEnv(state, body);
+            sendJson(res, 200, { result, state: stateSnapshot(state) });
+            return;
+        }
         if (req.method === "POST" && url.pathname === "/api/target") {
             const body = await readBody(req);
             if (!["local", "hosted"].includes(body.target)) {
@@ -3045,6 +3287,7 @@ async function startServer(ctx) {
         hostedByAgent: { [selectedAgentId]: hosted },
         hosted,
         foundryConnection: emptyFoundryConnection(),
+        envBootstrap: null,
         deployment: {
             running: false,
             exitCode: null,
@@ -3127,6 +3370,47 @@ await joinSession({
                         const state = instanceState(ctx);
                         state.lastHealth = await checkReadiness(activeEndpoint(state));
                         return state.lastHealth;
+                    },
+                },
+                {
+                    name: "bootstrap_env",
+                    description: "Create or update gitignored local .env files with non-secret Foundry project values derived from a project URL.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            projectEndpoint: {
+                                type: "string",
+                                description: "Foundry project URL ending in /api/projects/<project>.",
+                            },
+                            modelDeployment: {
+                                type: "string",
+                                description: "Azure AI model deployment name. Defaults to gpt-6-astra.",
+                            },
+                            toolboxName: {
+                                type: "string",
+                                description: "Optional toolbox name. When provided, writes TOOLBOX_NAME and its MCP endpoint. Defaults to contract-toolbox.",
+                            },
+                            overwrite: {
+                                type: "boolean",
+                                description: "Overwrite existing values in .env files. Defaults to false, preserving existing values.",
+                            },
+                            dryRun: {
+                                type: "boolean",
+                                description: "Preview discovered targets and derived values without writing files.",
+                            },
+                            targetPaths: {
+                                type: "array",
+                                description: "Optional workspace-relative .env files to write. Each must be gitignored.",
+                                items: { type: "string" },
+                            },
+                        },
+                        required: ["projectEndpoint"],
+                        additionalProperties: false,
+                    },
+                    handler: async (ctx) => {
+                        const state = instanceState(ctx);
+                        const result = await bootstrapLocalEnv(state, ctx.input || {});
+                        return { result, state: stateSnapshot(state) };
                     },
                 },
                 {
