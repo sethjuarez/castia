@@ -113,12 +113,13 @@ Local is complete when the agent answers.
 
 Before deploying, verify that the selected agent boots with the same dependency
 surface the hosted container will install. For scaffolded Castia agents,
-`pyproject.toml` is canonical. `package = false` apps should not carry a runtime
-`requirements.txt` containing `-e .`; current Foundry remote build resolves
-dependencies from `pyproject.toml`. If a requirements file is kept for external
-compatibility, it must list runtime dependencies directly. If agent code uses a
-new local SDK API, either publish/bump the Castia dependency pinned in
-`pyproject.toml` or add a backwards-compatible fallback before deploy.
+`pyproject.toml` is canonical. Foundry hosted code deploy currently uses Oryx,
+so `package = false` apps should carry a runtime `requirements.txt`
+compatibility entrypoint with direct runtime dependencies. Never use `-e .`;
+editable install asks pip to build/install the non-package app during remote
+build. If agent code uses a new local SDK API, either publish/bump the Castia
+dependency pinned in `pyproject.toml` and `requirements.txt`, or add a
+backwards-compatible fallback before deploy.
 
 Start with `azd deploy <service> --no-prompt` from the selected agent folder.
 

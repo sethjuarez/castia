@@ -29,6 +29,7 @@ Create this minimum file set under the agent root:
 <agent-root>\
   main.py
   pyproject.toml
+  requirements.txt
   .env.example
   .gitignore
   azure.yaml
@@ -64,9 +65,11 @@ if __name__ == "__main__":
     app.run()
 ```
 
-Use `pyproject.toml` as the canonical dependency source. Current Foundry remote
-build resolves this `package = false` app directly from `pyproject.toml`; do not
-add a runtime `requirements.txt` containing `-e .`.
+Use `pyproject.toml` as the canonical dependency source. Foundry hosted code
+deploy currently uses Oryx, so keep `requirements.txt` as a compatibility
+entrypoint that mirrors runtime dependencies directly. For `package = false`
+apps, never use `-e .` because editable install asks pip to build/install the
+non-package app during remote build.
 
 ```toml
 [project]
@@ -74,7 +77,7 @@ name = "starter-castia-agent"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "castia[optimize]==0.6.0",
+    "castia[optimize]==0.7.6",
     "python-dotenv>=1.0.1",
 ]
 
@@ -92,8 +95,11 @@ py-modules = ["main"]
 package = false
 ```
 
-If a `requirements.txt` is present for compatibility with other tooling, mirror
-the runtime dependencies explicitly instead of using `-e .`.
+```text
+# requirements.txt
+castia[optimize]==0.7.6
+python-dotenv>=1.0.1
+```
 
 Use this `.env.example`:
 

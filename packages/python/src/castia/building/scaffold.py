@@ -193,6 +193,14 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "[tool.uv]\n"
             "package = false\n"
         ),
+        "requirements.txt": (
+            f"{requirement}\n"
+            "python-dotenv>=1.0.1\n"
+        ),
+        "requirements-dev.txt": (
+            "-r requirements.txt\n"
+            "pytest>=8\n"
+        ),
         "Dockerfile": (
             "# Optional container alternative; azure.yaml defaults to remote code build.\n"
             "FROM python:3.13-slim\nWORKDIR /app\n"
@@ -248,12 +256,12 @@ def test_startup_validation_loads_env_and_instructions(tmp_path, monkeypatch):
             "variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local dev or "
             "in host-side process/azd context for Castia checks; do not declare it "
             "under `services.<agent>.env` in `azure.yaml`.\n\n"
-            "`pyproject.toml` is the canonical dependency source. For this "
-            "`[tool.uv] package = false` app, do not add a runtime "
-            "`requirements.txt` containing `-e .`; current Foundry remote build "
-            "resolves dependencies from `pyproject.toml` directly. If a "
-            "`requirements.txt` is required for compatibility with other tooling, "
-            "mirror the runtime dependencies explicitly instead of using `-e .`.\n\n"
+            "`pyproject.toml` is the canonical dependency source. Foundry hosted "
+            "code deploy currently uses Oryx, so this scaffold also writes a "
+            "`requirements.txt` compatibility entrypoint that mirrors runtime "
+            "dependencies directly. For this `[tool.uv] package = false` app, "
+            "never use a runtime `requirements.txt` containing `-e .`; editable "
+            "installs try to build the non-package app and fail in remote build.\n\n"
             "The default manifest uses Python 3.13 with remote dependency build; no "
             "local Docker/ACR setup is needed for this mode. The included Dockerfile is "
             "an explicit alternative; see the commented manifest instructions.\n"

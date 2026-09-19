@@ -34,11 +34,13 @@ Run `python -m castia build check --deployment` after exporting the same nonsecr
 
 Foundry hosted agents reserve all `FOUNDRY_*` and `AGENT_*` container variables. Keep `FOUNDRY_PROJECT_ENDPOINT` in `.env` for local dev or in host-side process/azd context for Castia checks; do not declare it under `services.<agent>.env` in `azure.yaml`.
 
-`pyproject.toml` is the canonical dependency source. `requirements.txt` exists
-only as the Foundry remote-build entrypoint and contains `-e .` so pip installs
-this local project and reads the dependency list from `pyproject.toml`. Before
-deploying, make sure `main.py` boots with the published Castia dependency pinned
-in `pyproject.toml`; if local code uses a newer SDK API, publish and bump that
+`pyproject.toml` is the canonical dependency source. Foundry hosted code deploy
+currently uses Oryx, so `requirements.txt` is also present as a compatibility
+entrypoint and mirrors runtime dependencies directly. For this `[tool.uv]
+package = false` app, never use `-e .`; editable install asks pip to build the
+non-package app during remote build. Before deploying, make sure `main.py` boots
+with the published Castia dependency pinned in both `pyproject.toml` and
+`requirements.txt`; if local code uses a newer SDK API, publish and bump that
 pin or keep the code backwards compatible with the pinned version.
 
 The default manifest uses Python 3.13 with remote dependency build; no local Docker/ACR setup is needed for this mode. The included Dockerfile is an explicit alternative; see the commented manifest instructions.

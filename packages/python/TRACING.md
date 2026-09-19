@@ -11,6 +11,38 @@ Written after a bug bash where we watched the framework/HTTP badges flip on thei
 own and spent a long time blaming our own code before finding the real cause: a
 non-deterministic query in the Foundry Traces portal.
 
+## Streaming transport spans
+
+Castia optimizes hosted traces for semantic readability. The Microsoft
+OpenTelemetry distro instruments FastAPI through ASGI middleware; by default
+that middleware can create a child span for every ASGI `send` and `receive`
+event. A streaming `POST /responses` call may therefore produce many
+zero-duration `POST /responses http send` children that describe chunks, plus
+`POST /responses http receive` children that describe framework event handling
+rather than bounded agent work.
+
+Castia passes `exclude_spans=["send", "receive"]` to the FastAPI instrumentation by
+default. The normal trace shape remains:
+
+- one server/request span for `POST /responses`;
+- semantic Castia spans such as `invoke_agent`;
+- Foundry GenAI spans such as `chat {model}`;
+- tool and retrieval spans.
+
+Prompt and response text is intentionally absent unless content recording is
+enabled. With content recording on, the standard Foundry instrumentor records
+message payloads on the `chat {model}` span as `gen_ai.input.messages` and
+`gen_ai.output.messages`; without it, the trace still carries timing, identity,
+token, and operation metadata.
+
+Set `CASTIA_OTEL_TRACE_ASGI_INTERNAL=true` only when debugging ASGI transport
+behavior and you deliberately want per-event spans back. The older
+`CASTIA_OTEL_TRACE_ASGI_SEND=true` flag is still accepted as a compatibility
+alias. Do not record streamed chunk text by default. Castia records aggregate
+transport attributes on the request span when available instead:
+`stream.chunk_count`, `stream.first_chunk_ms`, `stream.last_chunk_ms`, and
+`stream.bytes_sent`.
+
 ## Where the labels come from
 
 Two different things feed the badges, and only one of them is under our control.

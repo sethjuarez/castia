@@ -251,8 +251,10 @@ keys off) but does **not** record the prompt/response **content** onto them.
 
 Recording content is what makes an agent's traces *evaluable* — trace-based
 evaluators read the input/output text from the GenAI spans, which is only present
-when content recording is enabled. Turn it on deliberately via
-`configure_observability`:
+when content recording is enabled. When enabled, the standard Foundry GenAI
+instrumentor records content on the `chat {model}` span as
+`gen_ai.input.messages` and `gen_ai.output.messages`. Turn it on deliberately
+via `configure_observability`:
 
 ```python
 from castia.observe.configuration import configure_observability
@@ -268,9 +270,22 @@ default**:
 | --- | --- | --- | --- |
 | Content recording | `enable_content_recording` | `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED` | off |
 | GenAI tracing | `enable_genai_tracing` | `AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING` | on |
+| ASGI internal event span tracing | — | `CASTIA_OTEL_TRACE_ASGI_INTERNAL` | off |
 
 Passing nothing preserves the default behavior. Telemetry setup is best-effort:
 a failure is logged, never raised, so it can't break startup or a turn.
+
+Castia suppresses OpenTelemetry ASGI internal event child spans (`send` and
+`receive`) by default. Streaming Responses can otherwise emit one near-zero-
+duration `POST /responses http send` span per chunk, and `receive` spans describe
+framework event handling rather than agent work. Server/request spans plus
+semantic GenAI/tool spans are still recorded.
+Castia also records aggregate stream transport attributes (`stream.chunk_count`,
+`stream.first_chunk_ms`, `stream.last_chunk_ms`, `stream.bytes_sent`) on the
+request span when available, without recording streamed text.
+Set `CASTIA_OTEL_TRACE_ASGI_INTERNAL=true` only when debugging the ASGI transport
+itself. `CASTIA_OTEL_TRACE_ASGI_SEND=true` remains accepted as a compatibility
+alias.
 
 > **Security caveat:** enabling content recording writes prompt and response
 > **text** to Application Insights. Only enable it where storing that content is

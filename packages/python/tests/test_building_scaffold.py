@@ -27,7 +27,7 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     report = scaffold_project(root, name="test-agent", model="gpt-4o")
     assert report.app_target == "main:app"
     assert report.to_dict()["provisioned"] is False
-    assert len(report.files) == 13
+    assert len(report.files) == 15
     for filename in root.rglob("*.py"):
         compile(filename.read_text(encoding="utf-8"), str(filename), "exec")
     module = load_main(root)
@@ -43,8 +43,19 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert 'requires = ["setuptools>=68"]' in pyproject
     assert 'py-modules = ["main"]' in pyproject
     assert "package = false" in pyproject
-    assert not (root / "requirements.txt").exists()
-    assert not (root / "requirements-dev.txt").exists()
+    castia_requirement = next(
+        line.strip().rstrip(",").strip('"')
+        for line in pyproject.splitlines()
+        if "castia[optimize]" in line
+    )
+    assert (root / "requirements.txt").read_text() == (
+        f"{castia_requirement}\n"
+        "python-dotenv>=1.0.1\n"
+    )
+    assert (root / "requirements-dev.txt").read_text() == (
+        "-r requirements.txt\n"
+        "pytest>=8\n"
+    )
     assert (root / ".env.example").read_text() == (
         "FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>\n"
         "AZURE_AI_MODEL_DEPLOYMENT_NAME=<deployment-name>\n"
@@ -85,7 +96,8 @@ def test_scaffold_compiles_imports_checks_and_runs_offline(tmp_path):
     assert "does not create a project" in guide
     assert "uv run --directory" in guide
     assert "do not declare it under `services.<agent>.env`" in guide
-    assert "do not add a runtime `requirements.txt` containing `-e .`" in guide
+    assert "requirements.txt` compatibility entrypoint" in guide
+    assert "never use a runtime `requirements.txt` containing `-e .`" in guide
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-W", "error", str(root / "tests")],
         cwd=root, capture_output=True, text=True, check=False,
