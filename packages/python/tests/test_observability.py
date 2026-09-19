@@ -171,5 +171,28 @@ def test_configure_observability_accepts_asgi_send_compat_flag(monkeypatch):
     assert options["fastapi"] == {}
 
 
+def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
+    monkeypatch.setenv("FOUNDRY_AGENT_NAME", "prompty-agent")
+    monkeypatch.setenv("FOUNDRY_AGENT_VERSION", "2")
+    monkeypatch.delenv("FOUNDRY_PROJECT_RESOURCE_ID", raising=False)
+    monkeypatch.delenv("AZURE_AI_PROJECT_RESOURCE_ID", raising=False)
+    monkeypatch.setenv("AZURE_AI_PROJECT_ID", "/subscriptions/123/projects/demo")
+
+    processors = observability._build_agent_identity_processors()
+
+    assert len(processors) == 1
+    span = mock.MagicMock()
+    processors[0].on_start(span)
+    span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.agent.name": "prompty-agent",
+            "gen_ai.agent.version": "2",
+            "gen_ai.agent.id": "prompty-agent:2",
+            "microsoft.foundry.project.id": "/subscriptions/123/projects/demo",
+            "gen_ai.azure_ai_project.id": "/subscriptions/123/projects/demo",
+        }
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

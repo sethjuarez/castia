@@ -143,7 +143,11 @@ def _build_agent_identity_processors() -> list[SpanProcessor]:
     try:
         name = os.environ.get("FOUNDRY_AGENT_NAME", "castia-agent")
         version = os.environ.get("FOUNDRY_AGENT_VERSION")
-        project_id = os.environ.get("FOUNDRY_PROJECT_RESOURCE_ID")
+        project_id = (
+            os.environ.get("FOUNDRY_PROJECT_RESOURCE_ID")
+            or os.environ.get("AZURE_AI_PROJECT_RESOURCE_ID")
+            or os.environ.get("AZURE_AI_PROJECT_ID")
+        )
 
         span_attributes: dict[str, str] = {}
         if name:
