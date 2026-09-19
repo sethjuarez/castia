@@ -136,6 +136,14 @@ export function messagesForTarget(state) {
     );
 }
 
+export function clearMessagesForTarget(state, target) {
+    const keep = state.messages.filter((message) =>
+        target === "hosted" ? message.target !== "hosted" : message.target === "hosted",
+    );
+    state.messages.length = 0;
+    state.messages.push(...keep);
+}
+
 export function stateSnapshot(state) {
     const agent = selectedAgent(state);
     const visibleMessages = messagesForTarget(state);

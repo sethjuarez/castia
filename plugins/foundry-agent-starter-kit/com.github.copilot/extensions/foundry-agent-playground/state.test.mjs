@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+    clearMessagesForTarget,
     emptyFoundryConnection,
     emptyHostedContext,
     normalizeEndpoint,
@@ -55,6 +56,20 @@ test("stateSnapshot filters transcript by active target and strips process handl
         averageMs: 10,
         lastStatus: 200,
     });
+});
+
+test("clearMessagesForTarget clears only the selected target transcript", () => {
+    const state = {
+        messages: [
+            { id: "local-1", target: "local" },
+            { id: "hosted-1", target: "hosted" },
+            { id: "hosted-2", target: "hosted" },
+        ],
+    };
+
+    clearMessagesForTarget(state, "hosted");
+
+    assert.deepEqual(state.messages.map((message) => message.id), ["local-1"]);
 });
 
 test("selectedAgent falls back to the default minimal agent", () => {

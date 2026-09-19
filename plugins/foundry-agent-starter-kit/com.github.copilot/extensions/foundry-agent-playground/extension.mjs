@@ -19,6 +19,7 @@ import { renderHtml } from "./renderer.mjs";
 import {
     activeEndpoint,
     addLocalEvent,
+    clearMessagesForTarget,
     emptyFoundryConnection,
     emptyHostedContext,
     endpointPort,
@@ -839,6 +840,7 @@ async function hydrateFoundryConnectionFromAzd(state) {
 }
 
 async function hydrateFoundryConnectionFromDotEnv(state) {
+    const agent = selectedAgent(state);
     const env = await refreshLocalEnvState(state);
     const projectEndpoint =
         env.values.FOUNDRY_PROJECT_ENDPOINT ||
@@ -979,6 +981,9 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         needsProvision: false,
         log: [`$ azd ${args.join(" ")}\n`],
     };
+    if (commandName === "deploy") {
+        clearMessagesForTarget(state, "hosted");
+    }
     if (commandName === "deploy" || commandName === "provision") {
         await ensureAzdDeploymentContext(state, state.deployment.log);
     }
@@ -1232,11 +1237,7 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/clear") {
-            const keep = state.messages.filter((message) =>
-                state.target === "hosted" ? message.target !== "hosted" : message.target === "hosted",
-            );
-            state.messages.length = 0;
-            state.messages.push(...keep);
+            clearMessagesForTarget(state, state.target);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1456,7 +1457,7 @@ await joinSession({
                     description: "Clear the tester transcript for this canvas instance.",
                     handler: async (ctx) => {
                         const state = instanceState(ctx);
-                        state.messages.length = 0;
+                        clearMessagesForTarget(state, state.target);
                         return stateSnapshot(state);
                     },
                 },
