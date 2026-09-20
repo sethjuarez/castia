@@ -14,8 +14,8 @@ import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
-from inspect import isawaitable
+from dataclasses import dataclass, field
+from inspect import Parameter, isawaitable, signature
 from typing import Any
 from uuid import uuid4
 
@@ -29,6 +29,11 @@ DEFAULT_TOOLBOX_CONNECTION = "contract-toolbox"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _TRACE_INTERNAL_ENV = "CASTIA_PROMPTY_TRACE_INTERNAL"
 _DEFAULT_PROMPTY_SPANS = {"turn_async", "run_async"}
+_NO_TOOLBOX_ENDPOINT_DIAGNOSTIC = (
+    "No toolbox MCP endpoint was resolved. Set TOOLBOX_ENDPOINT, "
+    "TOOLBOX_MCP_ENDPOINT, TOOLBOX_NAME with its platform endpoint variable, "
+    "or FOUNDRY_PROJECT_ENDPOINT plus TOOLBOX_NAME."
+)
 _logger = logging.getLogger("agent")
 
 TokenProvider = Callable[[], str | Awaitable[str]]
@@ -59,6 +64,18 @@ class PromptyIntegrationError(RuntimeError):
 
 class McpToolboxError(RuntimeError):
     """A toolbox MCP JSON-RPC or protocol error."""
+
+
+@dataclass(frozen=True)
+class ToolboxPreflightResult:
+    """Result of checking a Foundry toolbox MCP endpoint before model use."""
+
+    ok: bool
+    endpoint: str | None
+    tool_names: tuple[str, ...] = ()
+    missing_tools: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    tools: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
 
 
 def _prompty():
@@ -653,6 +670,266 @@ def toolbox_prompty_tools(
     return out
 
 
+async def toolbox_prompty_tools_from_mcp(
+    allowed_tools: Sequence[str],
+    *,
+    client: ToolboxMcpClient | None = None,
+    descriptions: Mapping[str, str] | None = None,
+) -> list[object]:
+    """Build Prompty function tools from authoritative MCP ``tools/list`` schemas.
+
+    Prefer this for Prompty-owned toolbox loops. It preserves the upstream
+    MCP input schema shape instead of asking the app to hand-author parameter
+    names and kinds.
+    """
+    resolved_client = client or ToolboxMcpClient()
+    tools = await resolved_client.list_tools()
+    return toolbox_prompty_tools_from_schema(
+        tools,
+        allowed_tools=allowed_tools,
+        descriptions=descriptions,
+    )
+
+
+def toolbox_prompty_tools_from_schema(
+    tools: Sequence[Mapping[str, Any]],
+    *,
+    allowed_tools: Sequence[str] | None = None,
+    descriptions: Mapping[str, str] | None = None,
+) -> list[object]:
+    """Create Prompty function-tool definitions from MCP ``tools/list`` entries."""
+    prompty = _prompty()
+    selected = _select_mcp_tools(tools, allowed_tools)
+    out = []
+    for tool in selected:
+        name = str(tool.get("name") or "")
+        schema = tool.get("inputSchema")
+        description = (descriptions or {}).get(name)
+        if description is None and isinstance(tool.get("description"), str):
+            description = tool["description"]
+        out.append(
+            prompty.FunctionTool(
+                name=name,
+                description=description,
+                parameters=_prompty_parameters_from_input_schema(prompty, schema),
+            )
+        )
+    return out
+
+
+async def toolbox_preflight(
+    allowed_tools: Sequence[str] | None = None,
+    *,
+    endpoint: str | None = None,
+    env: Mapping[str, str] | None = None,
+    token_provider: TokenProvider | None = None,
+    headers: Mapping[str, str] | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> ToolboxPreflightResult:
+    """Resolve and check a Foundry toolbox MCP endpoint with actionable output.
+
+    The default token path mints an Entra bearer for
+    ``https://ai.azure.com/.default``, matching Castia's runtime toolbox client.
+    """
+    resolved = endpoint or resolve_toolbox_endpoint(env)
+    if not resolved:
+        return ToolboxPreflightResult(
+            ok=False,
+            endpoint=None,
+            diagnostics=(_NO_TOOLBOX_ENDPOINT_DIAGNOSTIC,),
+        )
+
+    client = ToolboxMcpClient(
+        resolved,
+        token_provider=token_provider,
+        headers=headers,
+        client=http_client,
+    )
+    try:
+        from azure.core.exceptions import AzureError
+    except ImportError:  # pragma: no cover - base castia depends on azure-core
+        AzureError = RuntimeError  # type: ignore[assignment]
+
+    try:
+        tools = await client.list_tools()
+    except (McpToolboxError, httpx.HTTPError, ValueError, AzureError) as exc:
+        return ToolboxPreflightResult(
+            ok=False,
+            endpoint=resolved,
+            diagnostics=(f"Unable to call MCP tools/list at {resolved}: {exc}",),
+        )
+
+    names = tuple(str(tool.get("name")) for tool in tools if isinstance(tool.get("name"), str))
+    requested = tuple(allowed_tools or ())
+    missing = tuple(name for name in requested if name not in names)
+    diagnostics = _toolbox_preflight_diagnostics(
+        endpoint=resolved,
+        requested=requested,
+        names=names,
+        missing=missing,
+    )
+    return ToolboxPreflightResult(
+        ok=not missing,
+        endpoint=resolved,
+        tool_names=names,
+        missing_tools=missing,
+        diagnostics=diagnostics,
+        tools=tuple(tools),
+    )
+
+
+def _select_mcp_tools(
+    tools: Sequence[Mapping[str, Any]],
+    allowed_tools: Sequence[str] | None,
+) -> list[Mapping[str, Any]]:
+    named = {tool.get("name"): tool for tool in tools if isinstance(tool.get("name"), str)}
+    if allowed_tools is None:
+        return list(named.values())
+    missing = [name for name in allowed_tools if name not in named]
+    if missing:
+        available = ", ".join(sorted(str(name) for name in named)) or "<none>"
+        raise McpToolboxError(
+            "Requested toolbox tools are not present in MCP tools/list: "
+            f"{', '.join(missing)}. Available tools: {available}."
+        )
+    return [named[name] for name in allowed_tools]
+
+
+def _prompty_parameters_from_input_schema(prompty: Any, schema: Any) -> list[object]:
+    if not isinstance(schema, Mapping):
+        return []
+    properties = schema.get("properties")
+    if not isinstance(properties, Mapping):
+        return []
+    required = schema.get("required")
+    required_names = set(required) if isinstance(required, list) else set()
+    return [
+        _prompty_property_from_schema(
+            prompty,
+            name=str(name),
+            schema=prop_schema,
+            required=name in required_names,
+        )
+        for name, prop_schema in properties.items()
+        if isinstance(name, str)
+    ]
+
+
+def _prompty_property_from_schema(
+    prompty: Any,
+    *,
+    name: str,
+    schema: Any,
+    required: bool,
+) -> object:
+    prop_schema = schema if isinstance(schema, Mapping) else {}
+    kind = _json_schema_kind(prop_schema)
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "kind": kind,
+        "description": prop_schema.get("description") if isinstance(prop_schema.get("description"), str) else None,
+        "required": required,
+    }
+    if "enum" in prop_schema:
+        kwargs["enum"] = prop_schema["enum"]
+    if "default" in prop_schema:
+        kwargs["default"] = prop_schema["default"]
+    if kind == "array" and isinstance(prop_schema.get("items"), Mapping):
+        kwargs["items"] = _prompty_schema_shape(prompty, prop_schema["items"])
+    if kind == "object":
+        nested = _prompty_parameters_from_input_schema(prompty, prop_schema)
+        if nested:
+            kwargs["properties"] = nested
+        if "additionalProperties" in prop_schema:
+            kwargs["additionalProperties"] = prop_schema["additionalProperties"]
+            kwargs["additional_properties"] = prop_schema["additionalProperties"]
+    return _construct_prompty_object(prompty.Property, kwargs)
+
+
+def _prompty_schema_shape(prompty: Any, schema: Mapping[str, Any]) -> object:
+    return _prompty_property_from_schema(
+        prompty,
+        name="items",
+        schema=schema,
+        required=False,
+    )
+
+
+def _json_schema_kind(schema: Mapping[str, Any]) -> str:
+    kind = schema.get("type")
+    if isinstance(kind, list):
+        for candidate in kind:
+            if isinstance(candidate, str) and candidate != "null":
+                return candidate
+        return "string"
+    if isinstance(kind, str):
+        return kind
+    if "properties" in schema:
+        return "object"
+    if "items" in schema:
+        return "array"
+    return "string"
+
+
+def _construct_prompty_object(factory: Callable[..., Any], kwargs: Mapping[str, Any]) -> object:
+    filtered = _filter_supported_kwargs(factory, kwargs)
+    try:
+        return factory(**filtered)
+    except TypeError:
+        minimal = {
+            key: value
+            for key, value in filtered.items()
+            if key in {"name", "kind", "description", "required"} and value is not None
+        }
+        return factory(**minimal)
+
+
+def _filter_supported_kwargs(factory: Callable[..., Any], kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        parameters = signature(factory).parameters
+    except (TypeError, ValueError):
+        return {key: value for key, value in kwargs.items() if value is not None}
+    if any(param.kind == Parameter.VAR_KEYWORD for param in parameters.values()):
+        return {key: value for key, value in kwargs.items() if value is not None}
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if key in parameters and value is not None
+    }
+
+
+def _toolbox_preflight_diagnostics(
+    *,
+    endpoint: str,
+    requested: Sequence[str],
+    names: Sequence[str],
+    missing: Sequence[str],
+) -> tuple[str, ...]:
+    diagnostics: list[str] = [f"Resolved toolbox MCP endpoint: {endpoint}."]
+    diagnostics.append(f"tools/list returned {len(names)} tool(s): {', '.join(names) if names else '<none>'}.")
+    if missing:
+        diagnostics.append(
+            "Missing requested toolbox tool(s): "
+            f"{', '.join(missing)}. Update allowed_tools to match tools/list exactly."
+        )
+        suffix_matches = []
+        for missing_name in missing:
+            matches = [name for name in names if name.endswith("___" + missing_name)]
+            if matches:
+                suffix_matches.append(f"{missing_name} -> {', '.join(matches)}")
+        if suffix_matches:
+            diagnostics.append(
+                "Some requested bare names have fully qualified toolbox matches: "
+                + "; ".join(suffix_matches)
+                + "."
+            )
+    elif requested:
+        diagnostics.append(f"All requested toolbox tool(s) are available: {', '.join(requested)}.")
+    else:
+        diagnostics.append("No allowed_tools were requested; inspect tool_names before exposing tools to Prompty.")
+    return tuple(diagnostics)
+
+
 def serialize_mcp_result(result: Mapping[str, Any]) -> str:
     """Serialize MCP ``tools/call`` output into safe text for a model loop."""
     if result.get("isError"):
@@ -692,6 +969,7 @@ __all__ = [
     "PromptyIntegrationError",
     "PromptyRunner",
     "ToolboxMcpClient",
+    "ToolboxPreflightResult",
     "ToolboxToolHandler",
     "configured_prompty_runner",
     "load_prompty_agent",
@@ -701,5 +979,8 @@ __all__ = [
     "register_toolbox_function",
     "register_toolbox_tool_handler",
     "serialize_mcp_result",
+    "toolbox_preflight",
     "toolbox_prompty_tools",
+    "toolbox_prompty_tools_from_mcp",
+    "toolbox_prompty_tools_from_schema",
 ]

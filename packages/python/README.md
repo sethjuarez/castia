@@ -290,31 +290,43 @@ from castia.prompty import (
     ToolboxMcpClient,
     configured_prompty_runner,
     register_toolbox_function,
-    toolbox_prompty_tools,
+    toolbox_preflight,
+    toolbox_prompty_tools_from_mcp,
 )
 
-tools = toolbox_prompty_tools(
+preflight = await toolbox_preflight(
     ("contracts-kb-mcp___knowledge_base_retrieve",),
+)
+if not preflight.ok:
+    raise RuntimeError("\n".join(preflight.diagnostics))
+
+client = ToolboxMcpClient()  # resolves TOOLBOX_* env and mints ai.azure.com tokens
+tools = await toolbox_prompty_tools_from_mcp(
+    ("contracts-kb-mcp___knowledge_base_retrieve",),
+    client=client,
     descriptions={
         "contracts-kb-mcp___knowledge_base_retrieve":
             "Retrieve cited grounding passages from contracts and policies.",
     },
-    param_guidance={
-        "contracts-kb-mcp___knowledge_base_retrieve": {
-            "query": "A concise policy search query.",
-        }
-    },
 )
-
-client = ToolboxMcpClient()  # resolves TOOLBOX_* env and mints ai.azure.com tokens
 register_toolbox_function("contracts-kb-mcp___knowledge_base_retrieve", client=client)
 runner = configured_prompty_runner(config, tools=tools)
 ```
 
-This first slice is experimental. It provides connection/tracing registration,
-config projection, sidecar loading, and a toolbox MCP JSON-RPC path. It does not
-replace `Model.respond_with_tools`, and server-side Foundry MCP execution remains
-the validated default path.
+`toolbox_prompty_tools_from_mcp(...)` reads the authoritative `tools/list`
+`inputSchema` and projects it into Prompty function tools, preserving required
+fields, arrays, nested objects, descriptions, and `additionalProperties` where
+Prompty exposes those fields. Use this instead of hand-writing
+`toolbox_prompty_tools(...)` whenever the toolbox endpoint is available; the
+older helper remains for offline/static compatibility but can drift from the
+real MCP schema. `toolbox_preflight(...)` resolves the endpoint, mints the same
+`https://ai.azure.com/.default` bearer Castia uses at runtime, calls
+`tools/list`, and reports missing allowed tool names with diagnostics.
+
+This Prompty path is experimental. It provides connection/tracing registration,
+config projection, sidecar loading, schema-derived toolbox function tools, and a
+toolbox MCP JSON-RPC executor. It does not replace `Model.respond_with_tools`,
+and server-side Foundry MCP execution remains the validated default path.
 
 The newer [issue #13 consumer proof](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#what-has-been-verified-live)
 verified direct and applied-candidate web guidance from a local process against
