@@ -418,5 +418,81 @@ def test_toolbox_prompty_tools_create_function_tools_for_model_wire():
 
 
 def test_serialize_mcp_result_rejects_mcp_error_result():
-    with pytest.raises(McpToolboxError):
+    with pytest.raises(McpToolboxError, match="boom"):
         serialize_mcp_result({"isError": True, "content": [{"type": "text", "text": "boom"}]})
+
+
+def test_serialize_mcp_result_compacts_foundryiq_reference_payloads():
+    result = {
+        "content": [
+            {
+                "type": "text",
+                "text": "Travel meals are reimbursable when the expense is reasonable and itemized with curly “quotes”.",
+            },
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "kind": "reference",
+                        "ref_id": "policy-1",
+                        "uri": "https://contoso.example/policies/travel",
+                        "sourceData": {
+                            "title": "Travel & Expense Policy",
+                            "content": "bulky source data that should not be emitted",
+                            "irrelevant": "x" * 1000,
+                        },
+                        "snippet": "Meals must be itemized, including breakfast, lunch, and dinner.",
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "kind": "reference",
+                        "ref_id": "policy-2",
+                        "uri": "https://contoso.example/policies/receipts",
+                        "sourceData": {
+                            "title": "Receipt Requirements",
+                            "snippet": "Receipts are required for hotel and airfare.",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+    }
+
+    serialized = serialize_mcp_result(result)
+
+    assert "Travel meals are reimbursable" in serialized
+    assert "curly “quotes”" in serialized
+    assert "References:" in serialized
+    assert "[policy-1] Travel & Expense Policy - https://contoso.example/policies/travel" in serialized
+    assert "Meals must be itemized" in serialized
+    assert "[policy-2] Receipt Requirements - https://contoso.example/policies/receipts" in serialized
+    assert "Receipts are required for hotel and airfare." in serialized
+    assert '"kind": "reference"' not in serialized
+    assert "bulky source data" not in serialized
+    assert "irrelevant" not in serialized
+
+
+def test_serialize_mcp_result_uses_actual_json_error_message():
+    result = {
+        "isError": True,
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "kind": "error",
+                        "message": "FoundryIQ denied access to the selected source.",
+                    }
+                ),
+            }
+        ],
+    }
+
+    with pytest.raises(McpToolboxError, match="FoundryIQ denied access"):
+        serialize_mcp_result(result)

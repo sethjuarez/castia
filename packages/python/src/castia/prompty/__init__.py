@@ -34,6 +34,7 @@ _NO_TOOLBOX_ENDPOINT_DIAGNOSTIC = (
     "TOOLBOX_MCP_ENDPOINT, TOOLBOX_NAME with its platform endpoint variable, "
     "or FOUNDRY_PROJECT_ENDPOINT plus TOOLBOX_NAME."
 )
+_REFERENCE_PAYLOAD_KEYS = frozenset({"ref_id", "uri", "sourceData", "snippet"})
 _logger = logging.getLogger("agent")
 
 TokenProvider = Callable[[], str | Awaitable[str]]
@@ -933,17 +934,125 @@ def _toolbox_preflight_diagnostics(
 def serialize_mcp_result(result: Mapping[str, Any]) -> str:
     """Serialize MCP ``tools/call`` output into safe text for a model loop."""
     if result.get("isError"):
-        raise McpToolboxError(_safe_json(result))
+        raise McpToolboxError(_mcp_error_message(result))
     content = result.get("content")
     if isinstance(content, list):
-        text_parts = [
-            item.get("text")
-            for item in content
-            if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
-        ]
-        if text_parts and len(text_parts) == len(content):
-            return "\n".join(text_parts)
+        text_parts: list[str] = []
+        references: list[Mapping[str, Any]] = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text" or not isinstance(item.get("text"), str):
+                continue
+            parsed_reference = _reference_from_text(item["text"])
+            if parsed_reference is not None:
+                references.append(parsed_reference)
+            else:
+                text_parts.append(item["text"])
+        if text_parts or references:
+            return _format_mcp_text(text_parts, references)
     return _safe_json(result)
+
+
+def _mcp_error_message(result: Mapping[str, Any]) -> str:
+    content = result.get("content")
+    if isinstance(content, list):
+        messages: list[str] = []
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text" or not isinstance(item.get("text"), str):
+                continue
+            text = item["text"].strip()
+            parsed = _loads_json_object(text)
+            if parsed is not None:
+                message = _string_at(parsed, ("message", "errorMessage", "detail"))
+                error = parsed.get("error")
+                if message:
+                    messages.append(message)
+                elif isinstance(error, Mapping):
+                    messages.append(_string_at(error, ("message", "detail")) or _safe_json(error))
+                elif isinstance(error, str):
+                    messages.append(error)
+                else:
+                    messages.append(_safe_json(parsed))
+            elif text:
+                messages.append(text)
+        if messages:
+            return "\n".join(messages)
+    return _safe_json(result)
+
+
+def _format_mcp_text(text_parts: Sequence[str], references: Sequence[Mapping[str, Any]]) -> str:
+    parts = [part for part in (_compact_text(text) for text in text_parts) if part]
+    if references:
+        reference_lines = [
+            _format_reference(reference, index)
+            for index, reference in enumerate(references, start=1)
+        ]
+        parts.append("References:\n" + "\n".join(reference_lines))
+    return "\n\n".join(parts)
+
+
+def _format_reference(reference: Mapping[str, Any], index: int) -> str:
+    source_data = reference.get("sourceData")
+    source = source_data if isinstance(source_data, Mapping) else {}
+    label = _compact_text(_string_at(reference, ("ref_id", "id", "referenceId")) or str(index), limit=80)
+    title = _compact_text(
+        _string_at(reference, ("title", "name", "source", "sourceName"))
+        or _string_at(source, ("title", "name", "source", "sourceName", "fileName", "displayName")),
+        limit=160,
+    )
+    uri = _compact_text(
+        _string_at(reference, ("uri", "url"))
+        or _string_at(source, ("uri", "url", "sourceUrl", "webUrl")),
+        limit=240,
+    )
+    snippet = _compact_text(
+        _string_at(reference, ("snippet", "text", "content", "excerpt"))
+        or _string_at(source, ("snippet", "text", "content", "excerpt", "summary")),
+        limit=500,
+    )
+
+    summary = title or uri or "reference"
+    if uri and uri != summary:
+        summary = f"{summary} - {uri}"
+    line = f"- [{label}] {summary}"
+    if snippet:
+        line += f"\n  Snippet: {snippet}"
+    return line
+
+
+def _reference_from_text(text: str) -> Mapping[str, Any] | None:
+    parsed = _loads_json_object(text.strip())
+    if parsed is None:
+        return None
+    if parsed.get("kind") == "reference" and _REFERENCE_PAYLOAD_KEYS.intersection(parsed):
+        return parsed
+    return None
+
+
+def _loads_json_object(text: str) -> Mapping[str, Any] | None:
+    if not text.startswith("{") or not text.endswith("}"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, Mapping) else None
+
+
+def _string_at(mapping: Mapping[str, Any], keys: Sequence[str]) -> str | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _compact_text(text: str | None, *, limit: int | None = None) -> str:
+    if text is None:
+        return ""
+    compact = " ".join(text.split())
+    if limit is not None and len(compact) > limit:
+        return compact[: max(0, limit - 3)].rstrip() + "..."
+    return compact
 
 
 async def _default_toolbox_token() -> str:
