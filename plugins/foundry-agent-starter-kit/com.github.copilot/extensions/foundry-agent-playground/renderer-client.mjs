@@ -92,6 +92,7 @@ export const rendererClientScript = `
     const teamsStepState = document.getElementById("teamsStepState");
     const guideTitle = document.getElementById("guideTitle");
     const guideCopy = document.getElementById("guideCopy");
+    const localEndpointBanner = document.getElementById("localEndpointBanner");
     const localTicker = document.getElementById("localTicker");
     const deployTicker = document.getElementById("deployTicker");
     const primaryGuideAction = document.getElementById("primaryGuideAction");
@@ -182,10 +183,49 @@ export const rendererClientScript = `
       renderFoundryStatus(state);
       renderDeploy(state);
       renderTeams(state);
+      renderLocalEndpointBanner(state);
       renderLocalTicker(state);
       renderDeployTicker(state);
       renderJourney(state);
       renderView();
+    }
+
+    function renderLocalEndpointBanner(state) {
+      if (state.target === "hosted") {
+        localEndpointBanner.hidden = true;
+        localEndpointBanner.innerHTML = "";
+        return;
+      }
+      const endpoint = state.activeEndpoint || state.localEndpoint || "";
+      const selected = state.selectedAgent?.displayName || state.selectedAgent?.serviceName || "unknown";
+      const readiness = state.lastHealth?.identity?.actual || state.lastHealth?.readiness?.agent?.name || "unknown";
+      const port = state.activePort || "";
+      const portWarning = state.localRun?.portWarning;
+      const mismatch = state.localRun?.identityMismatch;
+      localEndpointBanner.hidden = false;
+      localEndpointBanner.className = "local-endpoint-banner" + (portWarning || (mismatch && !mismatch.autoSelected) ? " warn" : "");
+      localEndpointBanner.innerHTML =
+        '<div><strong>Active local endpoint:</strong> <code>' + escapeHtml(endpoint) + '</code></div>' +
+        '<div class="endpoint-meta">port=' + escapeHtml(String(port || "unknown")) +
+        ' · selected=' + escapeHtml(selected) +
+        ' · readiness=' + escapeHtml(readiness) + '</div>' +
+        (portWarning ? '<div class="endpoint-warning">' + escapeHtml(portWarning) + '</div>' : "") +
+        (mismatch && !mismatch.autoSelected
+          ? '<div class="endpoint-warning">' + escapeHtml(mismatch.message || "Selected agent does not match readiness.") +
+            (mismatch.canSwitch ? ' <button id="switchReadinessAgent" type="button">Switch to ' + escapeHtml(mismatch.actual) + '</button>' : "") +
+            '</div>'
+          : "");
+      const switchButton = document.getElementById("switchReadinessAgent");
+      if (switchButton) {
+        switchButton.addEventListener("click", async () => {
+          try {
+            renderSnapshot(await request("/api/agent/switch-to-readiness", { method: "POST" }));
+            setStatus("ok", "Selected agent updated from readiness.");
+          } catch (error) {
+            setStatus("fail", error.message);
+          }
+        });
+      }
     }
 
     function renderLocalTicker(state) {
@@ -471,11 +511,14 @@ export const rendererClientScript = `
         const ok = turn.response?.ok;
         const streaming = turn.response?.streaming;
         const answer = responseText(turn.response?.body);
-        const waitingForFirstToken = streaming && !String(answer || "").trim();
+        const hasAnswer = String(answer || "").trim();
+        const waitingForFirstToken = streaming && !hasAnswer;
         const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
         const body = waitingForFirstToken
-          ? '<div class="first-token" aria-label="Waiting for response"><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
-          : renderMarkdown(answer);
+          ? '<div class="first-token" role="status" aria-live="polite"><span>Thinking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
+          : hasAnswer
+          ? renderMarkdown(answer)
+          : '<div class="no-answer">No answer text returned. Open Details for the raw response.</div>';
         const target = turn.target === "hosted" ? "Foundry" : "Local";
         return '<article class="turn">' +
           '<section class="bubble user">' +
@@ -485,7 +528,8 @@ export const rendererClientScript = `
           '<section class="bubble agent">' +
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
-          '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button></div>' +
+          '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button>' +
+          '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" ' + (hasAnswer ? "" : "disabled") + '>Copy answer</button></div>' +
           '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
@@ -508,6 +552,23 @@ export const rendererClientScript = `
     }, true);
 
     transcript.addEventListener("click", (event) => {
+      const copy = event.target.closest(".copy-answer");
+      if (copy) {
+        event.preventDefault();
+        event.stopPropagation();
+        const bubble = copy.closest(".bubble.agent");
+        const text = bubble?.querySelector(".bubble-body")?.innerText?.trim() || answerTextForDetailsKey(copy.dataset.detailsKey);
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+          copy.textContent = "Copied";
+          window.setTimeout(() => {
+            copy.textContent = "Copy answer";
+          }, 1200);
+        }).catch((error) => {
+          setStatus("fail", error.message || "Copy failed.");
+        });
+        return;
+      }
       const toggle = event.target.closest(".details-toggle");
       if (!toggle) return;
       event.preventDefault();
@@ -518,6 +579,16 @@ export const rendererClientScript = `
       else expandedResponseDetails.add(key);
       renderMessages(latestState?.visibleMessages || []);
     });
+
+    function answerTextForDetailsKey(detailsKey) {
+      const messages = latestState?.visibleMessages || [];
+      for (let index = 0; index < messages.length; index += 1) {
+        if (responseDetailsKey(messages[index], index) === detailsKey) {
+          return String(responseText(messages[index].response?.body) || "").trim();
+        }
+      }
+      return "";
+    }
 
     async function sendPrompt() {
       if (inFlight) return;
@@ -594,18 +665,32 @@ export const rendererClientScript = `
     }
 
     function responseText(body) {
+      const extracted = textFromResponseBody(body);
+      if (extracted) return extracted;
       if (body && typeof body === "object") {
-        const direct = textOrEmpty(body.output_text);
-        if (direct) return direct;
-        const output = textFromResponsesOutput(body.output);
-        if (output) return output;
-        return body.output ?? JSON.stringify(body, null, 2);
+        if (typeof body.output === "string") return body.output;
+        if (typeof body.error === "string") return body.error;
+        if (typeof body.error?.message === "string") return body.error.message;
+        if (typeof body.error?.code === "string") return body.error.code;
+        if (typeof body.detail === "string") return body.detail;
+        if (typeof body.message === "string") return body.message;
+        return "";
       }
       return body ?? "";
     }
 
     function textOrEmpty(value) {
       return typeof value === "string" && value.trim() ? value : "";
+    }
+
+    function textFromResponseBody(body, seen = new Set()) {
+      if (!body || typeof body !== "object" || seen.has(body)) return "";
+      seen.add(body);
+      const direct = textOrEmpty(body.output_text);
+      if (direct) return direct;
+      const output = textFromResponsesOutput(body.output);
+      if (output) return output;
+      return textFromResponseBody(body.response, seen) || textFromResponseBody(body.body, seen);
     }
 
     function textFromResponsesOutput(output) {

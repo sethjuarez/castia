@@ -279,6 +279,32 @@ export const rendererStyles = `
       font-size: 13px;
       margin-top: 2px;
     }
+    .local-endpoint-banner {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 12px;
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+      font-size: 12px;
+    }
+    .local-endpoint-banner[hidden] { display: none; }
+    .local-endpoint-banner.warn {
+      border-color: color-mix(in srgb, var(--cp-warning) 50%, var(--cp-border));
+      background: color-mix(in srgb, var(--cp-warning) 12%, var(--cp-surface));
+    }
+    .local-endpoint-banner code {
+      word-break: break-all;
+    }
+    .endpoint-meta,
+    .endpoint-warning {
+      color: var(--cp-text-muted);
+      margin-top: 2px;
+    }
+    .endpoint-warning button {
+      margin-left: 6px;
+      padding: 4px 8px;
+    }
     .local-ticker {
       display: flex;
       gap: 6px;
@@ -717,7 +743,9 @@ export const rendererStyles = `
     .first-token {
       display: inline-flex;
       align-items: center;
+      gap: 8px;
       color: var(--cp-text-muted);
+      font-weight: 600;
     }
     .token-dots {
       display: inline-flex;
@@ -737,12 +765,20 @@ export const rendererStyles = `
       0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
       40% { transform: translateY(-3px); opacity: 1; }
     }
+    .no-answer {
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      font-style: italic;
+    }
     .details-row {
       display: flex;
       align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       padding: 0 12px 10px;
     }
-    .details-toggle {
+    .details-toggle,
+    .copy-answer {
       appearance: none;
       display: inline-flex;
       align-items: center;
@@ -761,9 +797,18 @@ export const rendererStyles = `
       text-decoration: none;
       box-shadow: none;
     }
-    .details-toggle:hover {
+    .details-toggle:hover,
+    .copy-answer:hover:not(:disabled) {
       background: transparent;
       text-decoration: underline;
+    }
+    .copy-answer {
+      margin-left: auto;
+    }
+    .copy-answer:disabled {
+      color: var(--cp-text-muted);
+      cursor: not-allowed;
+      opacity: 0.7;
     }
     .details-toggle-icon {
       width: 0;
@@ -783,7 +828,8 @@ export const rendererStyles = `
     .details-panel[hidden] {
       display: none;
     }
-    .details-toggle:focus-visible {
+    .details-toggle:focus-visible,
+    .copy-answer:focus-visible {
       outline: 2px solid var(--cp-accent);
       outline-offset: 2px;
     }

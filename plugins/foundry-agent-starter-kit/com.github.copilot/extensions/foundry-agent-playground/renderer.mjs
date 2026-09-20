@@ -42,6 +42,7 @@ export function renderHtml() {
         <div>
           <div id="guideTitle" class="action-title">Make it work locally</div>
           <div id="guideCopy" class="action-copy">Start or stop the local agent.</div>
+          <div id="localEndpointBanner" class="local-endpoint-banner" aria-live="polite" hidden></div>
           <div id="localTicker" class="local-ticker" hidden></div>
           <div id="deployTicker" class="deploy-ticker" aria-live="polite" hidden></div>
         </div>
