@@ -104,6 +104,22 @@ export function responseDisplayState(response) {
     return { answer, hasAnswer, waitingForFirstToken };
 }
 
+export function latestVisibleAnswerText(messages = []) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const answer = copyableAnswerText(messages[index]?.response?.body);
+        if (answer) return answer;
+    }
+    return "";
+}
+
+function copyableAnswerText(body) {
+    if (typeof body === "string") {
+        const text = body.trim();
+        if (/^[{[]/.test(text) && !parseResponseEnvelopeString(text)) return "";
+    }
+    return String(responseText(body) || "").trim();
+}
+
 function parseResponseEnvelopeString(value) {
     const text = String(value || "").trim();
     if (!text || !/^[{[]/.test(text)) return null;
@@ -164,6 +180,8 @@ export const rendererClientScript = `
     const composerGate = ${composerGate.toString()};
     const responseText = ${responseText.toString()};
     const responseDisplayState = ${responseDisplayState.toString()};
+    const latestVisibleAnswerText = ${latestVisibleAnswerText.toString()};
+    const copyableAnswerText = ${copyableAnswerText.toString()};
     const parseResponseEnvelopeString = ${parseResponseEnvelopeString.toString()};
     const isResponseEnvelope = ${isResponseEnvelope.toString()};
     const textOrEmpty = ${textOrEmpty.toString()};
@@ -215,6 +233,7 @@ export const rendererClientScript = `
     const failCount = document.getElementById("failCount");
     const avgLatency = document.getElementById("avgLatency");
     const transcript = document.getElementById("transcript");
+    const copyLatestAnswerButton = document.getElementById("copyLatestAnswer");
     const promptInput = document.getElementById("prompt");
     const sendButton = document.getElementById("send");
     const provisionButton = document.getElementById("provisionButton");
@@ -588,6 +607,8 @@ export const rendererClientScript = `
     function renderMessages(messages) {
       if (!messages.length) {
         transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
+        copyLatestAnswerButton.hidden = true;
+        copyLatestAnswerButton.disabled = true;
         return;
       }
       transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
@@ -626,6 +647,10 @@ export const rendererClientScript = `
           '</section>' +
           '</article>';
       }).join("");
+      const latestAnswer = latestVisibleAnswerText(messages);
+      copyLatestAnswerButton.hidden = !latestAnswer;
+      copyLatestAnswerButton.disabled = !latestAnswer;
+      copyLatestAnswerButton.textContent = "Copy latest answer";
       const restoreDetailsScroll = () => transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
         const panel = pre.closest(".details-panel[data-details-key]");
         const top = panel?.dataset?.detailsKey ? responseDetailsScroll.get(panel.dataset.detailsKey) : undefined;
@@ -670,6 +695,25 @@ export const rendererClientScript = `
       if (expandedResponseDetails.has(key)) expandedResponseDetails.delete(key);
       else expandedResponseDetails.add(key);
       renderMessages(latestState?.visibleMessages || []);
+    });
+
+    copyLatestAnswerButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const text = latestVisibleAnswerText(latestState?.visibleMessages || []);
+      if (!text) {
+        copyLatestAnswerButton.hidden = true;
+        copyLatestAnswerButton.disabled = true;
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        copyLatestAnswerButton.textContent = "Copied";
+        window.setTimeout(() => {
+          copyLatestAnswerButton.textContent = "Copy latest answer";
+        }, 1200);
+      }).catch((error) => {
+        setStatus("fail", error.message || "Copy failed.");
+      });
     });
 
     function answerTextForDetailsKey(detailsKey) {
