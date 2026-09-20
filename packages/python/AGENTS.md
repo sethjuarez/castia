@@ -161,8 +161,18 @@ the app root so `.env` and `.agent_configs` resolve naturally:
 
 ```powershell
 uv sync --project <agent-root>
+uv run --directory <agent-root> python -m castia dev --check-only
 uv run --directory <agent-root> python main.py
 ```
+
+`python -m castia dev` is the smoother local loop when Castia is installed in
+the app environment: it loads `.env` for the child process, validates local
+registration, `azure.yaml`, `.agent_configs/baseline`, `eval.yaml`, optional
+Prompty imports, toolbox endpoint shape, and optimizer tool drift, then starts
+`main.py` if the checks pass. It prints the local base URL plus `/readiness` and
+`/responses` for playground/canvas clients. The default checks do not invoke the
+model, mint tokens, list remote toolbox tools, submit optimizer/eval jobs, or
+deploy.
 
 Do not commit `.env`,
 endpoints, subscription IDs, tenant IDs, resource groups, tokens, `.azure`,

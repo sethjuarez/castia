@@ -7,6 +7,7 @@ import argparse
 
 def main(argv: list[str] | None = None) -> int:
     from castia.building.cli import register_commands as register_building
+    from castia.building.cli import register_dev_command
     from castia.delivery.cli import register_commands as register_delivery
     from castia.evaluation.cli import register_commands as register_evaluation
     from castia.finetuning.cli import register_commands as register_finetuning
@@ -24,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     register_evaluation(sub)
     register_finetuning(sub)
     register_building(sub)
+    register_dev_command(sub)
     register_lifecycle(sub)
     register_observe(sub)
 
