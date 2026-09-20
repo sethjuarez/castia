@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/sethjuarez/castia/compare/python-v0.8.0...python-v0.9.0) (2026-09-20)
+
+
+### Features
+
+* **python:** add local dev command ([55d6a05](https://github.com/sethjuarez/castia/commit/55d6a0559157a731ee51c98a6c25c8d8d3eae691))
+* **python:** add local dev diagnostics ([c60e0a7](https://github.com/sethjuarez/castia/commit/c60e0a7040dd5ba0bd6af0eee1401add25c8291b))
+* **python:** derive Prompty toolbox schemas from MCP ([f528e27](https://github.com/sethjuarez/castia/commit/f528e27dff3026995b3864c6af5303df5270d399))
+
+
+### Bug Fixes
+
+* **python:** compact Prompty MCP references ([564700a](https://github.com/sethjuarez/castia/commit/564700ae30bbd5452c0dced4696d1517fb8c2585))
+
 ## [0.8.0](https://github.com/sethjuarez/castia/compare/python-v0.7.8...python-v0.8.0) (2026-09-19)
 
 
