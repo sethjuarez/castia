@@ -8,18 +8,32 @@ export function configureAgentClient({ runCommand }) {
 }
 
 export function responseText(body) {
+    const extracted = textFromResponseBody(body);
+    if (extracted) return extracted;
     if (body && typeof body === "object") {
-        const direct = textOrEmpty(body.output_text);
-        if (direct) return direct;
-        const output = textFromResponsesOutput(body.output);
-        if (output) return output;
-        return body.output ?? JSON.stringify(body, null, 2);
+        if (typeof body.output === "string") return body.output;
+        if (typeof body.error === "string") return body.error;
+        if (typeof body.error?.message === "string") return body.error.message;
+        if (typeof body.error?.code === "string") return body.error.code;
+        if (typeof body.detail === "string") return body.detail;
+        if (typeof body.message === "string") return body.message;
+        return "";
     }
     return body ?? "";
 }
 
 function textOrEmpty(value) {
     return typeof value === "string" && value.trim() ? value : "";
+}
+
+function textFromResponseBody(body, seen = new Set()) {
+    if (!body || typeof body !== "object" || seen.has(body)) return "";
+    seen.add(body);
+    const direct = textOrEmpty(body.output_text);
+    if (direct) return direct;
+    const output = textFromResponsesOutput(body.output);
+    if (output) return output;
+    return textFromResponseBody(body.response, seen) || textFromResponseBody(body.body, seen);
 }
 
 function textFromResponsesOutput(output) {
@@ -273,11 +287,14 @@ export async function callAgentStream(endpoint, payload, onDelta) {
             handlePart(buffer);
         }
 
+        const finalText = textOrEmpty(outputText) || responseText(completedBody);
         return {
             ok: true,
             status: response.status,
             durationMs: Date.now() - started,
-            body: completedBody || { output_text: outputText },
+            body: completedBody && typeof completedBody === "object"
+                ? { ...completedBody, output_text: finalText }
+                : { output_text: finalText },
             delivery: {
                 mode: "upstream-stream",
                 upstreamStreaming: true,

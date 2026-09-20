@@ -29,6 +29,7 @@ import {
     normalizeEndpoint,
     selectedAgent,
     selectedLocalEndpoint,
+    setSelectedAgent,
     switchSelectedAgent,
     stateSnapshot,
 } from "./state.mjs";
@@ -621,10 +622,14 @@ async function startLocalAgent(state) {
         throw new CanvasError("local_start_unsupported", "No local start command was discovered for this agent.");
     }
     let endpoint = state.localEndpoints[agent.id] || selectedLocalEndpoint(state);
+    const requestedEndpoint = endpoint;
+    let portWarning = null;
     if (await isEndpointPortOpen(endpoint)) {
-        addLocalEvent(state, "warn", `${endpoint} is already in use.`);
+        portWarning = `${endpoint} is already in use.`;
+        addLocalEvent(state, "warn", portWarning);
         endpoint = await nextAvailableLocalEndpoint(endpoint);
-        addLocalEvent(state, "ok", `Using ${endpoint} instead.`);
+        portWarning = `${portWarning} Using fallback endpoint ${endpoint}.`;
+        addLocalEvent(state, "warn", portWarning);
     }
     const port = endpointPort(endpoint);
     clearMessagesForTarget(state, "local");
@@ -644,6 +649,9 @@ async function startLocalAgent(state) {
         endpoint,
         runId,
         readiness: { status: "starting", deadlineAt: readinessDeadlineAt },
+        requestedEndpoint,
+        portWarning,
+        identityMismatch: null,
     };
     addLocalEvent(state, "", `Starting local agent on ${endpoint}.`);
     const envValues = localEnvFoundryProjectValues(await readAgentEnv(agent));
@@ -706,6 +714,7 @@ async function startLocalAgent(state) {
     waitForLocalReadiness(state, { agent, endpoint, runId }).then((health) => {
         if (state.localRun?.runId !== runId || !state.localRun?.running) return;
         state.lastHealth = { ...health, source: "startup" };
+        reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "startup" });
         if (health.ok) {
             state.localEndpoints[agent.id] = endpoint;
         }
@@ -783,10 +792,12 @@ async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
     };
 }
 
-function stopLocalAgent(state) {
+async function stopLocalAgent(state) {
     const child = state.localRun?.process;
+    const pid = child?.pid;
     if (child && !child.killed) {
-        child.kill();
+        await killLocalProcessTree(pid);
+        await waitForProcessClose(child, 3000);
     }
     state.localRun = {
         ...state.localRun,
@@ -804,12 +815,128 @@ function stopLocalAgent(state) {
     state.lastHealth = null;
 }
 
+async function killLocalProcessTree(pid) {
+    if (!pid) return;
+    if (process.platform !== "win32") {
+        try {
+            process.kill(pid, "SIGTERM");
+        } catch {
+            // The local runner already exited.
+        }
+        return;
+    }
+    const pidValue = Number.isInteger(pid) ? pid : 0;
+    const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$ids = New-Object System.Collections.Generic.List[int]
+if (${pidValue} -gt 0) {
+  $queue = New-Object System.Collections.Generic.Queue[int]
+  $queue.Enqueue(${pidValue})
+  while ($queue.Count -gt 0) {
+    $current = $queue.Dequeue()
+    if (-not $ids.Contains($current)) { $ids.Add($current) }
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $current" | ForEach-Object {
+      $queue.Enqueue([int]$_.ProcessId)
+    }
+  }
+}
+$ids | Sort-Object -Descending -Unique | ForEach-Object {
+  Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+}
+`;
+    await runCommand("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]);
+}
+
+async function waitForProcessClose(child, timeoutMs) {
+    if (!child || child.killed || child.exitCode !== null || child.signalCode) return;
+    await new Promise((resolve) => {
+        const timeout = setTimeout(resolve, timeoutMs);
+        child.once("close", () => {
+            clearTimeout(timeout);
+            resolve();
+        });
+    });
+}
+
 function readinessAgentNames(agent) {
     return [agent.serviceName, agent.displayName].filter(Boolean);
 }
 
-function selectAgent(state, agentId) {
-    return switchSelectedAgent(state, agentId, { stopLocalRun: stopLocalAgent });
+function normalizedAgentName(name) {
+    return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function findAgentByReadinessName(state, name) {
+    const normalized = normalizedAgentName(name);
+    if (!normalized) return null;
+    return state.agents.find((agent) =>
+        readinessAgentNames(agent).some((candidate) => normalizedAgentName(candidate) === normalized)
+    ) || null;
+}
+
+function reconcileSelectedAgentFromReadiness(state, health, { source = "manual" } = {}) {
+    const actual = health?.identity?.actual || health?.readiness?.agent?.name || null;
+    const selected = selectedAgent(state);
+    state.localRun.identityMismatch = null;
+    if (!actual) return;
+
+    const matchingAgent = findAgentByReadinessName(state, actual);
+    if (!matchingAgent) {
+        state.localRun.identityMismatch = {
+            expected: selected.displayName || selected.serviceName,
+            actual,
+            canSwitch: false,
+            message: `Endpoint belongs to ${actual}, which was not discovered in azure.yaml.`,
+        };
+        return;
+    }
+
+    if (matchingAgent.id === selected.id) return;
+
+    const safeToAutoSelect = source === "startup";
+    if (safeToAutoSelect) {
+        const endpoint = state.localRun?.endpoint || selectedLocalEndpoint(state);
+        setSelectedAgent(state, matchingAgent.id);
+        state.target = "local";
+        state.localEndpoints[matchingAgent.id] = endpoint;
+        if (state.localRun) {
+            state.localRun.agentId = matchingAgent.id;
+            state.localRun.agentName = matchingAgent.serviceName;
+            state.localRun.endpoint = endpoint;
+        }
+        state.localRun.identityMismatch = {
+            expected: selected.displayName || selected.serviceName,
+            actual,
+            autoSelected: true,
+            canSwitch: false,
+            message: `Readiness reports ${actual}; selected agent was updated from ${selected.displayName || selected.serviceName}.`,
+        };
+        addLocalEvent(state, "ok", state.localRun.identityMismatch.message);
+    } else {
+        state.localRun.identityMismatch = {
+            expected: selected.displayName || selected.serviceName,
+            actual,
+            agentId: matchingAgent.id,
+            canSwitch: true,
+            message: `Endpoint belongs to ${actual}; selected ${selected.displayName || selected.serviceName}.`,
+        };
+    }
+}
+
+async function selectAgent(state, agentId) {
+    const previousAgent = selectedAgent(state);
+    const nextAgent = state.agents.find((candidate) => candidate.id === agentId) || state.agents[0];
+    if (nextAgent?.id !== previousAgent.id && (state.localRun?.running || state.localRun?.process)) {
+        await stopLocalAgent(state);
+    }
+    return switchSelectedAgent(state, agentId);
 }
 
 function setLocalEndpoint(state, endpoint) {
@@ -1173,7 +1300,7 @@ async function handleRequest(req, res, state) {
         }
         if (req.method === "POST" && url.pathname === "/api/agent") {
             const body = await readBody(req);
-            selectAgent(state, body.agentId);
+            await selectAgent(state, body.agentId);
             await refreshHostedContext(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
@@ -1228,6 +1355,30 @@ async function handleRequest(req, res, state) {
                 })),
                 source: "manual",
             };
+            if (state.target === "local") {
+                reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "manual" });
+            }
+            sendJson(res, 200, stateSnapshot(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/agent/switch-to-readiness") {
+            const mismatch = state.localRun?.identityMismatch;
+            if (!mismatch?.agentId) {
+                sendJson(res, 409, { error: "No discovered readiness agent is available to switch to." });
+                return;
+            }
+            const endpoint = state.localRun?.endpoint || selectedLocalEndpoint(state);
+            setSelectedAgent(state, mismatch.agentId);
+            state.target = "local";
+            state.localEndpoints[state.selectedAgentId] = endpoint;
+            state.localRun = {
+                ...state.localRun,
+                agentId: state.selectedAgentId,
+                agentName: selectedAgent(state).serviceName,
+                endpoint,
+                identityMismatch: null,
+            };
+            addLocalEvent(state, "ok", `Selected ${selectedAgent(state).displayName || selectedAgent(state).serviceName} from readiness.`);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1248,7 +1399,7 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/stop") {
-            stopLocalAgent(state);
+            await stopLocalAgent(state);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1528,7 +1679,7 @@ await joinSession({
                 const entry = servers.get(ctx.instanceId);
                 if (entry) {
                     if (entry.state.localRun?.process && !entry.state.localRun.process.killed) {
-                        entry.state.localRun.process.kill();
+                        await stopLocalAgent(entry.state);
                     }
                     servers.delete(ctx.instanceId);
                     await new Promise((resolve) => entry.server.close(() => resolve()));

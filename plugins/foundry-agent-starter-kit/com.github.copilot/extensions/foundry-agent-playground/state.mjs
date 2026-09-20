@@ -198,6 +198,8 @@ export function stateSnapshot(state) {
             ...state.localRun,
             process: undefined,
         },
+        activeEndpoint: activeEndpoint(state),
+        activePort: endpointPort(activeEndpoint(state)),
         teams: state.teams,
         messages: state.messages,
         visibleMessages,

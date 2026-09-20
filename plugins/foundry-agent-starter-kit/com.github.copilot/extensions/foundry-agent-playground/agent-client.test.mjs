@@ -277,6 +277,31 @@ test("responseText prefers Responses output_text", () => {
     assert.equal(responseText("plain"), "plain");
 });
 
+test("responseText extracts answer text from completed response envelopes", () => {
+    assert.equal(
+        responseText({
+            type: "response.completed",
+            response: {
+                id: "resp-1",
+                output_text: "final answer",
+                output: [{ type: "message", content: [{ type: "output_text", text: "fallback" }] }],
+            },
+        }),
+        "final answer",
+    );
+});
+
+test("responseText does not expose empty response envelopes as JSON", () => {
+    assert.equal(responseText({ output_text: "", output: [] }), "");
+    assert.equal(responseText({ response: { output_text: "", output: [] } }), "");
+});
+
+test("responseText extracts useful structured errors", () => {
+    assert.equal(responseText({ error: { message: "deployment unavailable", code: "failed_dependency" } }), "deployment unavailable");
+    assert.equal(responseText({ error: { code: "failed_dependency" } }), "failed_dependency");
+    assert.equal(responseText({ detail: "bad request" }), "bad request");
+});
+
 test("responseText falls back to nested Responses message content when output_text is blank", () => {
     assert.equal(
         responseText({
