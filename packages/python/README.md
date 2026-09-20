@@ -21,6 +21,27 @@ uv add --prerelease=allow "castia[deploy,optimize,test]"
 Requires Python 3.11+. For a standalone environment, use `uv venv` followed by
 `uv pip install --prerelease=allow "castia[deploy,optimize,test]"`.
 
+## Local dev loop
+
+From a Castia app root, `python -m castia dev` loads `.env` into a child
+environment, validates registration, `azure.yaml`, `.agent_configs/baseline`,
+`eval.yaml`, optional Prompty imports, and dry toolbox configuration, then starts
+`main.py` if the checks pass:
+
+```bash
+python -m castia dev --check-only --json
+python -m castia dev
+```
+
+The command prints the local base URL plus `/readiness` and `/responses` paths
+for playground/canvas tooling. It is intentionally offline-safe by default:
+readiness checks do not invoke the model, mint credentials, list remote toolbox
+tools, submit optimizer/eval jobs, deploy, or read azd's persisted environment.
+If a toolbox is configured, the dev preflight only resolves and validates the
+MCP endpoint shape. Keep `python -m castia optimize --check` or the default dev
+optimizer drift check in CI so Agent-declared tools stay aligned with
+`.agent_configs/baseline/tools.json`.
+
 The [consumer agent guide](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md)
 has a complete Responses application,
 native MCP setup, credentials, and executable offline tests.
