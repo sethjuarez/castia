@@ -72,12 +72,103 @@ export function composerGate(state, { activeView = "chat", inFlight = false } = 
     return { canSend: true, inputDisabled: false, disabledReason: null };
 }
 
+export function responseText(body) {
+    if (typeof body === "string") {
+        const envelope = parseResponseEnvelopeString(body);
+        return envelope ? responseText(envelope) : body;
+    }
+    const extracted = textFromResponseBody(body);
+    if (extracted) return extracted;
+    if (body && typeof body === "object") {
+        if (typeof body.output === "string") return body.output;
+        if (typeof body.error === "string") return body.error;
+        if (typeof body.error?.message === "string") return body.error.message;
+        if (typeof body.error?.code === "string") return body.error.code;
+        if (typeof body.detail === "string") return body.detail;
+        if (typeof body.message === "string") return body.message;
+        return "";
+    }
+    return body ?? "";
+}
+
+export function responseDisplayState(response) {
+    const answer = responseText(response?.body);
+    const hasAnswer = String(answer || "").trim();
+    const status = String(response?.status || "").toLowerCase();
+    const waitingForFirstToken = !hasAnswer && Boolean(
+        response?.streaming ||
+        response?.delivery?.active ||
+        status === "waiting" ||
+        status === "streaming"
+    );
+    return { answer, hasAnswer, waitingForFirstToken };
+}
+
+function parseResponseEnvelopeString(value) {
+    const text = String(value || "").trim();
+    if (!text || !/^[{[]/.test(text)) return null;
+    try {
+        const parsed = JSON.parse(text);
+        return isResponseEnvelope(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function isResponseEnvelope(body, seen = new Set()) {
+    if (!body || typeof body !== "object" || seen.has(body)) return false;
+    seen.add(body);
+    if (Object.prototype.hasOwnProperty.call(body, "output_text")) return true;
+    if (Array.isArray(body.output)) return true;
+    return isResponseEnvelope(body.response, seen) || isResponseEnvelope(body.body, seen);
+}
+
+function textOrEmpty(value) {
+    return typeof value === "string" && value.trim() ? value : "";
+}
+
+function textFromResponseBody(body, seen = new Set()) {
+    if (!body || typeof body !== "object" || seen.has(body)) return "";
+    seen.add(body);
+    const direct = textOrEmpty(body.output_text);
+    if (direct) return direct;
+    const output = textFromResponsesOutput(body.output);
+    if (output) return output;
+    return textFromResponseBody(body.response, seen) || textFromResponseBody(body.body, seen);
+}
+
+function textFromResponsesOutput(output) {
+    if (!Array.isArray(output)) return "";
+    const parts = [];
+    for (const item of output) {
+        if (!item || typeof item !== "object") continue;
+        if (typeof item.text === "string") {
+            parts.push(item.text);
+        }
+        const content = item.content;
+        if (!Array.isArray(content)) continue;
+        for (const part of content) {
+            if (part && typeof part === "object" && typeof part.text === "string") {
+                parts.push(part.text);
+            }
+        }
+    }
+    return parts.join("").trim();
+}
+
 export const rendererClientScript = `
     const isStartupReadinessPending = ${isStartupReadinessPending.toString()};
     const localReadinessState = ${localReadinessState.toString()};
     const responseDetailsKey = ${responseDetailsKey.toString()};
     const responseDetailsPanelId = ${responseDetailsPanelId.toString()};
     const composerGate = ${composerGate.toString()};
+    const responseText = ${responseText.toString()};
+    const responseDisplayState = ${responseDisplayState.toString()};
+    const parseResponseEnvelopeString = ${parseResponseEnvelopeString.toString()};
+    const isResponseEnvelope = ${isResponseEnvelope.toString()};
+    const textOrEmpty = ${textOrEmpty.toString()};
+    const textFromResponseBody = ${textFromResponseBody.toString()};
+    const textFromResponsesOutput = ${textFromResponsesOutput.toString()};
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
     const agentMenu = document.getElementById("agentMenu");
@@ -510,9 +601,10 @@ export const rendererClientScript = `
         const detailsOpen = expandedResponseDetails.has(detailsKey);
         const ok = turn.response?.ok;
         const streaming = turn.response?.streaming;
-        const answer = responseText(turn.response?.body);
-        const hasAnswer = String(answer || "").trim();
-        const waitingForFirstToken = streaming && !hasAnswer;
+        const display = responseDisplayState(turn.response);
+        const answer = display.answer;
+        const hasAnswer = display.hasAnswer;
+        const waitingForFirstToken = display.waitingForFirstToken;
         const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
         const body = waitingForFirstToken
           ? '<div class="first-token" role="status" aria-live="polite"><span>Thinking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
@@ -662,54 +754,6 @@ export const rendererClientScript = `
         inFlight = false;
         renderView();
       }
-    }
-
-    function responseText(body) {
-      const extracted = textFromResponseBody(body);
-      if (extracted) return extracted;
-      if (body && typeof body === "object") {
-        if (typeof body.output === "string") return body.output;
-        if (typeof body.error === "string") return body.error;
-        if (typeof body.error?.message === "string") return body.error.message;
-        if (typeof body.error?.code === "string") return body.error.code;
-        if (typeof body.detail === "string") return body.detail;
-        if (typeof body.message === "string") return body.message;
-        return "";
-      }
-      return body ?? "";
-    }
-
-    function textOrEmpty(value) {
-      return typeof value === "string" && value.trim() ? value : "";
-    }
-
-    function textFromResponseBody(body, seen = new Set()) {
-      if (!body || typeof body !== "object" || seen.has(body)) return "";
-      seen.add(body);
-      const direct = textOrEmpty(body.output_text);
-      if (direct) return direct;
-      const output = textFromResponsesOutput(body.output);
-      if (output) return output;
-      return textFromResponseBody(body.response, seen) || textFromResponseBody(body.body, seen);
-    }
-
-    function textFromResponsesOutput(output) {
-      if (!Array.isArray(output)) return "";
-      const parts = [];
-      for (const item of output) {
-        if (!item || typeof item !== "object") continue;
-        if (typeof item.text === "string") {
-          parts.push(item.text);
-        }
-        const content = item.content;
-        if (!Array.isArray(content)) continue;
-        for (const part of content) {
-          if (part && typeof part === "object" && typeof part.text === "string") {
-            parts.push(part.text);
-          }
-        }
-      }
-      return parts.join("").trim();
     }
 
     function renderMarkdown(value) {
