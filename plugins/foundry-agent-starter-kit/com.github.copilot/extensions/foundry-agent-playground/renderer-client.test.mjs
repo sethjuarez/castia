@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     composerGate,
+    latestVisibleAnswerText,
     localReadinessState,
     responseDetailsKey,
     responseDetailsPanelId,
@@ -178,4 +179,19 @@ test("non-envelope JSON strings remain raw diagnostics for markdown/details path
     const diagnostics = '{ "trace": "abc123" }';
 
     assert.equal(responseText(diagnostics), diagnostics);
+});
+
+test("latest visible answer text skips pending envelopes and copies latest final answer", () => {
+    assert.equal(latestVisibleAnswerText([
+        { response: { body: { output_text: "first answer" } } },
+        { response: { status: "waiting", body: '{ "output_text": "" }' } },
+        { response: { body: { output_text: "final answer" } } },
+    ]), "final answer");
+});
+
+test("latest visible answer text does not copy raw JSON details", () => {
+    assert.equal(latestVisibleAnswerText([
+        { response: { body: { output_text: "first answer" } } },
+        { response: { status: 200, body: '{ "trace": "abc123" }' } },
+    ]), "first answer");
 });
