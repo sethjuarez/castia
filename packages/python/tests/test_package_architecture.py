@@ -74,9 +74,11 @@ PUBLIC_EXPORTS = {
         "load_agent_config", "tools_json",
     ),
     "integrations.toolbox": (
+        "ToolboxAuthenticationError", "ToolboxConfigurationError",
         "apply_optimized_toolbox_tools", "compose_toolbox_endpoint",
         "knowledge_base_mcp_tool", "platform_endpoint_env",
         "resolve_toolbox_endpoint", "toolbox_mcp_tool", "toolbox_token",
+        "validate_toolbox_endpoint",
     ),
     "observe.tracing": ("OperationName", "execute_tool", "invoke_agent"),
 }

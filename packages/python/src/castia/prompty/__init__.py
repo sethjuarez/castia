@@ -21,7 +21,12 @@ from uuid import uuid4
 
 import httpx
 
-from castia.integrations.toolbox import AI_FOUNDRY_SCOPE, resolve_toolbox_endpoint
+from castia.integrations.toolbox import (
+    AI_FOUNDRY_SCOPE,
+    resolve_toolbox_endpoint,
+    validate_toolbox_endpoint,
+)
+from castia.observe import dev_diagnostics
 from castia.optimizing.config import AgentConfig, load_agent_config
 
 DEFAULT_FOUNDRY_CONNECTION = "foundry-default"
@@ -406,6 +411,12 @@ def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> 
         async def call_tool(*args: Any, _name: str = name, _tool_function: Callable[..., Any] = tool_function, **kwargs: Any) -> Any:
             timeline = _CURRENT_TIMELINE.get()
             event = _tool_timeline_event(timeline, _name, args, kwargs)
+            diagnostic_call = dev_diagnostics.record_tool_call(
+                name=_name,
+                arguments=_tool_arguments(args, kwargs),
+                status="running",
+                kind="prompty",
+            )
             with execute_tool(_name) as span:
                 _set_tool_span_start_attributes(span, event, _name, args, kwargs)
                 try:
@@ -414,9 +425,20 @@ def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> 
                         result = await result
                 except Exception as exc:
                     _set_tool_span_error_attributes(span, event, exc)
+                    dev_diagnostics.update_tool_call(
+                        diagnostic_call,
+                        status="error",
+                        summary=f"{type(exc).__name__}: {exc}",
+                        error_type=type(exc).__name__,
+                    )
                     raise
                 else:
                     _set_tool_span_success_attributes(span, event, result)
+                    dev_diagnostics.update_tool_call(
+                        diagnostic_call,
+                        status="ok",
+                        summary=result,
+                    )
                     return result
 
         traced[name] = call_tool
@@ -536,7 +558,12 @@ class ToolboxMcpClient:
     ) -> None:
         resolved = endpoint or resolve_toolbox_endpoint()
         if not resolved:
-            raise ValueError("A toolbox MCP endpoint is required.")
+            raise ValueError(
+                "A toolbox MCP endpoint is required. Set TOOLBOX_ENDPOINT or "
+                "TOOLBOX_MCP_ENDPOINT, or set FOUNDRY_PROJECT_ENDPOINT and "
+                "TOOLBOX_NAME so Castia can compose it."
+            )
+        validate_toolbox_endpoint(resolved)
         self.endpoint = resolved
         self.token_provider = token_provider
         self.headers = dict(headers or {})
@@ -547,6 +574,8 @@ class ToolboxMcpClient:
         tools = result.get("tools") if isinstance(result, dict) else None
         if not isinstance(tools, list):
             raise McpToolboxError("tools/list returned no tools array.")
+        if not tools:
+            raise McpToolboxError("tools/list returned zero tools for this toolbox.")
         return [tool for tool in tools if isinstance(tool, dict)]
 
     async def call_tool(self, name: str, arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -564,7 +593,12 @@ class ToolboxMcpClient:
             "Content-Type": "application/json",
             **self.headers,
         }
-        token = await _maybe_await(self.token_provider() if self.token_provider else _default_toolbox_token())
+        try:
+            token = await _maybe_await(self.token_provider() if self.token_provider else _default_toolbox_token())
+        except Exception as exc:
+            raise McpToolboxError(
+                f"Toolbox token acquisition failed: {type(exc).__name__}: {exc}"
+            ) from exc
         if token:
             headers["Authorization"] = "Bearer " + token
         payload = {
@@ -591,10 +625,22 @@ class ToolboxMcpClient:
         if response.status_code >= 400:
             raise McpToolboxError(f"MCP endpoint returned HTTP {response.status_code}: {_safe_json(data)}")
         if isinstance(data, dict) and data.get("error"):
-            raise McpToolboxError(f"MCP error from {method}: {_safe_json(data['error'])}")
+            raise McpToolboxError(_mcp_json_rpc_error_message(method, data["error"]))
         if not isinstance(data, dict) or "result" not in data:
             raise McpToolboxError(f"MCP response for {method} did not include result.")
         return data["result"]
+
+
+def _mcp_json_rpc_error_message(method: str, error: object) -> str:
+    text = _safe_json(error)
+    lowered = text.lower()
+    if "consent_required" in lowered:
+        return f"CONSENT_REQUIRED from toolbox {method}: {text}"
+    if "not found" in lowered or "unknown tool" in lowered:
+        return f"Tool not found during toolbox {method}: {text}"
+    if "schema" in lowered or "invalid" in lowered or "argument" in lowered:
+        return f"Toolbox schema/tool-call error from {method}: {text}"
+    return f"MCP error from {method}: {text}"
 
 
 class ToolboxToolHandler:

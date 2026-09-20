@@ -66,6 +66,7 @@ import os
 import re
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 #: The Entra audience the toolbox MCP endpoint authenticates against. Mirrors the
 #: ``azd ai connection create remote-tool ... --audience https://ai.azure.com``
@@ -88,6 +89,14 @@ _FEDERATED_NAME_SEPARATOR = "___"
 # when generating ``.agent_configs/baseline/tools.json``.
 OPTIMIZER_TOOL_DEFINITIONS_KEY = "x-castia-optimizer-tool-definitions"
 _SERVER_DESCRIPTION_KEY = "x-castia-server-description"
+
+
+class ToolboxConfigurationError(ValueError):
+    """A toolbox endpoint or selection is missing or malformed."""
+
+
+class ToolboxAuthenticationError(RuntimeError):
+    """Toolbox token acquisition failed."""
 
 
 def platform_endpoint_env(name: str) -> str:
@@ -154,6 +163,19 @@ def resolve_toolbox_endpoint(env: Mapping[str, str] | None = None) -> str | None
     return None
 
 
+def validate_toolbox_endpoint(endpoint: str) -> None:
+    """Fail loud for Foundry toolbox URLs missing required query settings."""
+    parsed = urlparse(endpoint)
+    if "/toolboxes/" not in parsed.path and "/knowledgebases/" not in parsed.path:
+        return
+    if not parse_qs(parsed.query).get("api-version"):
+        raise ToolboxConfigurationError(
+            "Foundry toolbox MCP endpoint is missing 'api-version'. Use a URL like "
+            ".../toolboxes/<name>/mcp?api-version=v1 or let Castia compose it from "
+            "FOUNDRY_PROJECT_ENDPOINT and TOOLBOX_NAME."
+        )
+
+
 def toolbox_mcp_tool(
     endpoint: str | None = None,
     *,
@@ -167,6 +189,7 @@ def toolbox_mcp_tool(
     server_description: str | None = None,
     descriptions: Mapping[str, str] | None = None,
     param_guidance: Mapping[str, Mapping[str, str]] | None = None,
+    required: bool = False,
 ) -> dict[str, Any] | None:
     """A Responses-API ``mcp`` tool spec for a Foundry toolbox, or ``None``.
 
@@ -198,7 +221,15 @@ def toolbox_mcp_tool(
     )
     endpoint = endpoint or resolve_toolbox_endpoint(env)
     if not endpoint:
+        if required:
+            raise ToolboxConfigurationError(
+                "No toolbox MCP endpoint configured. Set TOOLBOX_ENDPOINT or "
+                "TOOLBOX_MCP_ENDPOINT, set TOOLBOX_NAME with its platform "
+                "TOOLBOX_<NAME>_MCP_ENDPOINT, or set FOUNDRY_PROJECT_ENDPOINT "
+                "and TOOLBOX_NAME so Castia can compose the URL."
+            )
         return None
+    validate_toolbox_endpoint(endpoint)
     spec: dict[str, Any] = {
         "type": "mcp",
         "server_label": server_label,
@@ -498,7 +529,13 @@ async def toolbox_token(scope: str = AI_FOUNDRY_SCOPE) -> str:
 
     credential = DefaultAzureCredential()
     try:
-        token = await credential.get_token(scope)
+        try:
+            token = await credential.get_token(scope)
+        except Exception as exc:
+            raise ToolboxAuthenticationError(
+                f"Could not acquire toolbox token for {scope}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
     finally:
         await credential.close()
     return token.token

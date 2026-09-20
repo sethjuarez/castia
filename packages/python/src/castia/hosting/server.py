@@ -45,6 +45,7 @@ from castia.messaging.routing import (
     teams_tagged_channel_message,
 )
 from castia.messaging.surfaces import Teams
+from castia.observe import dev_diagnostics
 from castia.protocols.activity import Activity
 from castia.runtime.context import turn_scope
 from castia.runtime.dispatch import (
@@ -386,129 +387,133 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
                     output_item_id = f"msg_{uuid4().hex}"
                     chunks: list[str] = []
                     try:
-                        yield emit(
-                            _sse_event(
-                                "response.created",
-                                {
-                                    "type": "response.created",
-                                    "response": _streaming_response(
-                                        "",
-                                        response_id=response_id,
-                                        status="in_progress",
-                                    ),
-                                },
-                            )
-                        )
-                        yield emit(
-                            _sse_event(
-                                "response.in_progress",
-                                {
-                                    "type": "response.in_progress",
-                                    "response": _streaming_response(
-                                        "",
-                                        response_id=response_id,
-                                        status="in_progress",
-                                    ),
-                                },
-                            )
-                        )
-                        yield emit(
-                            _sse_event(
-                                "response.output_item.added",
-                                {
-                                    "type": "response.output_item.added",
-                                    "output_index": 0,
-                                    "item": _streaming_item(
-                                        output_item_id, "", status="in_progress"
-                                    ),
-                                },
-                            )
-                        )
-                        yield emit(
-                            _sse_event(
-                                "response.content_part.added",
-                                {
-                                    "type": "response.content_part.added",
-                                    "item_id": output_item_id,
-                                    "output_index": 0,
-                                    "content_index": 0,
-                                    "part": _streaming_content_part(""),
-                                },
-                            )
-                        )
-                        if responses_stream_dispatch is not None:
-                            async for delta in responses_stream_dispatch(text):
-                                chunks.append(delta)
-                                yield emit(
-                                    _sse_event(
-                                        "response.output_text.delta",
-                                        {
-                                            "type": "response.output_text.delta",
-                                            "delta": delta,
-                                        },
-                                    )
+                        with dev_diagnostics.turn("responses", text):
+                            yield emit(
+                                _sse_event(
+                                    "response.created",
+                                    {
+                                        "type": "response.created",
+                                        "response": _streaming_response(
+                                            "",
+                                            response_id=response_id,
+                                            status="in_progress",
+                                        ),
+                                    },
                                 )
-                        else:
-                            reply = await responses_dispatch(text)
-                            if reply:
-                                chunks.append(reply)
-                                yield emit(
-                                    _sse_event(
-                                        "response.output_text.delta",
-                                        {
-                                            "type": "response.output_text.delta",
-                                            "delta": reply,
-                                        },
-                                    )
+                            )
+                            yield emit(
+                                _sse_event(
+                                    "response.in_progress",
+                                    {
+                                        "type": "response.in_progress",
+                                        "response": _streaming_response(
+                                            "",
+                                            response_id=response_id,
+                                            status="in_progress",
+                                        ),
+                                    },
                                 )
-                        output_text = "".join(chunks)
-                        yield emit(
-                            _sse_event(
-                                "response.output_text.done",
-                                {
-                                    "type": "response.output_text.done",
-                                    "item_id": output_item_id,
-                                    "output_index": 0,
-                                    "content_index": 0,
-                                    "text": output_text,
-                                },
                             )
-                        )
-                        yield emit(
-                            _sse_event(
-                                "response.content_part.done",
-                                {
-                                    "type": "response.content_part.done",
-                                    "item_id": output_item_id,
-                                    "output_index": 0,
-                                    "content_index": 0,
-                                    "part": _streaming_content_part(output_text),
-                                },
+                            yield emit(
+                                _sse_event(
+                                    "response.output_item.added",
+                                    {
+                                        "type": "response.output_item.added",
+                                        "output_index": 0,
+                                        "item": _streaming_item(
+                                            output_item_id, "", status="in_progress"
+                                        ),
+                                    },
+                                )
                             )
-                        )
-                        yield emit(
-                            _sse_event(
-                                "response.output_item.done",
-                                {
-                                    "type": "response.output_item.done",
-                                    "output_index": 0,
-                                    "item": _streaming_item(
-                                        output_item_id, output_text, status="completed"
+                            yield emit(
+                                _sse_event(
+                                    "response.content_part.added",
+                                    {
+                                        "type": "response.content_part.added",
+                                        "item_id": output_item_id,
+                                        "output_index": 0,
+                                        "content_index": 0,
+                                        "part": _streaming_content_part(""),
+                                    },
+                                )
+                            )
+                            if responses_stream_dispatch is not None:
+                                async for delta in responses_stream_dispatch(text):
+                                    chunks.append(delta)
+                                    yield emit(
+                                        _sse_event(
+                                            "response.output_text.delta",
+                                            {
+                                                "type": "response.output_text.delta",
+                                                "delta": delta,
+                                            },
+                                        )
+                                    )
+                            else:
+                                reply = await responses_dispatch(text)
+                                if reply:
+                                    chunks.append(reply)
+                                    yield emit(
+                                        _sse_event(
+                                            "response.output_text.delta",
+                                            {
+                                                "type": "response.output_text.delta",
+                                                "delta": reply,
+                                            },
+                                        )
+                                    )
+                            output_text = "".join(chunks)
+                            dev_diagnostics.record_output(output_text)
+                            yield emit(
+                                _sse_event(
+                                    "response.output_text.done",
+                                    {
+                                        "type": "response.output_text.done",
+                                        "item_id": output_item_id,
+                                        "output_index": 0,
+                                        "content_index": 0,
+                                        "text": output_text,
+                                    },
+                                )
+                            )
+                            yield emit(
+                                _sse_event(
+                                    "response.content_part.done",
+                                    {
+                                        "type": "response.content_part.done",
+                                        "item_id": output_item_id,
+                                        "output_index": 0,
+                                        "content_index": 0,
+                                        "part": _streaming_content_part(output_text),
+                                    },
+                                )
+                            )
+                            yield emit(
+                                _sse_event(
+                                    "response.output_item.done",
+                                    {
+                                        "type": "response.output_item.done",
+                                        "output_index": 0,
+                                        "item": _streaming_item(
+                                            output_item_id,
+                                            output_text,
+                                            status="completed",
+                                        ),
+                                    },
+                                )
+                            )
+                            yield emit(
+                                _sse_event(
+                                    "response.completed",
+                                    _responses_completed_event(
+                                        output_text,
+                                        response_id=response_id,
+                                        output_item_id=output_item_id,
                                     ),
-                                },
+                                )
                             )
-                        )
-                        yield emit(
-                            _sse_event(
-                                "response.completed",
-                                _responses_completed_event(
-                                    output_text,
-                                    response_id=response_id,
-                                    output_item_id=output_item_id,
-                                ),
-                            )
-                        )
-                        yield emit(_sse_done())
+                            yield emit(_sse_done())
                     finally:
                         _record_stream_attributes(
                             started=started,
@@ -520,7 +525,9 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
 
                 return StreamingResponse(events(), media_type="text/event-stream")
 
-            reply = await responses_dispatch(text)
+            with dev_diagnostics.turn("responses", text):
+                reply = await responses_dispatch(text)
+                dev_diagnostics.record_output(reply)
             return JSONResponse(_responses_body(reply))
 
         logger.info("Serving responses protocol on POST /responses")
@@ -532,7 +539,10 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
         @app.post("/chat/completions")
         async def chat(request: Request) -> Response:
             body = await request.json()
-            reply = await chat_dispatch(_last_user_text(body.get("messages")))
+            text = _last_user_text(body.get("messages"))
+            with dev_diagnostics.turn("chat", text):
+                reply = await chat_dispatch(text)
+                dev_diagnostics.record_output(reply)
             return JSONResponse(_chat_body(reply))
 
         logger.info("Serving chat protocol on POST /chat/completions")
@@ -550,7 +560,10 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
                 body = json.loads(raw) if raw else ""
             except json.JSONDecodeError:
                 body = raw.decode("utf-8", errors="replace").strip()
-            reply = await invocations_dispatch(_invocations_input(body))
+            text = _invocations_input(body)
+            with dev_diagnostics.turn("invocations", text):
+                reply = await invocations_dispatch(text)
+                dev_diagnostics.record_output(reply)
             return JSONResponse(_invocations_body(reply))
 
         logger.info("Serving invocations protocol on POST /invocations")
@@ -653,6 +666,27 @@ def build_app(
         )
         return JSONResponse(
             body,
+            status_code=200,
+        )
+
+    @app.get("/diagnostics/last-turn")
+    async def diagnostics_last_turn(request: Request) -> Response:
+        if not _is_loopback_request(request):
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        if not dev_diagnostics.enabled():
+            return JSONResponse(
+                {
+                    "enabled": False,
+                    "enable_with": dev_diagnostics.setting_name(),
+                    "last_turn": None,
+                },
+                status_code=200,
+            )
+        return JSONResponse(
+            {
+                "enabled": True,
+                "last_turn": dev_diagnostics.last_turn(),
+            },
             status_code=200,
         )
 

@@ -18,6 +18,8 @@ from castia.hosting.identity import (
 )
 from castia.inference.model import Model, get_model, use_model
 from castia.integrations.toolbox import (
+    ToolboxAuthenticationError,
+    ToolboxConfigurationError,
     apply_optimized_toolbox_tools,
     compose_toolbox_endpoint,
     knowledge_base_mcp_tool,
@@ -25,6 +27,7 @@ from castia.integrations.toolbox import (
     resolve_toolbox_endpoint,
     toolbox_mcp_tool,
     toolbox_token,
+    validate_toolbox_endpoint,
 )
 from castia.messaging.cards import (
     Reaction,
@@ -70,6 +73,8 @@ __all__ = [
     "Router",
     "Streamer",
     "Teams",
+    "ToolboxAuthenticationError",
+    "ToolboxConfigurationError",
     "Turn",
     "action_chips",
     "adaptive_card",
@@ -101,4 +106,5 @@ __all__ = [
     "toolbox_token",
     "tools_json",
     "use_model",
+    "validate_toolbox_endpoint",
 ]

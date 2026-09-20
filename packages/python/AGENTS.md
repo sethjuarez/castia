@@ -333,6 +333,22 @@ Non-loopback callers receive low-disclosure JSON such as `{"status":"ok"}`.
 Local loopback callers receive diagnostic readiness, including the agent name,
 enabled protocols, route paths, and present/missing status for common
 configuration variable names. Readiness never exposes environment values.
+If your app cannot answer without specific settings, declare them explicitly so
+readiness marks them required:
+
+```python
+app.require_env(
+    "FOUNDRY_PROJECT_ENDPOINT",
+    "AZURE_AI_MODEL_DEPLOYMENT_NAME",
+    "TOOLBOX_ENDPOINT",
+)
+```
+
+For a local last-turn trace, set `CASTIA_DEV_DIAGNOSTICS=1` before starting the
+agent and call `GET /diagnostics/last-turn` from loopback. It reports the last
+wire turn's input, selected local/Prompty tool calls, arguments, success/error
+summaries, and final output. The endpoint is disabled by default and hidden from
+non-loopback callers.
 The POST invokes live Foundry inference and may execute the toolbox. Get
 approval for that spend and tool access before sending it.
 

@@ -144,6 +144,7 @@ class Model:
         """
         import json
 
+        from castia.observe import dev_diagnostics
         from castia.observe.tracing import execute_tool
 
         function_tools = [t for t in tools if not isinstance(t, dict)]
@@ -178,6 +179,7 @@ class Model:
                 if getattr(item, "type", None) == "function_call"
             ]
             if not calls:
+                dev_diagnostics.record_response_tool_outputs(response.output)
                 _add_model_event(
                     "castia.model.final_response.completed",
                     phase="tool_loop",
@@ -220,8 +222,19 @@ class Model:
         """Execute one function call, capturing every failure as a result dict."""
         import json
 
+        from castia.observe import dev_diagnostics
+
         tool = by_name.get(call.name)
+        args: dict = {}
+        diagnostic_call = None
         if tool is None:
+            diagnostic_call = dev_diagnostics.record_tool_call(
+                name=str(call.name),
+                arguments=getattr(call, "arguments", None),
+                status="error",
+                error_type="unknown_tool",
+                summary=f"unknown tool '{call.name}'",
+            )
             _add_model_event(
                 "castia.tool.call.completed",
                 tool_name=str(call.name),
@@ -232,6 +245,13 @@ class Model:
         try:
             args = json.loads(call.arguments or "{}")
         except json.JSONDecodeError as exc:
+            dev_diagnostics.record_tool_call(
+                name=str(call.name),
+                arguments=getattr(call, "arguments", None),
+                status="error",
+                error_type="bad_arguments",
+                summary=f"bad tool arguments: {exc}",
+            )
             _add_model_event(
                 "castia.tool.call.completed",
                 tool_name=str(call.name),
@@ -240,12 +260,28 @@ class Model:
             )
             return {"ok": False, "detail": f"bad tool arguments: {exc}"}
         try:
+            diagnostic_call = dev_diagnostics.record_tool_call(
+                name=str(call.name),
+                arguments=args,
+                status="running",
+            )
             _add_model_event("castia.tool.call.started", tool_name=str(call.name))
             with execute_tool(call.name):
                 result = await tool.run(activity, **args)
+            dev_diagnostics.update_tool_call(
+                diagnostic_call,
+                status="ok",
+                summary=result,
+            )
             _add_model_event("castia.tool.call.completed", tool_name=str(call.name), ok=True)
             return result
         except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
+            dev_diagnostics.update_tool_call(
+                diagnostic_call,
+                status="error",
+                summary=f"{type(exc).__name__}: {exc}",
+                error_type=type(exc).__name__,
+            )
             _add_model_event(
                 "castia.tool.call.completed",
                 tool_name=str(call.name),

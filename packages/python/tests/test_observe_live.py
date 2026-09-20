@@ -210,7 +210,7 @@ def test_model_does_not_prove_teams_or_graph():
 def test_toolbox_requires_explicit_tools_and_checks_actual_execution():
     adapter = Adapter({"output": [{"type": "mcp_call", "name": "web", "output": "SECRET_CONTENT"}]})
     report = report_for(
-        ["tools.toolbox"], adapter, toolbox_url=URL + "/toolboxes/known/mcp",
+        ["tools.toolbox"], adapter, toolbox_url=URL + "/toolboxes/known/mcp?api-version=v1",
         toolbox_tools=("web",), toolbox_prompt="Use web to read example.com.",
     )
     assert report.passed
@@ -230,7 +230,7 @@ def test_toolbox_requires_explicit_tools_and_checks_actual_execution():
 )
 def test_toolbox_model_answer_without_tool_evidence_is_failure(response):
     report = report_for(
-        ["tools.toolbox"], Adapter(response), toolbox_url=URL + "/toolboxes/known/mcp",
+        ["tools.toolbox"], Adapter(response), toolbox_url=URL + "/toolboxes/known/mcp?api-version=v1",
         toolbox_tools=("web",), toolbox_prompt="Use web to read example.com.",
     )
     assert not report.passed and "SECRET" not in report.to_json()
@@ -412,7 +412,7 @@ def test_optimizer_unknown_status_is_failure_and_still_cancels():
 def test_toolbox_is_error_inside_output_is_not_passing():
     adapter = Adapter({"output": [{"type": "mcp_call", "name": "web", "output": '{"isError":true}'}]})
     report = report_for(
-        ["tools.toolbox"], adapter, toolbox_url=URL + "/toolboxes/known/mcp",
+        ["tools.toolbox"], adapter, toolbox_url=URL + "/toolboxes/known/mcp?api-version=v1",
         toolbox_tools=("web",), toolbox_prompt="Use web to read example.com.",
     )
     assert not report.passed

@@ -336,7 +336,7 @@ def test_toolbox_mcp_client_lists_and_calls_tools_with_bearer():
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
             client = ToolboxMcpClient(
-                "https://example.test/toolboxes/contracts/mcp",
+                "https://example.test/toolboxes/contracts/mcp?api-version=v1",
                 token_provider=lambda: "TOKEN",
                 client=http,
             )
