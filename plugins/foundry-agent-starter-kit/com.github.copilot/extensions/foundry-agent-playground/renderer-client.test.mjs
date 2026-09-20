@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { composerGate, localReadinessState, responseDetailsKey, responseDetailsPanelId } from "./renderer-client.mjs";
+import {
+    composerGate,
+    localReadinessState,
+    responseDetailsKey,
+    responseDetailsPanelId,
+    responseDisplayState,
+    responseText,
+} from "./renderer-client.mjs";
 
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {
@@ -138,4 +145,37 @@ test("response details panel ids are stable and attribute-safe", () => {
         responseDetailsPanelId("created:2026-09-19T00:00:00Z:hosted"),
         "response-details-created-2026-09-19T00-00-00Z-hosted",
     );
+});
+
+test("empty Responses envelopes render as pending instead of JSON answer text", () => {
+    assert.deepEqual(responseDisplayState({
+        status: "waiting",
+        body: { output_text: "" },
+    }), {
+        answer: "",
+        hasAnswer: "",
+        waitingForFirstToken: true,
+    });
+    assert.deepEqual(responseDisplayState({
+        status: "waiting",
+        body: '{ "output_text": "" }',
+    }), {
+        answer: "",
+        hasAnswer: "",
+        waitingForFirstToken: true,
+    });
+});
+
+test("Responses envelope strings still surface final output text", () => {
+    assert.equal(responseText('{ "output_text": "final answer" }'), "final answer");
+    assert.equal(responseDisplayState({
+        status: 200,
+        body: '{ "output_text": "final answer" }',
+    }).hasAnswer, "final answer");
+});
+
+test("non-envelope JSON strings remain raw diagnostics for markdown/details paths", () => {
+    const diagnostics = '{ "trace": "abc123" }';
+
+    assert.equal(responseText(diagnostics), diagnostics);
 });
