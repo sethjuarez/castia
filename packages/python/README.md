@@ -106,6 +106,26 @@ loopback callers receive diagnostic readiness for development tooling: agent
 name, enabled protocols, route paths, and present/missing status for common
 configuration variables without exposing values.
 
+Declare runtime-required settings with `app.require_env(...)` so readiness can
+distinguish optional discovery from configuration that blocks answers:
+
+```python
+app.require_env(
+    "FOUNDRY_PROJECT_ENDPOINT",
+    "AZURE_AI_MODEL_DEPLOYMENT_NAME",
+    "TOOLBOX_ENDPOINT",
+)
+```
+
+Missing required settings fail before `app.run()` serves traffic and make local
+readiness report `{"status":"configuration_missing"}` with the missing names.
+
+For local debugging of a single turn, set `CASTIA_DEV_DIAGNOSTICS=1` and call
+`GET /diagnostics/last-turn` from loopback. It reports the last local wire turn's
+input, selected local/Prompty tool calls, arguments, success/error summaries,
+and final output. The endpoint is disabled by default and returns 404 to
+non-loopback callers.
+
 ### Composing protocols with routers
 
 Like FastAPI's `include_router`, an `Agent` composes `Router`s so each protocol
@@ -170,6 +190,10 @@ It returns `None` when no toolbox is configured, so "no toolbox" just attaches n
 tool. Auth is either a bearer `token` (minted from the container's managed
 identity by `toolbox_token()`) or a stored-connection `project_connection_id`.
 A Foundry IQ knowledge base is the same shape via `knowledge_base_mcp_tool`.
+Use `toolbox_mcp_tool(required=True)` when the app cannot answer without its
+toolbox; Castia then raises a specific configuration error instead of silently
+omitting the tool. Foundry toolbox URLs must include `api-version`, and
+`toolbox_token()` wraps credential failures with toolbox-specific context.
 
 For optimizer-ready toolbox guidance, pass an override map for the selected
 tools and declare the same pure spec provider with `app.tools(...)` so

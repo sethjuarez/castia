@@ -142,7 +142,7 @@ def test_toolbox_preflight_lists_tools_with_ai_foundry_bearer(monkeypatch):
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
             return await toolbox_preflight(
                 ("contracts-kb-mcp___knowledge_base_retrieve",),
-                endpoint="https://example.test/toolboxes/contracts/mcp",
+                endpoint="https://example.test/toolboxes/contracts/mcp?api-version=v1",
                 http_client=http,
             )
 
@@ -170,7 +170,7 @@ def test_toolbox_preflight_reports_missing_allowed_tools():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
             return await toolbox_preflight(
                 ("knowledge_base_retrieve",),
-                endpoint="https://example.test/toolboxes/contracts/mcp",
+                endpoint="https://example.test/toolboxes/contracts/mcp?api-version=v1",
                 token_provider=lambda: "TOKEN",
                 http_client=http,
             )

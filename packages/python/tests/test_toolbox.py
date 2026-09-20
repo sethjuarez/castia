@@ -8,17 +8,24 @@ one impure seam (:func:`castia.integrations.toolbox.toolbox_token`) is not calle
 
 from __future__ import annotations
 
+import asyncio
+import json
+
+import httpx
 import pytest
 
 from castia.integrations.toolbox import (
     AI_FOUNDRY_SCOPE,
     OPTIMIZER_TOOL_DEFINITIONS_KEY,
+    ToolboxConfigurationError,
     compose_toolbox_endpoint,
     knowledge_base_mcp_tool,
     platform_endpoint_env,
     resolve_toolbox_endpoint,
     toolbox_mcp_tool,
+    validate_toolbox_endpoint,
 )
+from castia.prompty import McpToolboxError, ToolboxMcpClient
 
 PROJECT = "https://acct.services.ai.azure.com/api/projects/proj"
 
@@ -122,6 +129,16 @@ def test_resolve_full_url_beats_platform_native() -> None:
 
 def test_mcp_tool_none_when_no_endpoint() -> None:
     assert toolbox_mcp_tool(env={}) is None
+
+
+def test_mcp_tool_required_endpoint_fails_loud() -> None:
+    with pytest.raises(ToolboxConfigurationError, match="No toolbox MCP endpoint"):
+        toolbox_mcp_tool(env={}, required=True)
+
+
+def test_foundry_toolbox_endpoint_requires_api_version() -> None:
+    with pytest.raises(ToolboxConfigurationError, match="api-version"):
+        validate_toolbox_endpoint(f"{PROJECT}/toolboxes/hal-smoke/mcp")
 
 
 def test_mcp_tool_basic_shape() -> None:
@@ -309,21 +326,21 @@ def test_mcp_tool_overrides_reject_waypoint_ambiguous_kb_key() -> None:
 
 
 def test_kb_tool_default_allowed_tools() -> None:
-    spec = knowledge_base_mcp_tool("https://s/knowledgebases/kb/mcp")
+    spec = knowledge_base_mcp_tool("https://s/knowledgebases/kb/mcp?api-version=v1")
     assert spec["allowed_tools"] == ["knowledge_base_retrieve"]
     assert spec["server_label"] == "knowledge-base"
 
 
 def test_kb_tool_search_token_header() -> None:
     spec = knowledge_base_mcp_tool(
-        "https://s/knowledgebases/kb/mcp", search_token="tok"
+        "https://s/knowledgebases/kb/mcp?api-version=v1", search_token="tok"
     )
     assert spec["headers"] == {"x-ms-query-source-authorization": "tok"}
 
 
 def test_kb_tool_accepts_default_tool_description_override() -> None:
     spec = knowledge_base_mcp_tool(
-        "https://s/knowledgebases/kb/mcp",
+        "https://s/knowledgebases/kb/mcp?api-version=v1",
         descriptions={"knowledge_base_retrieve": "Search the KB."},
     )
 
@@ -333,7 +350,7 @@ def test_kb_tool_accepts_default_tool_description_override() -> None:
 
 
 def test_kb_tool_never_none() -> None:
-    spec = knowledge_base_mcp_tool("https://s/knowledgebases/kb/mcp")
+    spec = knowledge_base_mcp_tool("https://s/knowledgebases/kb/mcp?api-version=v1")
     assert spec is not None
 
 
@@ -342,3 +359,88 @@ def test_kb_tool_never_none() -> None:
 
 def test_scope_constant() -> None:
     assert AI_FOUNDRY_SCOPE == "https://ai.azure.com/.default"
+
+
+# --- local MCP client diagnostics -------------------------------------------
+
+
+def test_toolbox_mcp_client_reports_zero_tools() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": payload["id"], "result": {"tools": []}},
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            client = ToolboxMcpClient(
+                "https://example.test/mcp",
+                token_provider=lambda: "TOKEN",
+                client=http,
+            )
+            with pytest.raises(McpToolboxError, match="zero tools"):
+                await client.list_tools()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("error", "match"),
+    [
+        (
+            {"code": "CONSENT_REQUIRED", "message": "admin consent needed"},
+            "CONSENT_REQUIRED",
+        ),
+        ({"code": -32602, "message": "unknown tool lookup"}, "Tool not found"),
+        (
+            {"code": -32602, "message": "invalid arguments schema"},
+            "schema/tool-call",
+        ),
+    ],
+)
+def test_toolbox_mcp_client_classifies_tool_call_errors(error, match) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": payload["id"], "error": error},
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            client = ToolboxMcpClient(
+                "https://example.test/mcp",
+                token_provider=lambda: "TOKEN",
+                client=http,
+            )
+            with pytest.raises(McpToolboxError, match=match):
+                await client.call_tool("lookup", {})
+
+    asyncio.run(run())
+
+
+def test_toolbox_mcp_client_reports_token_failure() -> None:
+    async def run() -> None:
+        transport = httpx.MockTransport(lambda request: httpx.Response(200))
+        async with httpx.AsyncClient(transport=transport) as http:
+            client = ToolboxMcpClient(
+                "https://example.test/mcp",
+                token_provider=lambda: (_ for _ in ()).throw(RuntimeError("no token")),
+                client=http,
+            )
+            with pytest.raises(
+                McpToolboxError,
+                match="Toolbox token acquisition failed",
+            ):
+                await client.list_tools()
+
+    asyncio.run(run())
+
+
+def test_toolbox_mcp_client_rejects_foundry_endpoint_without_api_version() -> None:
+    with pytest.raises(ValueError, match="api-version"):
+        ToolboxMcpClient(
+            "https://acct.services.ai.azure.com/api/projects/p/toolboxes/t/mcp",
+            token_provider=lambda: "TOKEN",
+        )

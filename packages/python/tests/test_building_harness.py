@@ -312,6 +312,125 @@ def test_readiness_diagnostics_are_loopback_only():
     asyncio.run(run())
 
 
+def test_last_turn_diagnostics_are_opt_in_and_loopback_only(monkeypatch):
+    from types import SimpleNamespace
+
+    from castia.hosting import server
+    from castia.inference.model import Model
+
+    class Tool:
+        name = "lookup_policy"
+
+        def spec(self):
+            return {"type": "function", "function": {"name": self.name}}
+
+        async def run(self, activity, **kwargs):
+            return {"ok": True, "policy": kwargs["policy"]}
+
+    class Responses:
+        def __init__(self):
+            self.calls = 0
+
+        async def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    output=[
+                        SimpleNamespace(
+                            type="function_call",
+                            call_id="call-1",
+                            name="lookup_policy",
+                            arguments='{"policy":"travel"}',
+                        )
+                    ],
+                    output_text="",
+                )
+            return SimpleNamespace(output=[], output_text="done")
+
+    def model_provider():
+        responses = Responses()
+        model = Model.__new__(Model)
+        model._deployment = "dep"
+        model._instructions = None
+        model._reasoning = {}
+        model._tool_definitions = ()
+        model._client = SimpleNamespace(
+            get_openai_client=lambda: SimpleNamespace(responses=responses)
+        )
+        return model
+
+    app = Agent(name="diagnostic-agent")
+
+    @app.responses()
+    async def reply(text: str, model=Depends(model_provider)):
+        return await model.respond_with_tools(text, tools=[Tool()], activity=None)
+
+    asgi = server.build_app(
+        app._routes,
+        app._wire,
+        app._invokes,
+        agent_name=app.name,
+        required_env=app._required_env,
+    )
+
+    async def run():
+        monkeypatch.delenv("CASTIA_DEV_DIAGNOSTICS", raising=False)
+        local_transport = httpx.ASGITransport(
+            app=asgi,
+            client=("127.0.0.1", 12345),
+        )
+        async with httpx.AsyncClient(
+            transport=local_transport,
+            base_url="http://127.0.0.1",
+        ) as client:
+            disabled = await client.get("/diagnostics/last-turn")
+            assert disabled.json() == {
+                "enabled": False,
+                "enable_with": "CASTIA_DEV_DIAGNOSTICS",
+                "last_turn": None,
+            }
+
+        monkeypatch.setenv("CASTIA_DEV_DIAGNOSTICS", "1")
+        async with AgentTestHarness(
+            app,
+            dependency_overrides={model_provider: model_provider},
+        ) as test:
+            response = await test.client.post("/responses", json={"input": "hello"})
+            assert response.json()["output_text"] == "done"
+            diagnostics = await test.client.get(
+                "/diagnostics/last-turn",
+                headers={"host": "127.0.0.1"},
+            )
+            body = diagnostics.json()
+            turn = body["last_turn"]
+            assert body["enabled"] is True
+            assert turn["protocol"] == "responses"
+            assert turn["input"] == "hello"
+            assert turn["final_output"] == "done"
+            assert turn["tool_calls"] == [
+                {
+                    "kind": "function",
+                    "name": "lookup_policy",
+                    "status": "ok",
+                    "arguments": {"policy": "travel"},
+                    "summary": "{'ok': True, 'policy': 'travel'}",
+                }
+            ]
+
+        remote_transport = httpx.ASGITransport(
+            app=asgi,
+            client=("203.0.113.10", 12345),
+        )
+        async with httpx.AsyncClient(
+            transport=remote_transport,
+            base_url="http://castia.test",
+        ) as client:
+            remote = await client.get("/diagnostics/last-turn")
+            assert remote.status_code == 404
+
+    asyncio.run(run())
+
+
 def test_port_probe_reports_occupied_port():
     from castia.hosting.server import _ensure_port_available
 
