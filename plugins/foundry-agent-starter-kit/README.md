@@ -37,6 +37,17 @@ copilot plugin install foundry-agent-starter-kit@castia
 This is Copilot plugin distribution, not Agency distribution. Do not use Agency
 plugin commands or Agency marketplaces for the public Castia path.
 
+The packaged canvas is the only supported Foundry Agent Playground. Do not copy
+the extension into a scenario repository; installing or updating this plugin
+keeps the playground implementation and its action contract consistent across
+projects.
+
+If a scenario repository already contains
+`.github\extensions\agent-playground`, remove that directory and install or
+update this plugin instead. The supported canvas ID is now
+`foundry-agent-playground`; update saved canvas references that still use the
+old `agent-playground` ID.
+
 ## Canvas-only testing
 
 Use this when you need to test or share the canvas before the plugin marketplace
