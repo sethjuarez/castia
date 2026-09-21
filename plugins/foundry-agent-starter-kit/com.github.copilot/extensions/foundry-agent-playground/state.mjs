@@ -1,5 +1,8 @@
 import { serviceEnvPrefix } from "./agent-discovery.mjs";
+import { responseText } from "./agent-client.mjs";
 import { DEFAULT_AGENT_ROOT, DEFAULT_ENDPOINT, DEFAULT_SERVICE_NAME } from "./constants.mjs";
+
+const MAX_ACTIVITY_ENTRIES = 80;
 
 function codedError(code, message) {
     const error = new Error(message);
@@ -63,6 +66,31 @@ export function addLocalEvent(state, kind, text) {
         ...(state.localRun.events || []),
         { kind, text, at: new Date().toISOString() },
     ].slice(-5);
+}
+
+export function addActivity(state, { actor = "Canvas", kind, status = "info", summary, details = null }) {
+    state.activity ||= [];
+    const entry = {
+        id: `act-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        at: new Date().toISOString(),
+        actor,
+        kind,
+        status,
+        summary,
+        ...(details ? { details } : {}),
+    };
+    state.activity.push(entry);
+    if (state.activity.length > MAX_ACTIVITY_ENTRIES) {
+        state.activity.splice(0, state.activity.length - MAX_ACTIVITY_ENTRIES);
+    }
+    return entry;
+}
+
+export function updateActivity(state, id, patch) {
+    const entry = (state.activity || []).find((candidate) => candidate.id === id);
+    if (!entry) return null;
+    Object.assign(entry, patch, { updatedAt: new Date().toISOString() });
+    return entry;
 }
 
 export function hasFoundryProjectValues(state) {
@@ -179,6 +207,99 @@ export function clearMessagesForTarget(state, target) {
     state.messages.push(...keep);
 }
 
+function parseResponseEnvelopeString(value) {
+    const text = String(value || "").trim();
+    if (!text || !/^[{[]/.test(text)) return null;
+    try {
+        const parsed = JSON.parse(text);
+        return isResponseEnvelope(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function isResponseEnvelope(body, seen = new Set()) {
+    if (!body || typeof body !== "object" || seen.has(body)) return false;
+    seen.add(body);
+    if (Object.prototype.hasOwnProperty.call(body, "output_text")) return true;
+    if (Array.isArray(body.output)) return true;
+    return isResponseEnvelope(body.response, seen) || isResponseEnvelope(body.body, seen);
+}
+
+export function responseDisplayText(response) {
+    return String(responseText(response?.body) || "").trim();
+}
+
+export function responsePendingLabel(response) {
+    const answer = responseDisplayText(response);
+    const status = String(response?.status || "").toLowerCase();
+    const pending = !answer && Boolean(
+        response?.streaming ||
+        response?.delivery?.active ||
+        status === "waiting" ||
+        status === "streaming"
+    );
+    return pending ? "Thinking..." : null;
+}
+
+export function copyableAnswerText(response) {
+    if (!response?.ok || response?.streaming || responsePendingLabel(response)) return "";
+    const body = response.body;
+    if (typeof body === "string") {
+        const text = body.trim();
+        if (/^[{[]/.test(text) && !parseResponseEnvelopeString(text)) return "";
+    }
+    return responseDisplayText(response);
+}
+
+export function latestCopyTarget(messages = []) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const text = copyableAnswerText(messages[index]?.response);
+        if (text) {
+            return {
+                messageIndex: index,
+                createdAt: messages[index]?.createdAt || null,
+                text,
+            };
+        }
+    }
+    return null;
+}
+
+export function transcriptState(state) {
+    const visibleMessages = messagesForTarget(state);
+    const latestCopy = latestCopyTarget(visibleMessages);
+    const turns = visibleMessages.map((message) => ({
+        prompt: message.input || "",
+        answer: responseDisplayText(message.response),
+        ok: message.response?.ok ?? null,
+        status: message.response?.status ?? null,
+        pendingLabel: responsePendingLabel(message.response),
+        copyableText: copyableAnswerText(message.response),
+    }));
+    const latestPending = [...turns].reverse().find((turn) => turn.pendingLabel);
+    return {
+        target: state.target,
+        selectedAgentId: state.selectedAgentId,
+        endpoint: activeEndpoint(state),
+        turns,
+        prompts: turns.map((turn) => turn.prompt),
+        answers: turns.map((turn) => turn.answer),
+        pendingLabel: latestPending?.pendingLabel || null,
+        latestCopyTarget: latestCopy,
+        copyButton: {
+            enabled: Boolean(latestCopy),
+            text: latestCopy?.text || "",
+        },
+        healthBanner: {
+            ok: state.lastHealth?.ok ?? null,
+            status: state.lastHealth?.status ?? null,
+            body: state.lastHealth?.body ?? null,
+            identity: state.lastHealth?.identity ?? null,
+        },
+    };
+}
+
 export function stateSnapshot(state) {
     const agent = selectedAgent(state);
     const visibleMessages = messagesForTarget(state);
@@ -201,8 +322,10 @@ export function stateSnapshot(state) {
         activeEndpoint: activeEndpoint(state),
         activePort: endpointPort(activeEndpoint(state)),
         teams: state.teams,
+        activity: state.activity || [],
         messages: state.messages,
         visibleMessages,
+        transcriptState: transcriptState(state),
         lastHealth: state.lastHealth,
         stats: transcriptStats(visibleMessages),
     };

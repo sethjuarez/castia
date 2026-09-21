@@ -106,13 +106,15 @@ export function responseDisplayState(response) {
 
 export function latestVisibleAnswerText(messages = []) {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const answer = copyableAnswerText(messages[index]?.response?.body);
+        const answer = copyableAnswerText(messages[index]?.response);
         if (answer) return answer;
     }
     return "";
 }
 
-function copyableAnswerText(body) {
+function copyableAnswerText(response) {
+    if (!response?.ok || response?.streaming || responseDisplayState(response).waitingForFirstToken) return "";
+    const body = response.body;
     if (typeof body === "string") {
         const text = body.trim();
         if (/^[{[]/.test(text) && !parseResponseEnvelopeString(text)) return "";
@@ -232,6 +234,10 @@ export const rendererClientScript = `
     const passCount = document.getElementById("passCount");
     const failCount = document.getElementById("failCount");
     const avgLatency = document.getElementById("avgLatency");
+    const activityLog = document.getElementById("activityLog");
+    const activitySummary = document.getElementById("activitySummary");
+    const activityCount = document.getElementById("activityCount");
+    const activityItems = document.getElementById("activityItems");
     const transcript = document.getElementById("transcript");
     const copyLatestAnswerButton = document.getElementById("copyLatestAnswer");
     const promptInput = document.getElementById("prompt");
@@ -295,6 +301,7 @@ export const rendererClientScript = `
       renderTeams(state);
       renderLocalEndpointBanner(state);
       renderLocalTicker(state);
+      renderActivity(state);
       renderDeployTicker(state);
       renderJourney(state);
       renderView();
@@ -312,14 +319,23 @@ export const rendererClientScript = `
       const port = state.activePort || "";
       const portWarning = state.localRun?.portWarning;
       const mismatch = state.localRun?.identityMismatch;
+      const needsDiagnostic = Boolean(portWarning || (mismatch && !mismatch.autoSelected));
+      if (!needsDiagnostic) {
+        localEndpointBanner.hidden = true;
+        localEndpointBanner.innerHTML = "";
+        return;
+      }
+      const details = "Endpoint: " + endpoint + " · port=" + String(port || "unknown") +
+        " · selected=" + selected + " · readiness=" + readiness;
       localEndpointBanner.hidden = false;
-      localEndpointBanner.className = "local-endpoint-banner" + (portWarning || (mismatch && !mismatch.autoSelected) ? " warn" : "");
+      localEndpointBanner.className = "local-endpoint-banner warn";
       localEndpointBanner.innerHTML =
-        '<div><strong>Active local endpoint:</strong> <code>' + escapeHtml(endpoint) + '</code></div>' +
-        '<div class="endpoint-meta">port=' + escapeHtml(String(port || "unknown")) +
-        ' · selected=' + escapeHtml(selected) +
-        ' · readiness=' + escapeHtml(readiness) + '</div>' +
-        (portWarning ? '<div class="endpoint-warning">' + escapeHtml(portWarning) + '</div>' : "") +
+        '<div class="endpoint-compact" title="' + escapeHtml(details) + '">' +
+          '<span class="endpoint-label">Local</span>' +
+          '<code>' + escapeHtml(formatEndpointShort(endpoint)) + '</code>' +
+          '<span class="endpoint-meta">ready=' + escapeHtml(readiness) + '</span>' +
+        '</div>' +
+        (portWarning ? '<div class="endpoint-warning" title="' + escapeHtml(portWarning) + '">Fallback port ' + escapeHtml(String(port || "unknown")) + '</div>' : "") +
         (mismatch && !mismatch.autoSelected
           ? '<div class="endpoint-warning">' + escapeHtml(mismatch.message || "Selected agent does not match readiness.") +
             (mismatch.canSwitch ? ' <button id="switchReadinessAgent" type="button">Switch to ' + escapeHtml(mismatch.actual) + '</button>' : "") +
@@ -351,6 +367,29 @@ export const rendererClientScript = `
       localTicker.className = "local-ticker " + kind;
       localTicker.innerHTML = '<span class="ticker-mark" aria-hidden="true"></span>' +
         '<span class="ticker-text">' + escapeHtml(event.text) + '</span>';
+    }
+
+    function renderActivity(state) {
+      const entries = (state.activity || []).slice(-8).reverse();
+      activityLog.hidden = !entries.length || activeView !== "chat";
+      if (!entries.length || activeView !== "chat") {
+        activitySummary.textContent = "No canvas actions yet.";
+        activityCount.textContent = "0";
+        activityItems.innerHTML = "";
+        return;
+      }
+      const latest = entries[0];
+      activitySummary.textContent = latest.actor + " · " + latest.summary;
+      activityCount.textContent = String(state.activity.length);
+      activityItems.innerHTML = entries.map((entry) => {
+        const status = entry.status || "info";
+        return '<div class="activity-item ' + escapeHtml(status) + '">' +
+          '<span class="ticker-mark" aria-hidden="true"></span>' +
+          '<div class="activity-main"><span class="activity-actor">' + escapeHtml(entry.actor || "Canvas") + '</span> ' +
+          escapeHtml(entry.summary || entry.kind || "Canvas action") + '</div>' +
+          '<time class="activity-time" datetime="' + escapeHtml(entry.at || "") + '">' + escapeHtml(formatTime(entry.at)) + '</time>' +
+          '</div>';
+      }).join("");
     }
 
     function elapsedLabel(startedAt) {
@@ -605,6 +644,7 @@ export const rendererClientScript = `
     }
 
     function renderMessages(messages) {
+      transcript.classList.toggle("empty-state", !messages.length);
       if (!messages.length) {
         transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
         copyLatestAnswerButton.hidden = true;
@@ -625,6 +665,7 @@ export const rendererClientScript = `
         const display = responseDisplayState(turn.response);
         const answer = display.answer;
         const hasAnswer = display.hasAnswer;
+        const copyableAnswer = copyableAnswerText(turn.response);
         const waitingForFirstToken = display.waitingForFirstToken;
         const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
         const body = waitingForFirstToken
@@ -642,7 +683,7 @@ export const rendererClientScript = `
           '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
           '<div class="bubble-body">' + body + '</div>' +
           '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button>' +
-          '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" ' + (hasAnswer ? "" : "disabled") + '>Copy answer</button></div>' +
+          '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" ' + (copyableAnswer ? "" : "disabled") + '>Copy answer</button></div>' +
           '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
           '</section>' +
           '</article>';
@@ -720,7 +761,7 @@ export const rendererClientScript = `
       const messages = latestState?.visibleMessages || [];
       for (let index = 0; index < messages.length; index += 1) {
         if (responseDetailsKey(messages[index], index) === detailsKey) {
-          return String(responseText(messages[index].response?.body) || "").trim();
+          return copyableAnswerText(messages[index].response);
         }
       }
       return "";
@@ -967,6 +1008,16 @@ export const rendererClientScript = `
       }
     }
 
+    function formatEndpointShort(value) {
+      try {
+        const parsed = new URL(value);
+        const host = parsed.hostname === "127.0.0.1" ? "localhost" : parsed.hostname;
+        return host + (parsed.port ? ":" + parsed.port : "");
+      } catch {
+        return value || "";
+      }
+    }
+
     function escapeHtml(value) {
       return String(value)
         .replaceAll("&", "&amp;")
@@ -990,6 +1041,18 @@ export const rendererClientScript = `
 
     async function load() {
       renderSnapshot(await request("/api/state"));
+    }
+
+    function connectStateEvents() {
+      if (typeof EventSource === "undefined") return;
+      const events = new EventSource("/api/events");
+      events.addEventListener("snapshot", (event) => {
+        try {
+          renderSnapshot(JSON.parse(event.data));
+        } catch {
+          // Ignore malformed event payloads; the next valid snapshot will recover.
+        }
+      });
     }
 
     async function saveEndpointFromInput() {
@@ -1373,5 +1436,6 @@ export const rendererClientScript = `
       await markTeamsTested();
     });
 
+    connectStateEvents();
     load().catch((error) => setStatus("fail", error.message));
 `;

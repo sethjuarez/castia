@@ -79,5 +79,11 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
 4. Click **Start local**. If the repo has no project endpoint yet, the canvas
    opens its in-canvas endpoint dialog, then saves non-secret derived values into
    gitignored local `.env` files and starts the agent.
-5. Check readiness before sending a prompt.
+5. Check readiness before sending a prompt. When Copilot drives or validates the
+   Playground, it must focus the same open canvas instance and call its canvas
+   actions (`set_target` when needed, `health_check`, `send_response`,
+   `get_transcript_state`) so the side-panel transcript and activity log update
+   for the user. Do not use Playwright, browser navigation, or direct canvas URL
+   automation for Playground smoke, layout, or collaboration validation; those
+   paths do not exercise the shipped side-panel canvas.
 6. Deploy or publish only after explicit approval.

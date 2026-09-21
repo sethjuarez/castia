@@ -32,7 +32,7 @@ export function renderHtml() {
           <span><span class="step-title">Foundry</span><span id="foundryStepText" class="step-subtitle">Deploy it</span></span>
           <span id="foundryStepState" class="step-state">Next</span>
         </button>
-        <button id="teamsStep" class="step" type="button">
+        <button id="teamsStep" class="step auxiliary" type="button">
           <span class="step-index">3</span>
           <span><span class="step-title">Teams</span><span id="teamsStepText" class="step-subtitle">Hire it</span></span>
           <span id="teamsStepState" class="step-state">Later</span>
@@ -102,6 +102,16 @@ export function renderHtml() {
             </div>
           </div>
         </section>
+        <details id="activityLog" class="activity-log" aria-live="polite" hidden>
+          <summary class="activity-head">
+            <div>
+              <div class="activity-title">Activity details</div>
+              <div id="activitySummary" class="activity-summary">No canvas actions yet.</div>
+            </div>
+            <span id="activityCount" class="badge">0</span>
+          </summary>
+          <div id="activityItems" class="activity-items"></div>
+        </details>
         <div id="transcript" class="transcript">
           <div class="empty">Send a prompt to test <code>POST /responses</code>.</div>
         </div>

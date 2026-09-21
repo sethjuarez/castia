@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+    addActivity,
     clearMessagesForTarget,
+    copyableAnswerText,
     emptyFoundryConnection,
     emptyHostedContext,
     emptyLocalRun,
+    latestCopyTarget,
     normalizeEndpoint,
+    responseDisplayText,
+    responsePendingLabel,
     selectedAgent,
     selectedLocalEndpoint,
     setSelectedAgent,
     switchSelectedAgent,
     stateSnapshot,
+    transcriptState,
+    updateActivity,
 } from "./state.mjs";
 
 const agent = {
@@ -55,6 +62,7 @@ test("stateSnapshot filters transcript by active target and strips process handl
             { id: "local-1", target: "local", response: { ok: true, status: 200, durationMs: 10 } },
             { id: "hosted-1", target: "hosted", response: { ok: true, status: 200, durationMs: 100 } },
         ],
+        activity: [{ id: "act-1", actor: "Copilot", kind: "health_check", status: "completed", summary: "Readiness OK.", at: "2026-09-21T00:00:00Z" }],
     };
 
     const snapshot = stateSnapshot(state);
@@ -62,6 +70,8 @@ test("stateSnapshot filters transcript by active target and strips process handl
     assert.equal(snapshot.endpoint, "http://127.0.0.1:8100");
     assert.deepEqual(snapshot.visibleMessages.map((message) => message.id), ["local-1"]);
     assert.equal(snapshot.localRun.process, undefined);
+    assert.equal(snapshot.activity.length, 1);
+    assert.equal(snapshot.transcriptState.copyButton.enabled, false);
     assert.deepEqual(snapshot.stats, {
         total: 1,
         completed: 1,
@@ -69,6 +79,65 @@ test("stateSnapshot filters transcript by active target and strips process handl
         averageMs: 10,
         lastStatus: 200,
     });
+});
+
+test("activity entries are append-only and patchable", () => {
+    const state = {};
+    const entry = addActivity(state, {
+        actor: "Copilot",
+        kind: "send_response",
+        status: "running",
+        summary: "Prompt sent.",
+    });
+
+    updateActivity(state, entry.id, { status: "completed", summary: "Response completed." });
+
+    assert.equal(state.activity.length, 1);
+    assert.equal(state.activity[0].actor, "Copilot");
+    assert.equal(state.activity[0].status, "completed");
+    assert.equal(state.activity[0].summary, "Response completed.");
+    assert.ok(state.activity[0].updatedAt);
+});
+
+test("transcriptState exposes visible prompts, pending label, latest copy target, and health banner", () => {
+    const state = {
+        target: "local",
+        agents: [agent],
+        selectedAgentId: agent.id,
+        localEndpoints: { [agent.id]: "http://127.0.0.1:8100" },
+        localRun: emptyLocalRun(),
+        lastHealth: { ok: true, status: 200, body: "agent=minimal-agent" },
+        messages: [
+            { input: "first", target: "local", createdAt: "2026-09-21T00:00:00Z", response: { ok: true, status: 200, body: { output_text: "first answer" } } },
+            { input: "second", target: "local", response: { ok: false, status: "waiting", streaming: true, body: { output_text: "" }, delivery: { active: true } } },
+        ],
+    };
+
+    const transcript = transcriptState(state);
+
+    assert.deepEqual(transcript.prompts, ["first", "second"]);
+    assert.deepEqual(transcript.answers, ["first answer", ""]);
+    assert.equal(transcript.pendingLabel, "Thinking...");
+    assert.equal(transcript.latestCopyTarget.text, "first answer");
+    assert.equal(transcript.copyButton.enabled, true);
+    assert.deepEqual(transcript.healthBanner, {
+        ok: true,
+        status: 200,
+        body: "agent=minimal-agent",
+        identity: null,
+    });
+});
+
+test("copy helpers skip pending, failed, and diagnostic-only responses", () => {
+    assert.equal(responseDisplayText({ body: { output_text: "answer" } }), "answer");
+    assert.equal(responsePendingLabel({ status: "waiting", streaming: true, body: { output_text: "" } }), "Thinking...");
+    assert.equal(copyableAnswerText({ ok: false, status: 500, body: { error: "failed" } }), "");
+    assert.equal(copyableAnswerText({ ok: true, status: 200, body: '{ "trace": "abc123" }' }), "");
+    assert.equal(copyableAnswerText({ ok: true, status: 200, body: { output_text: "copy me" } }), "copy me");
+    assert.equal(latestCopyTarget([
+        { response: { ok: true, status: 200, body: { output_text: "first" } } },
+        { response: { ok: false, status: "waiting", streaming: true, body: { output_text: "" } } },
+    ]).text, "first");
 });
 
 test("clearMessagesForTarget clears only the selected target transcript", () => {
