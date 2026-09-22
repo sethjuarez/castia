@@ -25,7 +25,7 @@ jobs:
           node-version: 24
 
       - name: Run Foundry Agent Playground tests
-        run: node --test plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/*.test.mjs
+        run: node --test plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/tests/*.test.mjs
 
       - name: Check Foundry Agent Playground extension syntax
         run: |

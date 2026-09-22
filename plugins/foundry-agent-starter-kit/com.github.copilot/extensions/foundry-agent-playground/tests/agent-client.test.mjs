@@ -9,7 +9,7 @@ import {
     readinessText,
     responseText,
     responsesUrl,
-} from "./client/agent-client.mjs";
+} from "../client/agent-client.mjs";
 
 test("responsesUrl normalizes Foundry hosted Responses endpoints", () => {
     assert.equal(

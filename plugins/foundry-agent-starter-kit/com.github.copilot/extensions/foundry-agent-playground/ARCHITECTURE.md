@@ -78,7 +78,7 @@ Implemented now:
 - First-in-wins operation tracking for deploy/provision lifecycle commands.
 - Phase-aware cancellation requests: stop before irreversible remote phases, wait-for-settle after remote registration begins.
 - Deterministic diagnostic bridge actions for activity, operations, diagnostics, Foundry state, and next actions.
-- Principled module folders for protocol clients, domain helpers, renderer files, and state helpers while preserving the existing SDK entrypoint and test command.
+- Principled module folders for protocol clients, domain helpers, renderer files, state helpers, and tests while preserving the SDK entrypoint at the extension root.
 
 Still intentionally future/optional:
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderHtml } from "./renderer/renderer.mjs";
+import { renderHtml } from "../renderer/renderer.mjs";
 
 test("renderer includes pending and answer-copy chat affordances", () => {
     const html = renderHtml();

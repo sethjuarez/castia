@@ -6,7 +6,7 @@ import {
     latestDiagnostics,
     nextActions,
     operationState,
-} from "./state/diagnostics.mjs";
+} from "../state/diagnostics.mjs";
 
 test("diagnostics bridge exposes activity, operation, foundry, and next actions", () => {
     const state = {
