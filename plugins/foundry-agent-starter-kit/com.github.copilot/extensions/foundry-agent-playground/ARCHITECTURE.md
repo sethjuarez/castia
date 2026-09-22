@@ -78,11 +78,12 @@ Implemented now:
 - First-in-wins operation tracking for deploy/provision lifecycle commands.
 - Phase-aware cancellation requests: stop before irreversible remote phases, wait-for-settle after remote registration begins.
 - Deterministic diagnostic bridge actions for activity, operations, diagnostics, Foundry state, and next actions.
+- Principled module folders for protocol clients, domain helpers, renderer files, and state helpers while preserving the existing SDK entrypoint and test command.
 
 Still intentionally future/optional:
 
 - A full renderer migration to Svelte + TypeScript.
-- A wholesale route/action/domain file split beyond the extracted persistence, operations, and diagnostics modules.
+- A wholesale HTTP route/action file split beyond the extracted client, domain, renderer, and state modules.
 - XState for lifecycle-heavy state machines.
 
 ## Possible future architecture

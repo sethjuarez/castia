@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { discoverAgents } from "./agent-discovery.mjs";
+import { discoverAgents } from "./client/agent-discovery.mjs";
 
 test("discoverAgents de-duplicates root and nested hosted agent manifests by id", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "foundry-agent-playground-"));

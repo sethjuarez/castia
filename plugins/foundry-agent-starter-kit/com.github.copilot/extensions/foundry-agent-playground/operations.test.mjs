@@ -7,7 +7,7 @@ import {
     enterIrreversiblePhase,
     requestOperationCancel,
     updateOperation,
-} from "./operations.mjs";
+} from "./domain/operations.mjs";
 
 test("beginOperation uses first-in-wins while an operation is active", () => {
     const state = { operations: emptyOperationState() };

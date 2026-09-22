@@ -18,7 +18,7 @@ import {
     stateSnapshot,
     transcriptState,
     updateActivity,
-} from "./state.mjs";
+} from "./state/snapshot.mjs";
 
 const agent = {
     id: "examples\\python\\minimal-agent:minimal-agent",

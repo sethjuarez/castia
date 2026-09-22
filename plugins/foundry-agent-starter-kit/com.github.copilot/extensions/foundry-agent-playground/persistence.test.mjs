@@ -8,7 +8,7 @@ import {
     configureRuntimeStore,
     persistStateSnapshot,
     sessionStoreRoot,
-} from "./persistence.mjs";
+} from "./state/persistence.mjs";
 
 test("sessionStoreRoot stays under session-scoped files storage", () => {
     const root = sessionStoreRoot("session-123", { root: "C:\\tmp\\custom-store" });

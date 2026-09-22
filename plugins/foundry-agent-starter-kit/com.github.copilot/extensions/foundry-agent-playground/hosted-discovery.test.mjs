@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { discoverHostedContextFromFoundry, hostedContextFromAzd } from "./hosted-discovery.mjs";
+import { discoverHostedContextFromFoundry, hostedContextFromAzd } from "./client/hosted-discovery.mjs";
 
 const projectEndpoint = "https://acct.services.ai.azure.com/api/projects/waypoint";
 const now = new Date("2026-09-18T12:00:00.000Z");

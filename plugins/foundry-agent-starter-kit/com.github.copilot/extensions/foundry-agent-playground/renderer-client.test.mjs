@@ -10,7 +10,7 @@ import {
     responseDisplayState,
     responseText,
     shouldOpenProjectEndpointDialog,
-} from "./renderer-client.mjs";
+} from "./renderer/renderer-client.mjs";
 
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {

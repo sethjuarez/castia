@@ -1,6 +1,6 @@
-import { serviceEnvPrefix } from "./agent-discovery.mjs";
-import { responseText } from "./agent-client.mjs";
-import { DEFAULT_AGENT_ROOT, DEFAULT_ENDPOINT, DEFAULT_SERVICE_NAME } from "./constants.mjs";
+import { serviceEnvPrefix } from "../client/agent-discovery.mjs";
+import { responseText } from "../client/agent-client.mjs";
+import { DEFAULT_AGENT_ROOT, DEFAULT_ENDPOINT, DEFAULT_SERVICE_NAME } from "../domain/constants.mjs";
 
 const MAX_ACTIVITY_ENTRIES = 80;
 

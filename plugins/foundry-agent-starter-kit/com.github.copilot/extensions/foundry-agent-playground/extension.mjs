@@ -13,9 +13,9 @@ import {
     azureAccessToken,
     isLoopbackEndpoint,
     responseText,
-} from "./agent-client.mjs";
-import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./constants.mjs";
-import { renderHtml } from "./renderer.mjs";
+} from "./client/agent-client.mjs";
+import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./domain/constants.mjs";
+import { renderHtml } from "./renderer/renderer.mjs";
 import {
     activeEndpoint,
     addActivity,
@@ -38,14 +38,14 @@ import {
     stateSnapshot,
     transcriptState,
     updateActivity,
-} from "./state.mjs";
+} from "./state/snapshot.mjs";
 import {
     activityState,
     foundryState,
     latestDiagnostics,
     nextActions,
     operationState,
-} from "./diagnostics.mjs";
+} from "./state/diagnostics.mjs";
 import {
     beginOperation,
     completeOperation,
@@ -53,17 +53,17 @@ import {
     enterIrreversiblePhase,
     requestOperationCancel,
     updateOperation,
-} from "./operations.mjs";
+} from "./domain/operations.mjs";
 import {
     appendOperationRecord,
     configureRuntimeStore,
     persistStateSnapshot,
-} from "./persistence.mjs";
-import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
+} from "./state/persistence.mjs";
+import { discoverAgents, serviceEnvPrefix } from "./client/agent-discovery.mjs";
 import {
     discoverHostedContextFromFoundry,
     hostedContextFromAzd,
-} from "./hosted-discovery.mjs";
+} from "./client/hosted-discovery.mjs";
 
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
