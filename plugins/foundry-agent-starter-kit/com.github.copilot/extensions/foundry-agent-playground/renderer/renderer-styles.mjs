@@ -299,7 +299,7 @@ export const rendererStyles = `
     }
     .action-card {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(16rem, 1fr) minmax(22rem, auto);
       gap: 8px;
       align-items: center;
       padding: 7px 8px;
@@ -548,9 +548,14 @@ export const rendererStyles = `
       display: flex;
       gap: 8px;
       align-items: center;
+      justify-content: flex-end;
+      min-width: 0;
     }
     .hero-picker {
-      width: min(240px, 34vw);
+      flex: 1 1 20rem;
+      width: auto;
+      min-width: 14rem;
+      max-width: 28rem;
     }
     .secondary {
       color: var(--cp-text-muted);
@@ -1352,19 +1357,15 @@ export const rendererStyles = `
       .step-subtitle {
         display: none;
       }
-      .action-card,
       .deploy-summary,
       .content {
         grid-template-columns: 1fr;
       }
       .action-card {
+        grid-template-columns: minmax(12rem, 1fr) minmax(16rem, 0.9fr);
         gap: 6px;
         padding: 6px;
         border-radius: 12px;
-      }
-      .action-summary {
-        grid-template-columns: 1fr;
-        gap: 4px;
       }
       .action-heading {
         max-width: 100%;
@@ -1379,12 +1380,12 @@ export const rendererStyles = `
       }
       .action-copy { font-size: 12px; }
       .action-buttons {
-        flex-wrap: wrap;
-        justify-content: flex-start;
+        justify-content: flex-end;
         gap: 6px;
       }
       .hero-picker {
-        width: 100%;
+        flex-basis: 12rem;
+        min-width: 11rem;
       }
       .content {
         gap: 6px;
@@ -1519,6 +1520,22 @@ export const rendererStyles = `
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      .action-card {
+        grid-template-columns: 1fr;
+      }
+      .action-summary {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .action-buttons {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
+      .hero-picker {
+        flex: 1 1 100%;
+        width: 100%;
+        max-width: none;
       }
       .action-buttons > button,
       .right-actions > button {
