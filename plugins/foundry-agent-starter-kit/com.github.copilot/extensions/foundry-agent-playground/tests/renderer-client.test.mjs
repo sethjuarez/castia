@@ -27,6 +27,9 @@ test("renderer styles force structural surfaces back to light in light mode", ()
     assert.match(rendererStyles, /body\[data-color-mode="light"\]/);
     assert.match(rendererStyles, /--cp-panel:\s*#ffffff;/);
     assert.match(rendererStyles, /--cp-surface-soft:\s*#f5f5f5;/);
+    assert.match(rendererStyles, /--cp-shadow:\s*0 1px 2px rgba\(31, 35, 40, 0\.08\);/);
+    assert.match(rendererStyles, /html\[data-theme="light"\]\s+\.hero[\s\S]*border-bottom:\s*1px solid var\(--cp-border\);/);
+    assert.match(rendererStyles, /html\[data-theme="light"\]\s+\.empty[\s\S]*background:\s*var\(--cp-surface\);/);
 });
 
 test("empty transcript state fills the available transcript space", () => {
