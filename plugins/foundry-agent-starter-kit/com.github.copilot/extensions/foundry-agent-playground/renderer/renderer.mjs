@@ -49,6 +49,7 @@ export function renderHtml() {
             </span>
           </div>
           <div class="status-row" aria-live="polite">
+            <div id="actionStateChip" class="action-state-chip" title="Current agent state">Not checked</div>
             <div id="localEndpointBanner" class="local-endpoint-banner" hidden></div>
             <div id="localTicker" class="local-ticker" hidden></div>
             <div id="deployTicker" class="deploy-ticker" hidden></div>

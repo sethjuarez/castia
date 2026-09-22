@@ -378,6 +378,35 @@ export const rendererStyles = `
       min-height: 0;
       overflow: visible;
     }
+    .action-state-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      max-width: 18rem;
+      min-height: 20px;
+      padding: 2px 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      font-weight: 800;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .action-state-chip::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--cp-text-muted);
+      flex: 0 0 auto;
+    }
+    .action-state-chip.ok::before { background: var(--cp-success); }
+    .action-state-chip.warn::before { background: var(--cp-warning); }
+    .action-state-chip.fail::before { background: var(--cp-danger); }
     .local-endpoint-banner {
       position: relative;
       display: inline-flex;

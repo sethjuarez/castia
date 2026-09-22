@@ -33,11 +33,13 @@ test("header guidance and diagnostics use compact hoverable details", () => {
     assert.match(rendererStyles, /\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(16rem, 1fr\) minmax\(22rem, auto\);/);
     assert.match(rendererStyles, /\.action-summary\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);/);
     assert.match(rendererStyles, /\.action-summary\s*{[^}]*align-items:\s*center;/);
+    assert.match(rendererStyles, /\.action-state-chip\s*{[^}]*display:\s*inline-flex;/);
     assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(12rem, 1fr\) minmax\(16rem, 0\.9fr\);/);
     assert.match(rendererStyles, /@media \(max-width: 520px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*1fr;/);
     assert.match(rendererStyles, /\.action-detail-trigger:hover \.action-copy/);
     assert.match(rendererStyles, /\.status-row\s*{[^}]*display:\s*flex;/);
     assert.match(rendererStyles, /\.local-ticker\[data-detail\]::after/);
+    assert.match(rendererClientScript, /function renderActionStateChip/);
     assert.match(rendererClientScript, /setAttribute\("data-detail"/);
 });
 

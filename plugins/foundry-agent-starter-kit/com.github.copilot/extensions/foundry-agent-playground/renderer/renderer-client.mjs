@@ -226,6 +226,7 @@ export const rendererClientScript = `
     const teamsStepState = document.getElementById("teamsStepState");
     const guideTitle = document.getElementById("guideTitle");
     const guideCopy = document.getElementById("guideCopy");
+    const actionStateChip = document.getElementById("actionStateChip");
     const localEndpointBanner = document.getElementById("localEndpointBanner");
     const localTicker = document.getElementById("localTicker");
     const deployTicker = document.getElementById("deployTicker");
@@ -323,6 +324,7 @@ export const rendererClientScript = `
       renderFoundryStatus(state);
       renderDeploy(state);
       renderTeams(state);
+      renderActionStateChip(state);
       renderLocalEndpointBanner(state);
       renderLocalTicker(state);
       renderActivity(state);
@@ -334,6 +336,43 @@ export const rendererClientScript = `
       } else if (!shouldOpenProjectEndpointDialog(state) && !projectEndpointDialog.hidden) {
         hideProjectEndpointDialog();
       }
+    }
+
+    function actionState(state) {
+      if (activeView === "deploy") {
+        if (state.deployment?.running) return { kind: "warn", label: "Deploying", detail: "Deploy operation is running." };
+        if (state.deployment?.needsProvision) return { kind: "warn", label: "Prepare deploy", detail: "Provisioning is needed before hosted deployment." };
+        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: "Hosted v" + (state.hosted.version || "ready"), detail: "Hosted Responses endpoint is available." };
+        return { kind: "", label: "Not deployed", detail: "No hosted release has been discovered for this agent." };
+      }
+      if (activeView === "teams") {
+        if (state.teams?.testedAt) return { kind: "ok", label: "Teams tested", detail: "Teams handoff has been marked tested." };
+        return { kind: "", label: "Teams pending", detail: "Publish and hire the hosted agent before marking Teams tested." };
+      }
+      if (state.target === "hosted") {
+        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: "Hosted ready", detail: "Hosted Responses endpoint is selected." };
+        return { kind: "warn", label: "Hosted missing", detail: "Discover or deploy a hosted Responses endpoint before chatting." };
+      }
+      if (state.localRun?.running && state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
+      if (state.localRun?.running) return { kind: "warn", label: "Starting", detail: "Local agent is running; waiting for readiness." };
+      if (state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
+      if (state.lastHealth && !state.lastHealth.ok) return { kind: "fail", label: "Needs attention", detail: state.lastHealth.body || "Readiness check failed." };
+      if (state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
+        return {
+          kind: state.localRun.exitCode === 0 ? "" : "fail",
+          label: state.localRun.exitCode === 0 ? "Stopped" : "Start failed",
+          detail: state.localRun.exitCode === 0 ? "Local agent stopped." : "Local agent exited with code " + state.localRun.exitCode + ".",
+        };
+      }
+      return { kind: "", label: "Not checked", detail: "Start local or run a readiness check." };
+    }
+
+    function renderActionStateChip(state) {
+      const current = actionState(state || {});
+      actionStateChip.className = "action-state-chip " + (current.kind || "");
+      actionStateChip.textContent = current.label;
+      actionStateChip.title = current.detail || current.label;
+      actionStateChip.setAttribute("aria-label", "Current state: " + current.label + (current.detail ? ". " + current.detail : ""));
     }
 
     function renderLocalEndpointBanner(state) {
