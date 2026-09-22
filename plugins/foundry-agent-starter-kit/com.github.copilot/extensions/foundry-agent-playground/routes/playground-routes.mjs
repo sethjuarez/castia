@@ -13,12 +13,15 @@ import {
     activeEndpoint,
     addActivity,
     addLocalEvent,
+    clearTargetHealth,
     clearMessagesForTarget,
     emptyFoundryConnection,
     responseDisplayText,
     selectedAgent,
     selectedLocalEndpoint,
     setSelectedAgent,
+    setTarget,
+    setTargetHealth,
     updateActivity,
 } from "../state/snapshot.mjs";
 import { readBody, sendHtml, sendJson, sendNoContent, writeEvent } from "./http.mjs";
@@ -105,7 +108,7 @@ export function createRequestHandler({
                 if (body.target === "hosted" || state.target === "hosted") {
                     state.hosted.responsesEndpoint = String(body.endpoint || "").trim().replace(/\/+$/, "");
                     state.hostedByAgent[state.selectedAgentId] = state.hosted;
-                    state.target = "hosted";
+                    setTarget(state, "hosted");
                 } else {
                     setLocalEndpoint(state, body.endpoint);
                 }
@@ -150,7 +153,7 @@ export function createRequestHandler({
                     sendJson(res, 400, { error: "Target must be local or hosted." });
                     return;
                 }
-                state.target = body.target;
+                setTarget(state, body.target);
                 if (body.refresh && state.target === "hosted") {
                     await refreshHostedContext(state);
                 }
@@ -176,12 +179,12 @@ export function createRequestHandler({
                     summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
                     details: { target: state.target, endpoint: activeEndpoint(state) },
                 });
-                state.lastHealth = {
+                state.lastHealth = setTargetHealth(state, {
                     ...(await checkReadiness(activeEndpoint(state), {
                         expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
                     })),
                     source: "manual",
-                };
+                });
                 if (state.target === "local") {
                     reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "manual" });
                     reconcileLocalReadinessAfterHealth(state);
@@ -202,7 +205,7 @@ export function createRequestHandler({
                 }
                 const endpoint = state.localRun?.endpoint || selectedLocalEndpoint(state);
                 setSelectedAgent(state, mismatch.agentId);
-                state.target = "local";
+                setTarget(state, "local");
                 state.localEndpoints[state.selectedAgentId] = endpoint;
                 state.localRun = {
                     ...state.localRun,
@@ -211,7 +214,7 @@ export function createRequestHandler({
                     endpoint,
                     identityMismatch: null,
                 };
-                state.lastHealth = null;
+                clearTargetHealth(state, "local");
                 state.messages.length = 0;
                 addLocalEvent(state, "ok", `Selected ${selectedAgent(state).displayName || selectedAgent(state).serviceName} from readiness.`);
                 sendJson(res, 200, snapshotState(state));

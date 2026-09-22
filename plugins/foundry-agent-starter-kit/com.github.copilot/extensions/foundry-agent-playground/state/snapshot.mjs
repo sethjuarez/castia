@@ -168,6 +168,7 @@ export function switchSelectedAgent(state, agentId, { stopLocalRun } = {}) {
         }
         state.localRun = emptyLocalRun();
         state.lastHealth = null;
+        state.lastHealthByTarget = {};
         state.messages.length = 0;
         state.projectEndpointPrompt = null;
     }
@@ -206,6 +207,45 @@ export function clearMessagesForTarget(state, target) {
     );
     state.messages.length = 0;
     state.messages.push(...keep);
+}
+
+export function targetHealthKey(target) {
+    return target === "hosted" ? "hosted" : "local";
+}
+
+export function activeHealth(state) {
+    const key = targetHealthKey(state.target);
+    if (state.lastHealthByTarget && Object.prototype.hasOwnProperty.call(state.lastHealthByTarget, key)) {
+        return state.lastHealthByTarget[key] || null;
+    }
+    return state.lastHealth || null;
+}
+
+export function setTarget(state, target) {
+    const key = targetHealthKey(target);
+    state.target = key;
+    state.lastHealth = state.lastHealthByTarget?.[key] || null;
+    return state.target;
+}
+
+export function setTargetHealth(state, health, target = state.target) {
+    const key = targetHealthKey(target);
+    state.lastHealthByTarget ||= {};
+    const scopedHealth = { ...health, target: key };
+    state.lastHealthByTarget[key] = scopedHealth;
+    if (targetHealthKey(state.target) === key) {
+        state.lastHealth = scopedHealth;
+    }
+    return scopedHealth;
+}
+
+export function clearTargetHealth(state, target = state.target) {
+    const key = targetHealthKey(target);
+    state.lastHealthByTarget ||= {};
+    state.lastHealthByTarget[key] = null;
+    if (targetHealthKey(state.target) === key) {
+        state.lastHealth = null;
+    }
 }
 
 function parseResponseEnvelopeString(value) {
@@ -270,6 +310,7 @@ export function latestCopyTarget(messages = []) {
 export function transcriptState(state) {
     const visibleMessages = messagesForTarget(state);
     const latestCopy = latestCopyTarget(visibleMessages);
+    const health = activeHealth(state);
     const turns = visibleMessages.map((message) => ({
         prompt: message.input || "",
         answer: responseDisplayText(message.response),
@@ -293,13 +334,13 @@ export function transcriptState(state) {
             text: latestCopy?.text || "",
         },
         healthBanner: {
-            ok: state.lastHealth?.ok ?? null,
-            status: state.lastHealth?.status ?? null,
-            body: state.lastHealth?.body ?? null,
-            readinessStatus: state.lastHealth?.readinessStatus ?? null,
-            identity: state.lastHealth?.identity ?? null,
-            protocolSupport: state.lastHealth?.protocolSupport ?? null,
-            configurationStatus: state.lastHealth?.configurationStatus ?? null,
+            ok: health?.ok ?? null,
+            status: health?.status ?? null,
+            body: health?.body ?? null,
+            readinessStatus: health?.readinessStatus ?? null,
+            identity: health?.identity ?? null,
+            protocolSupport: health?.protocolSupport ?? null,
+            configurationStatus: health?.configurationStatus ?? null,
         },
     };
 }
@@ -307,6 +348,7 @@ export function transcriptState(state) {
 export function stateSnapshot(state) {
     const agent = selectedAgent(state);
     const visibleMessages = messagesForTarget(state);
+    const health = activeHealth(state);
     return {
         endpoint: activeEndpoint(state),
         localEndpoint: selectedLocalEndpoint(state),
@@ -332,11 +374,12 @@ export function stateSnapshot(state) {
         messages: state.messages,
         visibleMessages,
         transcriptState: transcriptState(state),
-        lastHealth: state.lastHealth,
-        readinessStatus: state.lastHealth?.readinessStatus ?? null,
-        identity: state.lastHealth?.identity ?? null,
-        protocolSupport: state.lastHealth?.protocolSupport ?? null,
-        configurationStatus: state.lastHealth?.configurationStatus ?? null,
+        lastHealth: health,
+        lastHealthByTarget: state.lastHealthByTarget || {},
+        readinessStatus: health?.readinessStatus ?? null,
+        identity: health?.identity ?? null,
+        protocolSupport: health?.protocolSupport ?? null,
+        configurationStatus: health?.configurationStatus ?? null,
         projectEndpointPrompt: state.projectEndpointPrompt || null,
         operations: state.operations || { active: null, history: [] },
         runtimeStore: state.runtimeStore

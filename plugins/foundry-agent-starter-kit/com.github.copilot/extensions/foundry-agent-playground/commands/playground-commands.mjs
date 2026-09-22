@@ -1,5 +1,5 @@
 import { requestOperationCancel } from "../domain/operations.mjs";
-import { addActivity, selectedAgent, selectedLocalEndpoint } from "../state/snapshot.mjs";
+import { addActivity, selectedAgent, selectedLocalEndpoint, setTarget } from "../state/snapshot.mjs";
 
 export function setProjectEndpointPrompt(state, reason = "missing_configuration") {
     state.projectEndpointPrompt = {
@@ -39,7 +39,7 @@ export function createPlaygroundCommands({
     }
 
     async function commandStartLocal(state, { actor = "Canvas" } = {}) {
-        state.target = "local";
+        setTarget(state, "local");
         const sync = await syncLocalBootstrapForStart(state);
         if (!sync.ok) {
             const prompt = setProjectEndpointPrompt(state);
@@ -59,7 +59,7 @@ export function createPlaygroundCommands({
         }
         clearProjectEndpointPrompt(state);
         await startLocalAgent(state);
-        state.target = "local";
+        setTarget(state, "local");
         addActivity(state, {
             actor,
             kind: "start_local",

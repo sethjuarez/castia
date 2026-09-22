@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     addActivity,
+    clearTargetHealth,
     clearMessagesForTarget,
     copyableAnswerText,
     emptyFoundryConnection,
@@ -14,6 +15,8 @@ import {
     selectedAgent,
     selectedLocalEndpoint,
     setSelectedAgent,
+    setTarget,
+    setTargetHealth,
     switchSelectedAgent,
     stateSnapshot,
     transcriptState,
@@ -129,6 +132,50 @@ test("transcriptState exposes visible prompts, pending label, latest copy target
         protocolSupport: null,
         configurationStatus: null,
     });
+});
+
+test("transcriptState keeps health banners scoped to the active target", () => {
+    const state = {
+        target: "local",
+        selectedAgentId: "agent-1",
+        agents: [{ id: "agent-1", displayName: "Agent One", serviceName: "agent-one" }],
+        localEndpoints: { "agent-1": "http://127.0.0.1:8088" },
+        hosted: { responsesEndpoint: "https://example.test/responses" },
+        messages: [],
+        lastHealth: null,
+        lastHealthByTarget: {},
+    };
+
+    setTargetHealth(state, {
+        ok: true,
+        status: 200,
+        body: "agent=agent-one",
+        identity: { status: "match", expected: "agent-one", actual: "agent-one" },
+    }, "local");
+    setTarget(state, "hosted");
+
+    let transcript = transcriptState(state);
+    assert.equal(transcript.target, "hosted");
+    assert.equal(transcript.healthBanner.ok, null);
+
+    setTargetHealth(state, {
+        ok: true,
+        status: "hosted",
+        body: "Hosted Responses endpoint discovered.",
+        protocolSupport: { status: "supported", protocols: ["responses"], missing: [] },
+    }, "hosted");
+    transcript = transcriptState(state);
+    assert.equal(transcript.healthBanner.status, "hosted");
+
+    setTarget(state, "local");
+    transcript = transcriptState(state);
+    assert.equal(transcript.healthBanner.status, 200);
+    assert.deepEqual(transcript.healthBanner.identity, { status: "match", expected: "agent-one", actual: "agent-one" });
+
+    clearTargetHealth(state, "local");
+    transcript = transcriptState(state);
+    assert.equal(stateSnapshot(state).lastHealth, null);
+    assert.equal(transcript.healthBanner.ok, null);
 });
 
 test("copy helpers skip pending, failed, and diagnostic-only responses", () => {

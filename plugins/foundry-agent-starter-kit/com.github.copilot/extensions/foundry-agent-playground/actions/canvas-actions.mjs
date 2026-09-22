@@ -4,6 +4,8 @@ import {
     addActivity,
     clearMessagesForTarget,
     selectedAgent,
+    setTarget,
+    setTargetHealth,
     transcriptState,
     updateActivity,
 } from "../state/snapshot.mjs";
@@ -89,7 +91,7 @@ export function createCanvasActions({
             },
             handler: async (ctx) => {
                 const state = instanceState(ctx);
-                state.target = ctx.input.target;
+                setTarget(state, ctx.input.target);
                 addActivity(state, {
                     actor: "Copilot",
                     kind: "set_target",
@@ -176,12 +178,12 @@ export function createCanvasActions({
                     summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
                     details: { target: state.target, endpoint: activeEndpoint(state) },
                 });
-                state.lastHealth = {
+                state.lastHealth = setTargetHealth(state, {
                     ...(await checkReadiness(activeEndpoint(state), {
                         expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
                     })),
                     source: "copilot",
-                };
+                });
                 if (state.target === "local") {
                     reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "copilot" });
                     reconcileLocalReadinessAfterHealth(state);

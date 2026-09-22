@@ -17,6 +17,7 @@ import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from
 import {
     activeEndpoint,
     addLocalEvent,
+    clearTargetHealth,
     clearMessagesForTarget,
     copyableAnswerText,
     emptyFoundryConnection,
@@ -28,6 +29,8 @@ import {
     normalizeEndpoint,
     selectedAgent,
     selectedLocalEndpoint,
+    setTarget,
+    setTargetHealth,
     switchSelectedAgent,
     responseDisplayText,
     responsePendingLabel,
@@ -622,7 +625,7 @@ async function discoverPythonPath(start) {
 
 async function startLocalAgent(state) {
     if (state.localRun?.running) return;
-    state.lastHealth = null;
+    clearTargetHealth(state, "local");
     const agent = selectedAgent(state);
     const local = await localStartCommand(agent);
     if (!local) {
@@ -702,7 +705,7 @@ async function startLocalAgent(state) {
         state.localRun.readiness = state.localRun.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "failed", completedAt: new Date().toISOString() }
             : state.localRun.readiness;
-        state.lastHealth = null;
+        clearTargetHealth(state, "local");
         state.localRun.log.push(`${error.name}: ${error.message}\n`);
         addLocalEvent(state, "fail", error.message);
     });
@@ -714,13 +717,13 @@ async function startLocalAgent(state) {
         state.localRun.readiness = state.localRun.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
             : state.localRun.readiness;
-        state.lastHealth = null;
+        clearTargetHealth(state, "local");
         addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
         delete state.localRun.process;
     });
     waitForLocalReadiness(state, { agent, endpoint, runId }).then((health) => {
         if (state.localRun?.runId !== runId || !state.localRun?.running) return;
-        state.lastHealth = { ...health, source: "startup" };
+        state.lastHealth = setTargetHealth(state, { ...health, source: "startup" }, "local");
         reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "startup" });
         if (health.ok) {
             state.localEndpoints[agent.id] = endpoint;
@@ -834,7 +837,7 @@ async function stopLocalAgent(state) {
             ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
             : state.localRun?.readiness || null,
     };
-    state.lastHealth = null;
+    clearTargetHealth(state, "local");
 }
 
 async function killLocalProcessTree(pid) {
@@ -945,10 +948,10 @@ function setLocalEndpoint(state, endpoint) {
     const normalized = normalizeEndpoint(endpoint);
     const current = selectedLocalEndpoint(state);
     state.localEndpoints[state.selectedAgentId] = normalized;
-    state.target = "local";
+    setTarget(state, "local");
     clearProjectEndpointPrompt(state);
     if (normalized !== current) {
-        state.lastHealth = null;
+        clearTargetHealth(state, "local");
     }
 }
 
@@ -1450,6 +1453,7 @@ async function startServer(ctx, copilotSession) {
         },
         messages: [],
         lastHealth: null,
+        lastHealthByTarget: {},
         projectEndpointPrompt: null,
         operations: emptyOperationState(),
         eventClients: new Set(),
