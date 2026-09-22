@@ -30,10 +30,15 @@ test("empty transcript state fills the available transcript space", () => {
     assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
 });
 
-test("activity details render as a compact disclosure strip", () => {
+test("activity details render as a compact terminal log disclosure", () => {
     assert.match(rendererStyles, /\.activity-log\s*{[^}]*background:\s*transparent;/);
-    assert.match(rendererStyles, /\.activity-head\s*{[^}]*border-radius:\s*999px;/);
+    assert.match(rendererStyles, /\.activity-head\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/);
+    assert.match(rendererStyles, /\.activity-head\s*{[^}]*border-radius:\s*6px;/);
+    assert.match(rendererStyles, /\.activity-head\s*{[^}]*font-family:\s*var\(--font-mono/);
+    assert.match(rendererStyles, /\.activity-head::before\s*{[^}]*content:\s*"▸";/);
+    assert.match(rendererStyles, /\.activity-log\[open\]\s+\.activity-head::before\s*{[^}]*content:\s*"▾";/);
     assert.match(rendererStyles, /\.activity-head > div\s*{[^}]*display:\s*flex;/);
+    assert.match(rendererStyles, /\.activity-items\s*{[^}]*border-top:\s*1px solid var\(--cp-border\);/);
     assert.match(rendererStyles, /\.activity-log\[open\]\s+\.activity-head\s*{[^}]*background:\s*transparent;/);
 });
 

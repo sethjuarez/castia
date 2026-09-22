@@ -796,22 +796,24 @@ export const rendererStyles = `
       gap: 6px;
       padding: 5px 7px;
       border: 1px solid var(--cp-border);
-      border-radius: 10px;
-      background: var(--cp-surface-soft);
+      border-radius: 6px;
+      background: var(--cp-surface);
     }
     .activity-head {
-      display: flex;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       align-items: center;
-      justify-content: space-between;
       gap: 8px;
       cursor: pointer;
       list-style: none;
       min-width: 0;
       min-height: 30px;
-      padding: 4px 8px;
+      padding: 5px 8px;
       border: 1px solid var(--cp-border);
-      border-radius: 999px;
-      background: var(--cp-surface-soft);
+      border-radius: 6px;
+      background: var(--cp-surface);
+      font-family: var(--font-mono, Consolas, "Courier New", Courier, monospace);
+      box-shadow: inset 3px 0 0 var(--cp-border-strong);
     }
     .activity-log[open] .activity-head {
       min-height: 0;
@@ -819,6 +821,7 @@ export const rendererStyles = `
       border: 0;
       border-radius: 0;
       background: transparent;
+      box-shadow: none;
     }
     .activity-head > div {
       display: flex;
@@ -829,20 +832,30 @@ export const rendererStyles = `
     .activity-head::-webkit-details-marker {
       display: none;
     }
+    .activity-head::before {
+      content: "▸";
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      line-height: 1;
+    }
+    .activity-log[open] .activity-head::before {
+      content: "▾";
+    }
     .activity-title {
       font-weight: 800;
       font-size: 12px;
       color: var(--cp-text);
+      text-transform: lowercase;
       white-space: nowrap;
     }
     .activity-title::after {
-      content: "·";
+      content: "$";
       margin-left: 6px;
       color: var(--cp-text-muted);
     }
     .activity-summary {
       color: var(--cp-text-muted);
-      font-size: 13px;
+      font-size: 12px;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -850,10 +863,12 @@ export const rendererStyles = `
     }
     .activity-items {
       display: grid;
-      gap: 6px;
+      gap: 0;
       max-height: 116px;
       overflow: auto;
-      padding-right: 2px;
+      padding: 4px 2px 0 14px;
+      border-top: 1px solid var(--cp-border);
+      font-family: var(--font-mono, Consolas, "Courier New", Courier, monospace);
     }
     .activity-item {
       display: grid;
@@ -861,9 +876,9 @@ export const rendererStyles = `
       gap: 8px;
       align-items: center;
       min-width: 0;
-      padding: 7px 8px;
-      border-radius: 12px;
-      background: var(--cp-surface);
+      padding: 3px 0;
+      border-radius: 0;
+      background: transparent;
       color: var(--cp-text-muted);
       font-size: 12px;
     }
@@ -1473,7 +1488,7 @@ export const rendererStyles = `
       .foundry-status,
       .activity-log {
         margin: 0 0 4px;
-        border-radius: 12px;
+        border-radius: 6px;
       }
       .activity-log[open] {
         gap: 4px;
