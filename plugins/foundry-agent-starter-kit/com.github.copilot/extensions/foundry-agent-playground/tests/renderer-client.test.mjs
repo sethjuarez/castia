@@ -21,6 +21,14 @@ test("renderer styles bind to Copilot canvas dark-mode theme attributes", () => 
     assert.match(rendererStyles, /--border-color-default/);
 });
 
+test("renderer styles force structural surfaces back to light in light mode", () => {
+    assert.match(rendererStyles, /html\[data-theme="light"\]/);
+    assert.match(rendererStyles, /html\[data-color-mode="light"\]/);
+    assert.match(rendererStyles, /body\[data-color-mode="light"\]/);
+    assert.match(rendererStyles, /--cp-panel:\s*#ffffff;/);
+    assert.match(rendererStyles, /--cp-surface-soft:\s*#f5f5f5;/);
+});
+
 test("empty transcript state fills the available transcript space", () => {
     assert.doesNotMatch(rendererStyles, /\.panel:has\(\.transcript\.empty-state\)/);
     assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*display:\s*flex;/);
