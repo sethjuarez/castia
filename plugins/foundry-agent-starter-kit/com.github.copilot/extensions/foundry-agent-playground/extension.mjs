@@ -16,7 +16,6 @@ import {
 import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./domain/constants.mjs";
 import {
     activeEndpoint,
-    addActivity,
     addLocalEvent,
     clearMessagesForTarget,
     copyableAnswerText,
@@ -41,7 +40,6 @@ import {
     completeOperation,
     emptyOperationState,
     enterIrreversiblePhase,
-    requestOperationCancel,
     updateOperation,
 } from "./domain/operations.mjs";
 import {
@@ -57,6 +55,10 @@ import {
 import { writeEvent } from "./routes/http.mjs";
 import { createRequestHandler } from "./routes/playground-routes.mjs";
 import { createCanvasActions } from "./actions/canvas-actions.mjs";
+import {
+    clearProjectEndpointPrompt,
+    createPlaygroundCommands,
+} from "./commands/playground-commands.mjs";
 
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
@@ -889,21 +891,6 @@ function readinessAgentNames(agent) {
     return [agent.serviceName, agent.displayName].filter(Boolean);
 }
 
-function setProjectEndpointPrompt(state, reason = "missing_configuration") {
-    state.projectEndpointPrompt = {
-        open: true,
-        reason,
-        selectedAgentId: state.selectedAgentId,
-        requestedAt: new Date().toISOString(),
-        message: "Foundry project endpoint is required before starting local.",
-    };
-    return state.projectEndpointPrompt;
-}
-
-function clearProjectEndpointPrompt(state) {
-    state.projectEndpointPrompt = null;
-}
-
 function normalizedAgentName(name) {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -963,72 +950,6 @@ function setLocalEndpoint(state, endpoint) {
     if (normalized !== current) {
         state.lastHealth = null;
     }
-}
-
-async function commandSelectAgent(state, agentId, { actor = "Canvas" } = {}) {
-    const agent = await selectAgent(state, agentId);
-    await refreshHostedContext(state);
-    addActivity(state, {
-        actor,
-        kind: "select_agent",
-        status: "completed",
-        summary: `Selected ${agent.displayName || agent.serviceName}.`,
-        details: { selectedAgent: agent },
-    });
-    return snapshotState(state);
-}
-
-async function commandStartLocal(state, { actor = "Canvas" } = {}) {
-    state.target = "local";
-    const sync = await syncLocalBootstrapForStart(state);
-    if (!sync.ok) {
-        const prompt = setProjectEndpointPrompt(state);
-        addActivity(state, {
-            actor,
-            kind: "start_local",
-            status: "blocked",
-            summary: prompt.message,
-            details: { prompt, sync },
-        });
-        return {
-            ok: false,
-            needsProjectEndpoint: true,
-            projectEndpointPrompt: prompt,
-            state: snapshotState(state),
-        };
-    }
-    clearProjectEndpointPrompt(state);
-    await startLocalAgent(state);
-    state.target = "local";
-    addActivity(state, {
-        actor,
-        kind: "start_local",
-        status: "running",
-        summary: "Local agent start requested.",
-        details: { endpoint: selectedLocalEndpoint(state), selectedAgent: selectedAgent(state) },
-    });
-    return { ok: true, state: snapshotState(state) };
-}
-
-function commandCancelOperation(state, { operationId = null, actor = "Canvas" } = {}) {
-    const result = requestOperationCancel(state, { operationId });
-    if (result.accepted && result.mode === "stop_requested") {
-        state.deployment?.abortController?.abort();
-    }
-    if (result.accepted) {
-        addActivity(state, {
-            actor,
-            kind: "cancel_operation",
-            status: result.mode === "wait_for_settle" ? "warn" : "running",
-            summary: result.operation.cancellation?.message || "Cancellation requested.",
-            details: { operation: result.operation, mode: result.mode },
-        });
-        recordOperation(state, "cancel_requested", { mode: result.mode });
-    }
-    return {
-        ...result,
-        state: snapshotState(state),
-    };
 }
 
 async function refreshHostedContext(state) {
@@ -1405,6 +1326,19 @@ function recordOperation(state, event, details = {}) {
         details: rest,
     }).catch(() => {});
 }
+
+const {
+    commandSelectAgent,
+    commandStartLocal,
+    commandCancelOperation,
+} = createPlaygroundCommands({
+    selectAgent,
+    refreshHostedContext,
+    snapshotState,
+    syncLocalBootstrapForStart,
+    startLocalAgent,
+    recordOperation,
+});
 
 function openSnapshotStream(req, res, state) {
     res.writeHead(200, {
