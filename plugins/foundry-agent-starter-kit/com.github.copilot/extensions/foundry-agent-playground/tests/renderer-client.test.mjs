@@ -11,6 +11,15 @@ import {
     responseText,
     shouldOpenProjectEndpointDialog,
 } from "../renderer/renderer-client.mjs";
+import { rendererStyles } from "../renderer/renderer-styles.mjs";
+
+test("renderer styles bind to Copilot canvas dark-mode theme attributes", () => {
+    assert.match(rendererStyles, /html\[data-color-mode="dark"\]/);
+    assert.match(rendererStyles, /body\[data-color-mode="dark"\]/);
+    assert.match(rendererStyles, /--background-color-default/);
+    assert.match(rendererStyles, /--text-color-default/);
+    assert.match(rendererStyles, /--border-color-default/);
+});
 
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {

@@ -25,7 +25,9 @@ export const rendererStyles = `
       --cp-sheen: rgba(255, 255, 255, 0.55);
       --cp-highlight: rgba(177, 31, 75, 0.12);
     }
-    html[data-theme="dark"] {
+    html[data-theme="dark"],
+    html[data-color-mode="dark"],
+    body[data-color-mode="dark"] {
       color-scheme: dark;
       --cp-bg: #3d3b3a;
       --cp-bg-elevated: #343231;
@@ -51,13 +53,12 @@ export const rendererStyles = `
       --cp-sheen: rgba(255, 255, 255, 0.04);
       --cp-highlight: rgba(253, 142, 161, 0.12);
     }
-    :root,
-    html[data-theme="dark"] {
+    :root {
       color-scheme: light dark;
-      --cp-bg: var(--background-color-default, #ffffff);
-      --cp-bg-elevated: var(--background-color-default, #ffffff);
-      --cp-surface: var(--background-color-default, #ffffff);
-      --cp-surface-soft: var(--background-color-subtle, #f5f5f5);
+      --cp-bg: var(--background-color-default, var(--n-0, #ffffff));
+      --cp-bg-elevated: var(--background-color-subtle, var(--n-1, #f7f7f7));
+      --cp-surface: var(--background-color-default, var(--n-0, #ffffff));
+      --cp-surface-soft: var(--background-color-subtle, var(--n-1, #f5f5f5));
       --cp-border: var(--border-color-default, #dedede);
       --cp-border-strong: var(--border-color-muted, var(--border-color-default, #919191));
       --cp-text: var(--text-color-default, #242424);
@@ -77,6 +78,29 @@ export const rendererStyles = `
       --cp-panel-strong: var(--background-color-default, #ffffff);
       --cp-sheen: var(--background-color-subtle, #f5f5f5);
       --cp-highlight: var(--background-color-subtle, #f5f5f5);
+    }
+    html[data-theme="dark"],
+    html[data-color-mode="dark"],
+    body[data-color-mode="dark"] {
+      --cp-bg: var(--background-color-default, var(--n-13, #1f1f1f));
+      --cp-bg-elevated: var(--background-color-subtle, var(--n-12, #242424));
+      --cp-surface: var(--background-color-default, var(--n-12, #242424));
+      --cp-surface-soft: var(--background-color-subtle, var(--n-11, #2e2e2e));
+      --cp-border: var(--border-color-default, var(--n-9, #474747));
+      --cp-border-strong: var(--border-color-muted, var(--n-8, #5f5f5f));
+      --cp-text: var(--text-color-default, var(--n-1, #dedede));
+      --cp-text-muted: var(--text-color-muted, var(--n-4, #b0b0b0));
+      --cp-text-soft: var(--text-color-muted, var(--n-5, #919191));
+      --cp-accent: var(--color-focus-outline, var(--true-color-blue, #4da6ff));
+      --cp-accent-hover: var(--color-focus-outline, var(--true-color-blue, #75bfff));
+      --cp-accent-soft: color-mix(in srgb, var(--cp-accent) 16%, var(--cp-surface));
+      --cp-accent-fg: var(--background-color-default, #1f1f1f);
+      --cp-shadow: 0 0 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35);
+      --cp-overlay: color-mix(in srgb, var(--cp-bg) 88%, transparent);
+      --cp-panel: color-mix(in srgb, var(--cp-surface) 88%, transparent);
+      --cp-panel-strong: var(--cp-surface);
+      --cp-sheen: color-mix(in srgb, var(--cp-text) 6%, transparent);
+      --cp-highlight: var(--cp-accent-soft);
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; }
@@ -1087,7 +1111,7 @@ export const rendererStyles = `
       left: 23px;
       width: 2px;
       border-radius: 999px;
-      background: linear-gradient(180deg, #7c3aed, #242424, #6264a7);
+      background: linear-gradient(180deg, var(--cp-accent), var(--cp-border-strong), var(--cp-link));
       opacity: 0.28;
     }
     .teams-gate {

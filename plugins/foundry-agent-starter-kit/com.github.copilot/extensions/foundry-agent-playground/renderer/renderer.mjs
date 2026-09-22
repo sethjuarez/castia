@@ -14,6 +14,7 @@ export function renderHtml() {
       const theme =
         param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.setAttribute("data-color-mode", theme);
     })();
   </script>
   <style>${rendererStyles}</style>
