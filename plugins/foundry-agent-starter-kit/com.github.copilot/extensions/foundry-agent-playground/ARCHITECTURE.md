@@ -68,6 +68,23 @@ Runtime logical state belongs in session-scoped JSON/JSONL files, not repo files
 
 Committed repo files should only be source/docs/assets. Gitignored `.env` files are allowed for non-secret Foundry values that the user provides through the Start local endpoint dialog.
 
+## Implementation status
+
+Implemented now:
+
+- Structured readiness dimensions for endpoint readiness, selected-agent identity, protocol support, and configuration status.
+- Shared command handlers for agent selection and local startup across UI routes and Copilot canvas actions.
+- Session-scoped `state.json` and `operations.jsonl` persistence under Copilot session files storage.
+- First-in-wins operation tracking for deploy/provision lifecycle commands.
+- Phase-aware cancellation requests: stop before irreversible remote phases, wait-for-settle after remote registration begins.
+- Deterministic diagnostic bridge actions for activity, operations, diagnostics, Foundry state, and next actions.
+
+Still intentionally future/optional:
+
+- A full renderer migration to Svelte + TypeScript.
+- A wholesale route/action/domain file split beyond the extracted persistence, operations, and diagnostics modules.
+- XState for lifecycle-heavy state machines.
+
 ## Possible future architecture
 
 Future cleanup can move toward:

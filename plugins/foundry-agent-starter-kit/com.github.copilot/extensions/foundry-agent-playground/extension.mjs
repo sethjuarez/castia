@@ -39,6 +39,26 @@ import {
     transcriptState,
     updateActivity,
 } from "./state.mjs";
+import {
+    activityState,
+    foundryState,
+    latestDiagnostics,
+    nextActions,
+    operationState,
+} from "./diagnostics.mjs";
+import {
+    beginOperation,
+    completeOperation,
+    emptyOperationState,
+    enterIrreversiblePhase,
+    requestOperationCancel,
+    updateOperation,
+} from "./operations.mjs";
+import {
+    appendOperationRecord,
+    configureRuntimeStore,
+    persistStateSnapshot,
+} from "./persistence.mjs";
 import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
 import {
     discoverHostedContextFromFoundry,
@@ -536,14 +556,30 @@ async function syncLocalBootstrapForStart(state) {
     return { ok: false, source: "missing" };
 }
 
-function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
+function runCommand(command, args, { cwd = process.cwd(), onOutput, signal, onChild } = {}) {
     return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve({ code: 130, output: "Command cancelled before start.\n", cancelled: true });
+            return;
+        }
         const output = [];
+        let cancelled = false;
         const child = spawn(command, args, {
             cwd,
             shell: process.platform === "win32",
             env: { ...process.env, AZURE_DEV_USER_AGENT: "agent_playground" },
         });
+        onChild?.(child);
+        const abort = () => {
+            cancelled = true;
+            if (child.killed || child.exitCode !== null || child.signalCode) return;
+            if (process.platform === "win32") {
+                void killLocalProcessTree(child.pid);
+            } else {
+                child.kill("SIGTERM");
+            }
+        };
+        signal?.addEventListener?.("abort", abort, { once: true });
         const append = (chunk) => {
             const text = chunk.toString();
             output.push(text);
@@ -552,13 +588,15 @@ function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
         child.stdout.on("data", append);
         child.stderr.on("data", append);
         child.on("error", (error) => {
+            signal?.removeEventListener?.("abort", abort);
             const text = `${error.name}: ${error.message}`;
             output.push(text);
             onOutput?.(text);
-            resolve({ code: 1, output: output.join("") });
+            resolve({ code: 1, output: output.join(""), cancelled });
         });
         child.on("close", (code) => {
-            resolve({ code: code ?? 0, output: output.join("") });
+            signal?.removeEventListener?.("abort", abort);
+            resolve({ code: cancelled ? 130 : code ?? 0, output: output.join(""), cancelled });
         });
     });
 }
@@ -976,7 +1014,7 @@ async function commandSelectAgent(state, agentId, { actor = "Canvas" } = {}) {
         summary: `Selected ${agent.displayName || agent.serviceName}.`,
         details: { selectedAgent: agent },
     });
-    return stateSnapshot(state);
+    return snapshotState(state);
 }
 
 async function commandStartLocal(state, { actor = "Canvas" } = {}) {
@@ -995,7 +1033,7 @@ async function commandStartLocal(state, { actor = "Canvas" } = {}) {
             ok: false,
             needsProjectEndpoint: true,
             projectEndpointPrompt: prompt,
-            state: stateSnapshot(state),
+            state: snapshotState(state),
         };
     }
     clearProjectEndpointPrompt(state);
@@ -1008,7 +1046,28 @@ async function commandStartLocal(state, { actor = "Canvas" } = {}) {
         summary: "Local agent start requested.",
         details: { endpoint: selectedLocalEndpoint(state), selectedAgent: selectedAgent(state) },
     });
-    return { ok: true, state: stateSnapshot(state) };
+    return { ok: true, state: snapshotState(state) };
+}
+
+function commandCancelOperation(state, { operationId = null, actor = "Canvas" } = {}) {
+    const result = requestOperationCancel(state, { operationId });
+    if (result.accepted && result.mode === "stop_requested") {
+        state.deployment?.abortController?.abort();
+    }
+    if (result.accepted) {
+        addActivity(state, {
+            actor,
+            kind: "cancel_operation",
+            status: result.mode === "wait_for_settle" ? "warn" : "running",
+            summary: result.operation.cancellation?.message || "Cancellation requested.",
+            details: { operation: result.operation, mode: result.mode },
+        });
+        recordOperation(state, "cancel_requested", { mode: result.mode });
+    }
+    return {
+        ...result,
+        state: snapshotState(state),
+    };
 }
 
 async function refreshHostedContext(state) {
@@ -1231,13 +1290,41 @@ async function ensureAzdDeploymentContext(state, log, { stampDeployment = false 
     return exitCode;
 }
 
+function azdLifecyclePhase(text, commandName) {
+    const value = String(text || "");
+    if (/Uploading|Registering|Creating agent|Updating agent|Polling|Waiting for deployment|Remote/i.test(value)) {
+        return { phase: "remote_registration", irreversible: true };
+    }
+    if (/Packaging|Building|Preparing|Resolving/i.test(value)) {
+        return { phase: "prepare_artifacts", irreversible: false };
+    }
+    if (/Provisioning|Deploying/i.test(value)) {
+        return { phase: commandName === "deploy" ? "deploying" : "provisioning", irreversible: false };
+    }
+    return null;
+}
+
 async function streamAzdLifecycle(res, state, { commandName, args }) {
     res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-store",
         Connection: "keep-alive",
     });
+    const started = beginOperation(state, {
+        kind: commandName,
+        actor: "Canvas",
+        phase: "starting",
+        cancellable: true,
+    });
+    if (!started.started) {
+        writeEvent(res, "snapshot", snapshotState(state));
+        writeEvent(res, "operation", { duplicate: true, operation: started.operation });
+        res.end();
+        return;
+    }
+    recordOperation(state, "started", { commandName, args });
     const agent = selectedAgent(state);
+    const abortController = new AbortController();
     state.deployment = {
         running: true,
         exitCode: null,
@@ -1246,23 +1333,45 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         command: `azd ${args.join(" ")}`,
         needsProvision: false,
         log: [`$ azd ${args.join(" ")}\n`],
+        process: null,
+        abortController,
     };
     if (commandName === "deploy") {
         clearMessagesForTarget(state, "hosted");
     }
     try {
         if (commandName === "deploy" || commandName === "provision") {
+            updateOperation(state, { phase: "configure_environment" });
             await ensureAzdDeploymentContext(state, state.deployment.log, { stampDeployment: commandName === "deploy" });
         }
-        writeEvent(res, "snapshot", stateSnapshot(state));
+        writeEvent(res, "snapshot", snapshotState(state));
         const previousVersion = commandName === "deploy" ? state.hosted?.version : null;
-        const result = await runCommand("azd", args, {
-            cwd: agent.root,
-            onOutput: (text) => {
-                state.deployment.log.push(text);
-                writeEvent(res, "snapshot", stateSnapshot(state));
-            },
-        });
+        updateOperation(state, { phase: "run_azd" });
+        const result = state.operations?.active?.status === "cancel_requested" && !state.operations.active.irreversible
+            ? { code: 130, output: "Command cancelled before start.\n", cancelled: true }
+            : await runCommand("azd", args, {
+                cwd: agent.root,
+                signal: abortController.signal,
+                onChild: (child) => {
+                    state.deployment.process = child;
+                },
+                onOutput: (text) => {
+                    state.deployment.log.push(text);
+                    const phase = azdLifecyclePhase(text, commandName);
+                    if (phase?.irreversible) {
+                        enterIrreversiblePhase(state, phase.phase);
+                    } else if (phase?.phase) {
+                        updateOperation(state, { phase: phase.phase });
+                    }
+                    if (state.operations?.active?.status === "cancel_requested" && !state.operations.active.irreversible) {
+                        abortController.abort();
+                    }
+                    writeEvent(res, "snapshot", snapshotState(state));
+                },
+            });
+        if (result.cancelled && !state.deployment.log.join("").includes("Command cancelled")) {
+            state.deployment.log.push(result.output || "Command cancelled.\n");
+        }
         const output = state.deployment.log.join("");
         state.deployment.exitCode = result.code;
         state.deployment.needsProvision =
@@ -1272,7 +1381,7 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         if (state.deployment.needsProvision) {
             state.deployment.log.push("\nNext: prepare this repo for hosted deployment, then deploy again.\n");
         }
-        if (commandName === "provision" || result.code === 0) {
+        if (!result.cancelled && (commandName === "provision" || result.code === 0)) {
             state.deployment.log.push(`\n$ azd env get-values\n`);
             const refresh = await refreshHostedContext(state);
             state.deployment.log.push(refresh.result.output || "(no output)\n");
@@ -1290,13 +1399,33 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         if (commandName === "provision" && result.code === 0) {
             state.deployment.log.push("\nDeploy prep complete. Deploy is ready.\n");
         }
+        const cancellationMode = state.operations?.active?.cancellation?.mode || null;
+        const terminal = completeOperation(state, {
+            status: cancellationMode === "stop_requested" && result.cancelled ? "cancelled" : result.code === 0 ? "completed" : "failed",
+            exitCode: result.code,
+            summary: `${commandName} exited with code ${result.code}.`,
+        });
+        recordOperation(state, "completed", { commandName, exitCode: result.code, operation: terminal });
     } catch (error) {
         state.deployment.exitCode = state.deployment.exitCode ?? 1;
         state.deployment.log.push(`\nERROR: ${error instanceof Error ? error.message : String(error)}\n`);
+        const cancellationMode = state.operations?.active?.cancellation?.mode || null;
+        const terminal = completeOperation(state, {
+            status: cancellationMode === "stop_requested" ? "cancelled" : "failed",
+            exitCode: state.deployment.exitCode,
+            summary: error instanceof Error ? error.message : String(error),
+        });
+        recordOperation(state, "failed", {
+            commandName,
+            error: error instanceof Error ? error.message : String(error),
+            operation: terminal,
+        });
     } finally {
         state.deployment.running = false;
         state.deployment.completedAt = new Date().toISOString();
-        writeEvent(res, "snapshot", stateSnapshot(state));
+        delete state.deployment.process;
+        delete state.deployment.abortController;
+        writeEvent(res, "snapshot", snapshotState(state));
         res.end();
     }
 }
@@ -1306,6 +1435,21 @@ function writeEvent(res, name, payload) {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function snapshotState(state) {
+    const snapshot = stateSnapshot(state);
+    void persistStateSnapshot(state, snapshot).catch(() => {});
+    return snapshot;
+}
+
+function recordOperation(state, event, details = {}) {
+    const { operation, ...rest } = details;
+    void appendOperationRecord(state, {
+        event,
+        operation: operation || state.operations?.active || null,
+        details: rest,
+    }).catch(() => {});
+}
+
 function openSnapshotStream(req, res, state) {
     res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -1313,7 +1457,7 @@ function openSnapshotStream(req, res, state) {
         Connection: "keep-alive",
     });
     state.eventClients.add(res);
-    writeEvent(res, "snapshot", stateSnapshot(state));
+    writeEvent(res, "snapshot", snapshotState(state));
     req.on("close", () => {
         state.eventClients.delete(res);
     });
@@ -1322,7 +1466,7 @@ function openSnapshotStream(req, res, state) {
 function broadcastSnapshot(state) {
     for (const client of state.eventClients) {
         try {
-            writeEvent(client, "snapshot", stateSnapshot(state));
+            writeEvent(client, "snapshot", snapshotState(state));
         } catch {
             state.eventClients.delete(client);
         }
@@ -1363,7 +1507,7 @@ function completedResponseResult(state, turn) {
         displayText: responseDisplayText(turn.response),
         copyableText: copyableAnswerText(turn.response),
         transcript: transcriptState(state),
-        state: stateSnapshot(state),
+        state: snapshotState(state),
     };
 }
 
@@ -1419,7 +1563,17 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "GET" && url.pathname === "/api/state") {
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
+            return;
+        }
+        if (req.method === "GET" && url.pathname === "/api/diagnostics") {
+            sendJson(res, 200, {
+                activity: activityState(state),
+                operation: operationState(state),
+                diagnostics: latestDiagnostics(state),
+                foundry: foundryState(state),
+                nextActions: nextActions(state),
+            });
             return;
         }
         if (req.method === "GET" && url.pathname === "/api/events") {
@@ -1442,7 +1596,7 @@ async function handleRequest(req, res, state) {
                 summary: `Endpoint set to ${activeEndpoint(state) || "not configured"}.`,
                 details: { target: state.target, endpoint: activeEndpoint(state) },
             });
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/agent") {
@@ -1457,7 +1611,7 @@ async function handleRequest(req, res, state) {
                 modelDeployment: body.modelDeployment,
             });
             await refreshHostedContext(state);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/env/bootstrap") {
@@ -1467,12 +1621,12 @@ async function handleRequest(req, res, state) {
             if (state.foundryConnection.projectEndpoint) {
                 await refreshHostedContext(state);
             }
-            sendJson(res, 200, { result, state: stateSnapshot(state) });
+            sendJson(res, 200, { result, state: snapshotState(state) });
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/project-endpoint-prompt/clear") {
             clearProjectEndpointPrompt(state);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/target") {
@@ -1485,18 +1639,18 @@ async function handleRequest(req, res, state) {
             if (body.refresh && state.target === "hosted") {
                 await refreshHostedContext(state);
             }
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/hosted/refresh") {
             await refreshHostedContext(state);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/config/refresh") {
             state.foundryConnection = emptyFoundryConnection();
             await hydrateFoundryConnection(state);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/health") {
@@ -1522,7 +1676,7 @@ async function handleRequest(req, res, state) {
                 summary: `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
                 details: { health: state.lastHealth },
             });
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/agent/switch-to-readiness") {
@@ -1545,7 +1699,7 @@ async function handleRequest(req, res, state) {
             state.lastHealth = null;
             state.messages.length = 0;
             addLocalEvent(state, "ok", `Selected ${selectedAgent(state).displayName || selectedAgent(state).serviceName} from readiness.`);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/start") {
@@ -1564,7 +1718,7 @@ async function handleRequest(req, res, state) {
         }
         if (req.method === "POST" && url.pathname === "/api/local/stop") {
             await stopLocalAgent(state);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/responses") {
@@ -1588,7 +1742,7 @@ async function handleRequest(req, res, state) {
             const turn = responseTurn(state, input);
             state.messages.push(turn);
             await completeResponseTurn(state, turn, activity.id);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/responses/stream") {
@@ -1617,7 +1771,7 @@ async function handleRequest(req, res, state) {
             const turn = responseTurn(state, input, { stream: true });
             turn.response.delivery.mode = "pending-stream";
             state.messages.push(turn);
-            writeEvent(res, "snapshot", stateSnapshot(state));
+            writeEvent(res, "snapshot", snapshotState(state));
             const result = await callAgentStream(activeEndpoint(state), { input }, (_delta, outputText, durationMs) => {
                 turn.response = {
                     ok: true,
@@ -1631,7 +1785,7 @@ async function handleRequest(req, res, state) {
                         active: true,
                     },
                 };
-                writeEvent(res, "snapshot", stateSnapshot(state));
+                writeEvent(res, "snapshot", snapshotState(state));
             });
             turn.response = result;
             updateActivity(state, activity.id, {
@@ -1639,7 +1793,7 @@ async function handleRequest(req, res, state) {
                 summary: result.ok ? `Response completed (${result.status}).` : `Response failed (${result.status || "error"}).`,
                 details: { displayText: responseDisplayText(result), status: result.status, durationMs: result.durationMs },
             });
-            writeEvent(res, "snapshot", stateSnapshot(state));
+            writeEvent(res, "snapshot", snapshotState(state));
             res.end();
             return;
         }
@@ -1652,21 +1806,29 @@ async function handleRequest(req, res, state) {
                 summary: `Cleared ${state.target} transcript.`,
                 details: { target: state.target },
             });
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/deploy/clear") {
             state.deployment.log.length = 0;
             state.deployment.exitCode = null;
             state.deployment.needsProvision = false;
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/operation/cancel") {
+            const body = await readBody(req);
+            sendJson(res, 200, commandCancelOperation(state, {
+                operationId: body.operationId || null,
+                actor: "You",
+            }));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/teams/tested") {
             state.teams.testedAt = new Date().toISOString();
             state.teams.agentId = state.hosted.agentId || null;
             state.teams.version = state.hosted.version || null;
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, snapshotState(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/provision/stream") {
@@ -1689,7 +1851,7 @@ async function handleRequest(req, res, state) {
     }
 }
 
-async function startServer(ctx) {
+async function startServer(ctx, copilotSession) {
     const agents = await discoverAgents();
     const selectedAgentId = ctx.input?.agentId && agents.some((agent) => agent.id === ctx.input.agentId)
         ? ctx.input.agentId
@@ -1724,9 +1886,15 @@ async function startServer(ctx) {
         messages: [],
         lastHealth: null,
         projectEndpointPrompt: null,
+        operations: emptyOperationState(),
         eventClients: new Set(),
     };
+    configureRuntimeStore(state, {
+        sessionId: copilotSession?.sessionId || ctx.sessionId || process.env.SESSION_ID || process.env.COPILOT_SESSION_ID,
+        instanceId: ctx.instanceId,
+    });
     await hydrateFoundryConnection(state);
+    snapshotState(state);
     const server = createServer((req, res) => {
         void handleRequest(req, res, state);
     });
@@ -1736,7 +1904,8 @@ async function startServer(ctx) {
     return { server, state, url: `http://127.0.0.1:${port}/` };
 }
 
-await joinSession({
+let copilotSession;
+copilotSession = await joinSession({
     systemMessage: {
         mode: "append",
         content: [
@@ -1789,7 +1958,7 @@ await joinSession({
                             details: { target: state.target, endpoint: activeEndpoint(state) },
                         });
                         broadcastSnapshot(state);
-                        return stateSnapshot(state);
+                        return snapshotState(state);
                     },
                 },
                 {
@@ -1830,7 +1999,7 @@ await joinSession({
                             details: { target: state.target, endpoint: activeEndpoint(state) },
                         });
                         broadcastSnapshot(state);
-                        return stateSnapshot(state);
+                        return snapshotState(state);
                     },
                 },
                 {
@@ -1874,7 +2043,7 @@ await joinSession({
                         return {
                             readiness: state.lastHealth,
                             transcript: transcriptState(state),
-                            state: stateSnapshot(state),
+                            state: snapshotState(state),
                         };
                     },
                 },
@@ -1969,6 +2138,54 @@ await joinSession({
                     },
                 },
                 {
+                    name: "get_activity_state",
+                    description: "Return compact activity details for recent UI and Copilot-driven operations.",
+                    handler: async (ctx) => activityState(instanceState(ctx)),
+                },
+                {
+                    name: "get_operation_state",
+                    description: "Return the active operation and recent operation history.",
+                    handler: async (ctx) => operationState(instanceState(ctx)),
+                },
+                {
+                    name: "get_latest_diagnostics",
+                    description: "Return deterministic readiness, identity, configuration, protocol, and operation diagnostics.",
+                    handler: async (ctx) => latestDiagnostics(instanceState(ctx)),
+                },
+                {
+                    name: "get_foundry_state",
+                    description: "Return Foundry connection, hosted agent, deployment, and Teams handoff state.",
+                    handler: async (ctx) => foundryState(instanceState(ctx)),
+                },
+                {
+                    name: "get_next_actions",
+                    description: "Return recommended next actions derived from current playground state.",
+                    handler: async (ctx) => nextActions(instanceState(ctx)),
+                },
+                {
+                    name: "cancel_operation",
+                    description: "Request phase-aware cancellation of the active deploy/provision operation.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            operationId: {
+                                type: "string",
+                                description: "Optional active operation id to guard cancellation against stale requests.",
+                            },
+                        },
+                        additionalProperties: false,
+                    },
+                    handler: async (ctx) => {
+                        const state = instanceState(ctx);
+                        const result = commandCancelOperation(state, {
+                            operationId: ctx.input?.operationId || null,
+                            actor: "Copilot",
+                        });
+                        broadcastSnapshot(state);
+                        return result;
+                    },
+                },
+                {
                     name: "clear_transcript",
                     description: "Clear the tester transcript for this canvas instance.",
                     handler: async (ctx) => {
@@ -1982,14 +2199,14 @@ await joinSession({
                             details: { target: state.target },
                         });
                         broadcastSnapshot(state);
-                        return stateSnapshot(state);
+                        return snapshotState(state);
                     },
                 },
             ],
             open: async (ctx) => {
                 let entry = servers.get(ctx.instanceId);
                 if (!entry) {
-                    entry = await startServer(ctx);
+                    entry = await startServer(ctx, copilotSession);
                     servers.set(ctx.instanceId, entry);
                 } else if (ctx.input?.endpoint) {
                     entry.state.localEndpoints[entry.state.selectedAgentId] = normalizeEndpoint(ctx.input.endpoint);

@@ -254,6 +254,12 @@ test("renderer subscribes to canvas action state updates", () => {
     assert.match(rendererClientScript, /addEventListener\("snapshot"/);
 });
 
+test("renderer wires operation cancellation through shared route", () => {
+    assert.match(rendererClientScript, /cancelOperationButton/);
+    assert.match(rendererClientScript, /function cancelOperationFromCanvas/);
+    assert.match(rendererClientScript, /\/api\/operation\/cancel/);
+});
+
 test("project endpoint prompt state opens and closes the endpoint dialog", () => {
     assert.equal(shouldOpenProjectEndpointDialog({ projectEndpointPrompt: { open: true } }), true);
     assert.equal(shouldOpenProjectEndpointDialog({ projectEndpointPrompt: null }), false);

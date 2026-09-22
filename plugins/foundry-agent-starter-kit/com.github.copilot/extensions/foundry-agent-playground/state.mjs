@@ -317,7 +317,9 @@ export function stateSnapshot(state) {
         foundryConnection: state.foundryConnection,
         envBootstrap: state.envBootstrap,
         hosted: state.hosted,
-        deployment: state.deployment,
+        deployment: state.deployment
+            ? { ...state.deployment, process: undefined, abortController: undefined }
+            : state.deployment,
         localEnv: state.localEnv,
         localRun: {
             ...state.localRun,
@@ -336,6 +338,14 @@ export function stateSnapshot(state) {
         protocolSupport: state.lastHealth?.protocolSupport ?? null,
         configurationStatus: state.lastHealth?.configurationStatus ?? null,
         projectEndpointPrompt: state.projectEndpointPrompt || null,
+        operations: state.operations || { active: null, history: [] },
+        runtimeStore: state.runtimeStore
+            ? {
+                root: state.runtimeStore.root,
+                statePath: state.runtimeStore.statePath,
+                operationsPath: state.runtimeStore.operationsPath,
+            }
+            : null,
         stats: transcriptStats(visibleMessages),
     };
 }

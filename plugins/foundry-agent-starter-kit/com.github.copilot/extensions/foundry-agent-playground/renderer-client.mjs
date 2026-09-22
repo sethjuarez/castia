@@ -267,6 +267,7 @@ export const rendererClientScript = `
     const sendButton = document.getElementById("send");
     const provisionButton = document.getElementById("provisionButton");
     const deployButton = document.getElementById("deployButton");
+    const cancelOperationButton = document.getElementById("cancelOperationButton");
     const teamsTestedButton = document.getElementById("teamsTestedButton");
     const clearButton = document.getElementById("clear");
     const projectEndpointDialog = document.getElementById("projectEndpointDialog");
@@ -596,6 +597,10 @@ export const rendererClientScript = `
     function renderView() {
       const gate = composerGate(latestState, { activeView, inFlight });
       const deploymentRunning = Boolean(latestState?.deployment?.running);
+      const cancellableOperation = Boolean(
+        latestState?.operations?.active?.cancellable &&
+        ["running", "cancel_requested"].includes(latestState.operations.active.status),
+      );
       chatView.hidden = activeView !== "chat";
       deployView.hidden = activeView !== "deploy";
       teamsView.hidden = activeView !== "teams";
@@ -603,6 +608,8 @@ export const rendererClientScript = `
       sendButton.disabled = !gate.canSend;
       provisionButton.hidden = true;
       deployButton.hidden = true;
+      cancelOperationButton.hidden = !(activeView === "deploy" && deploymentRunning && cancellableOperation);
+      cancelOperationButton.disabled = !cancellableOperation || latestState?.operations?.active?.status === "cancel_requested";
       provisionButton.disabled = deploymentRunning;
       deployButton.disabled = deploymentRunning;
       teamsTestedButton.hidden = true;
@@ -1428,6 +1435,24 @@ export const rendererClientScript = `
       } finally {
         button.disabled = false;
         primaryGuideAction.disabled = false;
+        renderView();
+      }
+    }
+
+    async function cancelOperationFromCanvas() {
+      cancelOperationButton.disabled = true;
+      setStatus("", "Requesting cancellation...");
+      try {
+        const payload = await request("/api/operation/cancel", {
+          method: "POST",
+          body: JSON.stringify({ operationId: latestState?.operations?.active?.id || null }),
+        });
+        renderSnapshot(payload.state);
+        setStatus(payload.accepted ? "warn" : "fail", payload.accepted ? (payload.operation?.cancellation?.message || "Cancellation requested.") : "No cancellable operation is running.");
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        renderView();
       }
     }
 
@@ -1459,6 +1484,10 @@ export const rendererClientScript = `
 
     deployButton.addEventListener("click", () => {
       void runDeploy();
+    });
+
+    cancelOperationButton.addEventListener("click", () => {
+      void cancelOperationFromCanvas();
     });
 
     teamsTestedButton.addEventListener("click", async () => {
