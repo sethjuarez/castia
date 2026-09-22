@@ -113,6 +113,15 @@ and fill those two values before opening the playground or starting local. The
 entrypoint should load `.env`, then fail before serving if either setting is
 missing, placeholder-shaped, or malformed.
 
+When validating through Foundry Agent Playground, exercise the same open canvas
+instance the user can see. Use `open_canvas` to focus the
+`foundry-agent-playground` canvas, then use `invoke_canvas_action` for
+`set_target` when needed, `health_check`, `send_response`, and
+`get_transcript_state`. Never use Playwright, browser navigation, or direct
+canvas URL automation for Playground validation; those paths bypass the shipped
+side-panel canvas and do not prove collaboration, layout, transcript, or action
+visibility.
+
 Use this `azure.yaml` service shape for code deploy:
 
 ```yaml

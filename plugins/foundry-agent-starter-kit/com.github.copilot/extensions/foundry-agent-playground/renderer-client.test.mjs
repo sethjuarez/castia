@@ -4,6 +4,7 @@ import {
     composerGate,
     latestVisibleAnswerText,
     localReadinessState,
+    rendererClientScript,
     responseDetailsKey,
     responseDetailsPanelId,
     responseDisplayState,
@@ -183,15 +184,37 @@ test("non-envelope JSON strings remain raw diagnostics for markdown/details path
 
 test("latest visible answer text skips pending envelopes and copies latest final answer", () => {
     assert.equal(latestVisibleAnswerText([
-        { response: { body: { output_text: "first answer" } } },
-        { response: { status: "waiting", body: '{ "output_text": "" }' } },
-        { response: { body: { output_text: "final answer" } } },
+        { response: { ok: true, body: { output_text: "first answer" } } },
+        { response: { ok: false, status: "waiting", body: '{ "output_text": "" }' } },
+        { response: { ok: true, body: { output_text: "final answer" } } },
     ]), "final answer");
 });
 
 test("latest visible answer text does not copy raw JSON details", () => {
     assert.equal(latestVisibleAnswerText([
-        { response: { body: { output_text: "first answer" } } },
-        { response: { status: 200, body: '{ "trace": "abc123" }' } },
+        { response: { ok: true, body: { output_text: "first answer" } } },
+        { response: { ok: true, status: 200, body: '{ "trace": "abc123" }' } },
     ]), "first answer");
+});
+
+test("latest visible answer text skips failed responses with error text", () => {
+    assert.equal(latestVisibleAnswerText([
+        { response: { ok: true, body: { output_text: "first answer" } } },
+        { response: { ok: false, status: 500, body: { error: { message: "boom" } } } },
+    ]), "first answer");
+});
+
+test("renderer script defines activity rendering at top level", () => {
+    const tickerIndex = rendererClientScript.indexOf("function renderLocalTicker");
+    const activityIndex = rendererClientScript.indexOf("function renderActivity");
+    const elapsedIndex = rendererClientScript.indexOf("function elapsedLabel");
+
+    assert.ok(tickerIndex > 0);
+    assert.ok(activityIndex > tickerIndex);
+    assert.ok(activityIndex < elapsedIndex);
+});
+
+test("renderer subscribes to canvas action state updates", () => {
+    assert.match(rendererClientScript, /new EventSource\("\/api\/events"\)/);
+    assert.match(rendererClientScript, /addEventListener\("snapshot"/);
 });

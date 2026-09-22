@@ -68,6 +68,15 @@ dialog, writes only non-secret derived values to gitignored `.env` files, and
 then starts the local agent. Do not infer, guess, create, or silently select a
 Foundry project.
 
+When Copilot is validating a Playground flow, drive the shared open canvas
+instance. Open or focus **Foundry Agent Playground** with `open_canvas`, then use
+`invoke_canvas_action` on that same `instanceId` for `set_target` when needed,
+`health_check`, `send_response`, and `get_transcript_state`. This is the
+collaboration path the user can see in the side panel. Never validate this
+Playground with Playwright, browser navigation, or direct canvas URL automation;
+those paths bypass the shipped side-panel canvas and do not prove collaboration,
+layout, transcript, or action visibility.
+
 ## Agent identity
 
 Treat `folder + azd service name` as the local agent identity.
@@ -150,7 +159,8 @@ The preferred recovery is:
 5. Run `azd deploy <service> --no-prompt` again.
 
 Foundry is complete when the hosted agent/version is resolved and the same smoke
-prompt works against the hosted Responses endpoint.
+prompt works through the Foundry Agent Playground transcript for the open canvas
+instance.
 
 ## Deployed-agent trace handoff
 

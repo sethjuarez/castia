@@ -37,6 +37,17 @@ copilot plugin install foundry-agent-starter-kit@castia
 This is Copilot plugin distribution, not Agency distribution. Do not use Agency
 plugin commands or Agency marketplaces for the public Castia path.
 
+The packaged canvas is the only supported Foundry Agent Playground. Do not copy
+the extension into a scenario repository; installing or updating this plugin
+keeps the playground implementation and its action contract consistent across
+projects.
+
+If a scenario repository already contains
+`.github\extensions\agent-playground`, remove that directory and install or
+update this plugin instead. The supported canvas ID is now
+`foundry-agent-playground`; update saved canvas references that still use the
+old `agent-playground` ID.
+
 ## Canvas-only testing
 
 Use this when you need to test or share the canvas before the plugin marketplace
@@ -68,5 +79,11 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
 4. Click **Start local**. If the repo has no project endpoint yet, the canvas
    opens its in-canvas endpoint dialog, then saves non-secret derived values into
    gitignored local `.env` files and starts the agent.
-5. Check readiness before sending a prompt.
+5. Check readiness before sending a prompt. When Copilot drives or validates the
+   Playground, it must focus the same open canvas instance and call its canvas
+   actions (`set_target` when needed, `health_check`, `send_response`,
+   `get_transcript_state`) so the side-panel transcript and activity log update
+   for the user. Do not use Playwright, browser navigation, or direct canvas URL
+   automation for Playground smoke, layout, or collaboration validation; those
+   paths do not exercise the shipped side-panel canvas.
 6. Deploy or publish only after explicit approval.

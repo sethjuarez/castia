@@ -18,8 +18,10 @@ import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from
 import { renderHtml } from "./renderer.mjs";
 import {
     activeEndpoint,
+    addActivity,
     addLocalEvent,
     clearMessagesForTarget,
+    copyableAnswerText,
     emptyFoundryConnection,
     emptyHostedContext,
     emptyLocalRun,
@@ -31,7 +33,11 @@ import {
     selectedLocalEndpoint,
     setSelectedAgent,
     switchSelectedAgent,
+    responseDisplayText,
+    responsePendingLabel,
     stateSnapshot,
+    transcriptState,
+    updateActivity,
 } from "./state.mjs";
 import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
 import {
@@ -730,6 +736,21 @@ async function startLocalAgent(state) {
     });
 }
 
+function reconcileLocalReadinessAfterHealth(state) {
+    if (state.target !== "local" || !state.localRun?.running || !state.lastHealth) return;
+    const previousStatus = state.localRun.readiness?.status;
+    state.localRun.readiness = {
+        ...(state.localRun.readiness || {}),
+        status: state.lastHealth.ok ? "ready" : "failed",
+        completedAt: new Date().toISOString(),
+    };
+    if (state.lastHealth.ok && previousStatus !== "ready") {
+        const endpoint = state.localRun.endpoint || activeEndpoint(state);
+        state.localEndpoints[state.localRun.agentId || selectedAgent(state).id] = endpoint;
+        addLocalEvent(state, "ok", `Local agent ready at ${endpoint}.`);
+    }
+}
+
 async function isEndpointPortOpen(endpoint) {
     if (!isLoopbackEndpoint(endpoint)) return false;
     let parsed;
@@ -1244,6 +1265,80 @@ function writeEvent(res, name, payload) {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function openSnapshotStream(req, res, state) {
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+    });
+    state.eventClients.add(res);
+    writeEvent(res, "snapshot", stateSnapshot(state));
+    req.on("close", () => {
+        state.eventClients.delete(res);
+    });
+}
+
+function broadcastSnapshot(state) {
+    for (const client of state.eventClients) {
+        try {
+            writeEvent(client, "snapshot", stateSnapshot(state));
+        } catch {
+            state.eventClients.delete(client);
+        }
+    }
+}
+
+function pendingResponse() {
+    return {
+        ok: false,
+        status: "waiting",
+        durationMs: 0,
+        body: { output_text: "" },
+        streaming: true,
+        delivery: {
+            mode: "pending",
+            upstreamStreaming: false,
+            active: true,
+        },
+    };
+}
+
+function responseTurn(state, input, { stream = false } = {}) {
+    return {
+        input,
+        createdAt: new Date().toISOString(),
+        target: state.target,
+        request: { endpoint: activeEndpoint(state), path: "/responses", body: { input, ...(stream ? { stream: true } : {}) } },
+        response: pendingResponse(),
+    };
+}
+
+function completedResponseResult(state, turn) {
+    const pending = Boolean(responsePendingLabel(turn.response));
+    return {
+        turn,
+        pending,
+        final: !pending,
+        displayText: responseDisplayText(turn.response),
+        copyableText: copyableAnswerText(turn.response),
+        transcript: transcriptState(state),
+        state: stateSnapshot(state),
+    };
+}
+
+async function completeResponseTurn(state, turn, activityId = null) {
+    turn.response = await callAgent(activeEndpoint(state), "/responses", { input: turn.input });
+    const displayText = responseDisplayText(turn.response);
+    updateActivity(state, activityId, {
+        status: turn.response.ok ? "completed" : "failed",
+        summary: turn.response.ok
+            ? `Response completed (${turn.response.status}).`
+            : `Response failed (${turn.response.status || "error"}).`,
+        details: { displayText, status: turn.response.status, durationMs: turn.response.durationMs },
+    });
+    return completedResponseResult(state, turn);
+}
+
 async function handleRequest(req, res, state) {
     try {
         const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -1286,6 +1381,10 @@ async function handleRequest(req, res, state) {
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
+        if (req.method === "GET" && url.pathname === "/api/events") {
+            openSnapshotStream(req, res, state);
+            return;
+        }
         if (req.method === "POST" && url.pathname === "/api/endpoint") {
             const body = await readBody(req);
             if (body.target === "hosted" || state.target === "hosted") {
@@ -1295,6 +1394,13 @@ async function handleRequest(req, res, state) {
             } else {
                 setLocalEndpoint(state, body.endpoint);
             }
+            addActivity(state, {
+                actor: "You",
+                kind: "set_endpoint",
+                status: "completed",
+                summary: `Endpoint set to ${activeEndpoint(state) || "not configured"}.`,
+                details: { target: state.target, endpoint: activeEndpoint(state) },
+            });
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1349,6 +1455,13 @@ async function handleRequest(req, res, state) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/health") {
+            const activity = addActivity(state, {
+                actor: "You",
+                kind: "health_check",
+                status: "running",
+                summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
+                details: { target: state.target, endpoint: activeEndpoint(state) },
+            });
             state.lastHealth = {
                 ...(await checkReadiness(activeEndpoint(state), {
                     expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
@@ -1357,7 +1470,13 @@ async function handleRequest(req, res, state) {
             };
             if (state.target === "local") {
                 reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "manual" });
+                reconcileLocalReadinessAfterHealth(state);
             }
+            updateActivity(state, activity.id, {
+                status: state.lastHealth.ok ? "completed" : "failed",
+                summary: `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
+                details: { health: state.lastHealth },
+            });
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1414,14 +1533,16 @@ async function handleRequest(req, res, state) {
                 sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending a prompt." });
                 return;
             }
-            const turn = {
-                input,
-                createdAt: new Date().toISOString(),
-                target: state.target,
-                request: { endpoint: activeEndpoint(state), path: "/responses", body: { input } },
-                response: await callAgent(activeEndpoint(state), "/responses", { input }),
-            };
+            const activity = addActivity(state, {
+                actor: "You",
+                kind: "send_response",
+                status: "running",
+                summary: "Prompt sent to the agent.",
+                details: { input, target: state.target, endpoint: activeEndpoint(state) },
+            });
+            const turn = responseTurn(state, input);
             state.messages.push(turn);
+            await completeResponseTurn(state, turn, activity.id);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1441,24 +1562,15 @@ async function handleRequest(req, res, state) {
                 "Cache-Control": "no-store",
                 Connection: "keep-alive",
             });
-            const turn = {
-                input,
-                createdAt: new Date().toISOString(),
-                target: state.target,
-                request: { endpoint: activeEndpoint(state), path: "/responses", body: { input, stream: true } },
-                response: {
-                    ok: false,
-                    status: "waiting",
-                    durationMs: 0,
-                    body: { output_text: "" },
-                    streaming: true,
-                    delivery: {
-                        mode: "pending-stream",
-                        upstreamStreaming: false,
-                        active: true,
-                    },
-                },
-            };
+            const activity = addActivity(state, {
+                actor: "You",
+                kind: "send_response",
+                status: "running",
+                summary: "Prompt sent to the agent.",
+                details: { input, target: state.target, endpoint: activeEndpoint(state), stream: true },
+            });
+            const turn = responseTurn(state, input, { stream: true });
+            turn.response.delivery.mode = "pending-stream";
             state.messages.push(turn);
             writeEvent(res, "snapshot", stateSnapshot(state));
             const result = await callAgentStream(activeEndpoint(state), { input }, (_delta, outputText, durationMs) => {
@@ -1477,12 +1589,24 @@ async function handleRequest(req, res, state) {
                 writeEvent(res, "snapshot", stateSnapshot(state));
             });
             turn.response = result;
+            updateActivity(state, activity.id, {
+                status: result.ok ? "completed" : "failed",
+                summary: result.ok ? `Response completed (${result.status}).` : `Response failed (${result.status || "error"}).`,
+                details: { displayText: responseDisplayText(result), status: result.status, durationMs: result.durationMs },
+            });
             writeEvent(res, "snapshot", stateSnapshot(state));
             res.end();
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/clear") {
             clearMessagesForTarget(state, state.target);
+            addActivity(state, {
+                actor: "You",
+                kind: "clear_transcript",
+                status: "completed",
+                summary: `Cleared ${state.target} transcript.`,
+                details: { target: state.target },
+            });
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
@@ -1554,6 +1678,7 @@ async function startServer(ctx) {
         },
         messages: [],
         lastHealth: null,
+        eventClients: new Set(),
     };
     await hydrateFoundryConnection(state);
     const server = createServer((req, res) => {
@@ -1610,6 +1735,39 @@ await joinSession({
                         } else {
                             setLocalEndpoint(state, ctx.input?.endpoint);
                         }
+                        addActivity(state, {
+                            actor: "Copilot",
+                            kind: "set_endpoint",
+                            status: "completed",
+                            summary: `Endpoint set to ${activeEndpoint(state) || "not configured"}.`,
+                            details: { target: state.target, endpoint: activeEndpoint(state) },
+                        });
+                        broadcastSnapshot(state);
+                        return stateSnapshot(state);
+                    },
+                },
+                {
+                    name: "set_target",
+                    description: "Switch the playground target between local and hosted Foundry chat.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            target: { type: "string", enum: ["local", "hosted"] },
+                        },
+                        required: ["target"],
+                        additionalProperties: false,
+                    },
+                    handler: async (ctx) => {
+                        const state = instanceState(ctx);
+                        state.target = ctx.input.target;
+                        addActivity(state, {
+                            actor: "Copilot",
+                            kind: "set_target",
+                            status: "completed",
+                            summary: `Switched to ${state.target} target.`,
+                            details: { target: state.target, endpoint: activeEndpoint(state) },
+                        });
+                        broadcastSnapshot(state);
                         return stateSnapshot(state);
                     },
                 },
@@ -1618,10 +1776,34 @@ await joinSession({
                     description: "Call GET /readiness on the configured agent endpoint.",
                     handler: async (ctx) => {
                         const state = instanceState(ctx);
-                        state.lastHealth = await checkReadiness(activeEndpoint(state), {
-                            expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+                        const activity = addActivity(state, {
+                            actor: "Copilot",
+                            kind: "health_check",
+                            status: "running",
+                            summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
+                            details: { target: state.target, endpoint: activeEndpoint(state) },
                         });
-                        return state.lastHealth;
+                        state.lastHealth = {
+                            ...(await checkReadiness(activeEndpoint(state), {
+                                expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+                            })),
+                            source: "copilot",
+                        };
+                        if (state.target === "local") {
+                            reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "copilot" });
+                            reconcileLocalReadinessAfterHealth(state);
+                        }
+                        updateActivity(state, activity.id, {
+                            status: state.lastHealth.ok ? "completed" : "failed",
+                            summary: `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
+                            details: { health: state.lastHealth },
+                        });
+                        broadcastSnapshot(state);
+                        return {
+                            readiness: state.lastHealth,
+                            transcript: transcriptState(state),
+                            state: stateSnapshot(state),
+                        };
                     },
                 },
                 {
@@ -1629,7 +1811,21 @@ await joinSession({
                     description: "Send a prompt to POST /responses and append the result to the transcript.",
                     inputSchema: {
                         type: "object",
-                        properties: { input: { type: "string" } },
+                        properties: {
+                            input: { type: "string" },
+                            waitForFinal: {
+                                type: "boolean",
+                                description: "When false, append a visible pending turn and return immediately while completion continues in the background.",
+                            },
+                            appendVisible: {
+                                type: "boolean",
+                                description: "Append the prompt and answer to the visible transcript. Defaults to true.",
+                            },
+                            expectAgent: {
+                                type: "string",
+                                description: "Optional expected selected agent id or display/service name for diagnostics.",
+                            },
+                        },
                         required: ["input"],
                         additionalProperties: false,
                     },
@@ -1639,15 +1835,65 @@ await joinSession({
                         if (!input) {
                             throw new CanvasError("input_required", "Input is required.");
                         }
-                        const turn = {
-                            input,
-                            createdAt: new Date().toISOString(),
-                            target: state.target,
-                            request: { endpoint: activeEndpoint(state), path: "/responses", body: { input } },
-                            response: await callAgent(activeEndpoint(state), "/responses", { input }),
-                        };
-                        state.messages.push(turn);
-                        return turn;
+                        if (ctx.input?.appendVisible === false && ctx.input?.waitForFinal === false) {
+                            throw new CanvasError("unsupported_options", "appendVisible=false cannot be combined with waitForFinal=false.");
+                        }
+                        if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                            throw new CanvasError("not_ready", "Start the local agent and wait for readiness before sending a prompt.");
+                        }
+                        const expected = String(ctx.input?.expectAgent || "").trim();
+                        const agent = selectedAgent(state);
+                        if (expected && ![agent.id, agent.serviceName, agent.displayName].includes(expected)) {
+                            addActivity(state, {
+                                actor: "Copilot",
+                                kind: "send_response",
+                                status: "warn",
+                                summary: `Expected ${expected}, selected ${agent.displayName || agent.serviceName}.`,
+                                details: { expected, selectedAgent: agent },
+                            });
+                        }
+                        const activity = addActivity(state, {
+                            actor: "Copilot",
+                            kind: "send_response",
+                            status: "running",
+                            summary: "Prompt sent to the agent.",
+                            details: { input, target: state.target, endpoint: activeEndpoint(state) },
+                        });
+                        const turn = responseTurn(state, input);
+                        if (ctx.input?.appendVisible !== false) {
+                            state.messages.push(turn);
+                        }
+                        broadcastSnapshot(state);
+                        if (ctx.input?.waitForFinal === false) {
+                            void completeResponseTurn(state, turn, activity.id).catch((error) => {
+                                turn.response = {
+                                    ok: false,
+                                    status: 0,
+                                    durationMs: 0,
+                                    body: error instanceof Error ? error.message : String(error),
+                                    delivery: { mode: "error", upstreamStreaming: false, active: false },
+                                };
+                                updateActivity(state, activity.id, {
+                                    status: "failed",
+                                    summary: "Response failed.",
+                                    details: { error: turn.response.body },
+                                });
+                            }).finally(() => {
+                                broadcastSnapshot(state);
+                            });
+                            return completedResponseResult(state, turn);
+                        }
+                        const result = await completeResponseTurn(state, turn, activity.id);
+                        broadcastSnapshot(state);
+                        return result;
+                    },
+                },
+                {
+                    name: "get_transcript_state",
+                    description: "Return the visible transcript, latest copy target, pending label, and health banner state.",
+                    handler: async (ctx) => {
+                        const state = instanceState(ctx);
+                        return transcriptState(state);
                     },
                 },
                 {
@@ -1656,6 +1902,14 @@ await joinSession({
                     handler: async (ctx) => {
                         const state = instanceState(ctx);
                         clearMessagesForTarget(state, state.target);
+                        addActivity(state, {
+                            actor: "Copilot",
+                            kind: "clear_transcript",
+                            status: "completed",
+                            summary: `Cleared ${state.target} transcript.`,
+                            details: { target: state.target },
+                        });
+                        broadcastSnapshot(state);
                         return stateSnapshot(state);
                     },
                 },
