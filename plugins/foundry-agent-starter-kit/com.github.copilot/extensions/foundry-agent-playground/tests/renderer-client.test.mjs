@@ -44,8 +44,8 @@ test("header guidance and diagnostics use compact hoverable details", () => {
     assert.match(rendererStyles, /\.local-ticker\[data-detail\]::after/);
     assert.match(rendererClientScript, /function renderActionStateChip/);
     assert.match(rendererClientScript, /setAttribute\("data-detail"/);
-    assert.match(rendererStyles, /\.a365-gate-icon\s*{[^}]*background:\s*color-mix\(in srgb, #5993f7 8%, transparent\);/);
     assert.match(rendererStyles, /\.a365-logo\s*{[^}]*opacity:\s*0\.88;/);
+    assert.doesNotMatch(rendererStyles, /\.a365-logo\s*{[^}]*width:\s*32px;/);
 });
 
 test("composer gate enables local chat when readiness is ok", () => {
