@@ -113,7 +113,7 @@ export function renderHtml() {
           </summary>
           <div id="activityItems" class="activity-items"></div>
         </details>
-        <div id="transcript" class="transcript">
+        <div id="transcript" class="transcript empty-state">
           <div class="empty">Send a prompt to test <code>POST /responses</code>.</div>
         </div>
         <button id="copyLatestAnswer" class="transcript-copy-latest" type="button" aria-label="Copy latest answer" hidden disabled>Copy latest answer</button>

@@ -542,10 +542,6 @@ export const rendererStyles = `
       background: var(--cp-panel);
       overflow: hidden;
     }
-    .panel:has(.transcript.empty-state) {
-      grid-template-rows: auto auto auto auto;
-      align-content: start;
-    }
     .panel-header {
       display: flex;
       align-items: center;
@@ -726,14 +722,15 @@ export const rendererStyles = `
       padding: 4px 0 42px;
     }
     .transcript.empty-state {
-      height: auto;
-      overflow: visible;
+      display: grid;
+      height: 100%;
+      overflow: auto;
       padding: 2px 0 8px;
     }
     .empty {
       display: grid;
       place-items: center;
-      min-height: 44px;
+      min-height: 100%;
       border-radius: 12px;
       color: var(--cp-text-muted);
       text-align: center;

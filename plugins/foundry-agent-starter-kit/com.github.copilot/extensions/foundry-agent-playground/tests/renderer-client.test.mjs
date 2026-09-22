@@ -21,6 +21,14 @@ test("renderer styles bind to Copilot canvas dark-mode theme attributes", () => 
     assert.match(rendererStyles, /--border-color-default/);
 });
 
+test("empty transcript state fills the available transcript space", () => {
+    assert.doesNotMatch(rendererStyles, /\.panel:has\(\.transcript\.empty-state\)/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*display:\s*grid;/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*height:\s*100%;/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*overflow:\s*auto;/);
+    assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
+});
+
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {
         target: "local",
