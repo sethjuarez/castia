@@ -228,14 +228,15 @@ test("setSelectedAgent keeps local endpoints keyed by agent id", () => {
     assert.equal(state.localEndpoints[agent.id], "http://127.0.0.1:8095");
 });
 
-test("selectedLocalEndpoint prefers the selected agent running local run endpoint", () => {
+test("selectedLocalEndpoint prefers the selected agent local run endpoint", () => {
     const state = {
         agents: [agent],
         selectedAgentId: agent.id,
         localEndpoints: { [agent.id]: "http://127.0.0.1:8095" },
         localRun: {
             ...emptyLocalRun(),
-            running: true,
+            running: false,
+            exitCode: 1,
             agentId: agent.id,
             endpoint: "http://127.0.0.1:8096",
         },

@@ -580,6 +580,7 @@ async function localStartCommand(agent) {
         const pythonPath = await discoverPythonPath(agent.root);
         if (!(await exists(localVenv)) && !(await exists(workspaceVenv)) && pythonPath) {
             const packageRoot = dirname(pythonPath);
+            const extras = ["deploy", "optimize", "test", ...(await localSdkExtrasForAgent(agent))];
             return {
                 command: "uv",
                 args: [
@@ -588,12 +589,7 @@ async function localStartCommand(agent) {
                     packageRoot,
                     "--with-editable",
                     packageRoot,
-                    "--extra",
-                    "deploy",
-                    "--extra",
-                    "optimize",
-                    "--extra",
-                    "test",
+                    ...extras.flatMap((extra) => ["--extra", extra]),
                     "python",
                     "main.py",
                 ],
@@ -610,6 +606,22 @@ async function localStartCommand(agent) {
         };
     }
     return null;
+}
+
+async function localSdkExtrasForAgent(agent) {
+    const extras = new Set();
+    const pyproject = join(agent.root, "pyproject.toml");
+    if (await exists(pyproject)) {
+        const text = await readFile(pyproject, "utf8");
+        const dependencyExtras = text.matchAll(/castia\[([^\]]+)\]/g);
+        for (const match of dependencyExtras) {
+            for (const extra of match[1].split(",")) {
+                const normalized = extra.trim();
+                if (normalized) extras.add(normalized);
+            }
+        }
+    }
+    return [...extras].filter((extra) => !["deploy", "optimize", "test"].includes(extra)).sort();
 }
 
 async function discoverPythonPath(start) {
@@ -948,6 +960,9 @@ function setLocalEndpoint(state, endpoint) {
     const normalized = normalizeEndpoint(endpoint);
     const current = selectedLocalEndpoint(state);
     state.localEndpoints[state.selectedAgentId] = normalized;
+    if (!state.localRun?.running && state.localRun?.agentId === selectedAgent(state).id) {
+        state.localRun = emptyLocalRun();
+    }
     setTarget(state, "local");
     clearProjectEndpointPrompt(state);
     if (normalized !== current) {

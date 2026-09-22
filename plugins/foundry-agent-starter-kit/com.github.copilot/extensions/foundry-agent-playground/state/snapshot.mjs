@@ -38,7 +38,7 @@ export function selectedAgent(state) {
 
 export function selectedLocalEndpoint(state) {
     const agent = selectedAgent(state);
-    if (state.localRun?.running && state.localRun.agentId === agent.id && state.localRun.endpoint) {
+    if (state.localRun?.agentId === agent.id && state.localRun.endpoint) {
         return state.localRun.endpoint;
     }
     return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
