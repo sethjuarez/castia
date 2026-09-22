@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
@@ -50,6 +50,7 @@ import {
     configureRuntimeStore,
     persistStateSnapshot,
 } from "./state/persistence.mjs";
+import { localStartupStillPending } from "./state/local-readiness.mjs";
 import { discoverAgents, serviceEnvPrefix } from "./client/agent-discovery.mjs";
 import {
     discoverHostedContextFromFoundry,
@@ -71,7 +72,7 @@ function cleanupManagedLocalRuns() {
     for (const entry of servers.values()) {
         const child = entry.state?.localRun?.process;
         if (child && !child.killed) {
-            child.kill();
+            killLocalProcessTreeSync(child.pid);
         }
     }
 }
@@ -646,6 +647,7 @@ async function startLocalAgent(state) {
     let endpoint = state.localEndpoints[agent.id] || selectedLocalEndpoint(state);
     const requestedEndpoint = endpoint;
     let portWarning = null;
+    await cleanupStaleWorkspaceLocalPorts(state, endpoint);
     if (await isEndpointPortOpen(endpoint)) {
         portWarning = `${endpoint} is already in use.`;
         addLocalEvent(state, "warn", portWarning);
@@ -754,6 +756,7 @@ async function startLocalAgent(state) {
 
 function reconcileLocalReadinessAfterHealth(state) {
     if (state.target !== "local" || !state.localRun?.running || !state.lastHealth) return;
+    if (localStartupStillPending(state, state.lastHealth)) return;
     const previousStatus = state.localRun.readiness?.status;
     state.localRun.readiness = {
         ...(state.localRun.readiness || {}),
@@ -801,6 +804,24 @@ async function nextAvailableLocalEndpoint(endpoint) {
     throw new CanvasError("local_port_unavailable", `No free local port was found after ${basePort}.`);
 }
 
+async function cleanupStaleWorkspaceLocalPorts(state, endpoint) {
+    if (!isLoopbackEndpoint(endpoint)) return;
+    const basePort = endpointPort(endpoint) || 8088;
+    const cleaned = [];
+    for (let port = basePort; port < basePort + 100; port += 1) {
+        const candidate = endpointWithPort(endpoint, port);
+        if (!(await isEndpointPortOpen(candidate))) continue;
+        const killed = await killLoopbackPortOwner(candidate, { workspaceRoot: process.cwd() });
+        if (!killed) continue;
+        if (await waitForEndpointPortClosed(candidate, 2000)) {
+            cleaned.push(candidate);
+        }
+    }
+    if (cleaned.length) {
+        addLocalEvent(state, "", `Cleaned up stale local agent listener${cleaned.length === 1 ? "" : "s"}: ${cleaned.join(", ")}.`);
+    }
+}
+
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -832,9 +853,22 @@ async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
 async function stopLocalAgent(state) {
     const child = state.localRun?.process;
     const pid = child?.pid;
+    const endpoint = state.localRun?.endpoint;
     if (child && !child.killed) {
         await killLocalProcessTree(pid);
         await waitForProcessClose(child, 3000);
+    }
+    const events = [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }];
+    let released = await waitForEndpointPortClosed(endpoint, child ? 5000 : 250);
+    if (endpoint && !released) {
+        const killedByPort = await killLoopbackPortOwner(endpoint);
+        if (killedByPort) {
+            events.push({ kind: "", text: `Cleaned up stale local process on ${endpoint}.`, at: new Date().toISOString() });
+            released = await waitForEndpointPortClosed(endpoint, 5000);
+        }
+    }
+    if (endpoint && !released) {
+        events.push({ kind: "warn", text: `${endpoint} is still in use after stopping local agent.`, at: new Date().toISOString() });
     }
     state.localRun = {
         ...state.localRun,
@@ -842,7 +876,7 @@ async function stopLocalAgent(state) {
         completedAt: new Date().toISOString(),
         exitCode: state.localRun?.exitCode ?? null,
         log: [...(state.localRun?.log || []), "$ stopped local agent\n"],
-        events: [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }].slice(-5),
+        events: events.slice(-5),
         process: null,
         runId: null,
         readiness: state.localRun?.readiness?.status === "starting"
@@ -891,6 +925,45 @@ $ids | Sort-Object -Descending -Unique | ForEach-Object {
     ]);
 }
 
+function killLocalProcessTreeSync(pid) {
+    if (!pid) return;
+    if (process.platform !== "win32") {
+        try {
+            process.kill(pid, "SIGTERM");
+        } catch {
+            // The local runner already exited.
+        }
+        return;
+    }
+    const pidValue = Number.isInteger(pid) ? pid : 0;
+    const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$ids = New-Object System.Collections.Generic.List[int]
+if (${pidValue} -gt 0) {
+  $queue = New-Object System.Collections.Generic.Queue[int]
+  $queue.Enqueue(${pidValue})
+  while ($queue.Count -gt 0) {
+    $current = $queue.Dequeue()
+    if (-not $ids.Contains($current)) { $ids.Add($current) }
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $current" | ForEach-Object {
+      $queue.Enqueue([int]$_.ProcessId)
+    }
+  }
+}
+$ids | Sort-Object -Descending -Unique | ForEach-Object {
+  Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+}
+`;
+    spawnSync("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ], { stdio: "ignore" });
+}
+
 async function waitForProcessClose(child, timeoutMs) {
     if (!child || child.killed || child.exitCode !== null || child.signalCode) return;
     await new Promise((resolve) => {
@@ -899,6 +972,66 @@ async function waitForProcessClose(child, timeoutMs) {
             clearTimeout(timeout);
             resolve();
         });
+    });
+}
+
+async function waitForEndpointPortClosed(endpoint, timeoutMs) {
+    if (!endpoint || !isLoopbackEndpoint(endpoint)) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!(await isEndpointPortOpen(endpoint))) return true;
+        await sleep(100);
+    }
+    return !(await isEndpointPortOpen(endpoint));
+}
+
+function powershellString(value) {
+    return `'${String(value || "").replace(/'/g, "''")}'`;
+}
+
+async function killLoopbackPortOwner(endpoint, { workspaceRoot = null } = {}) {
+    if (!endpoint || !isLoopbackEndpoint(endpoint) || process.platform !== "win32") return false;
+    const port = endpointPort(endpoint);
+    if (!port) return false;
+    const workspaceFilter = workspaceRoot
+        ? `
+$workspaceRoot = ${powershellString(resolve(workspaceRoot))}
+$owners = $owners | Where-Object {
+  $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $_"
+  $proc -and (($proc.ExecutablePath -like "*$workspaceRoot*") -or ($proc.CommandLine -like "*$workspaceRoot*"))
+}
+`
+        : "";
+    const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$owners = Get-NetTCPConnection -LocalPort ${port} -State Listen |
+  Where-Object { @('127.0.0.1','0.0.0.0','::','::1') -contains $_.LocalAddress } |
+  Select-Object -ExpandProperty OwningProcess -Unique
+${workspaceFilter}
+$owners | Where-Object { $_ -and $_ -ne $PID } | ForEach-Object {
+  Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+  $_
+}
+`;
+    const result = await runPowerShell(script);
+    return result.code === 0 && result.output.trim().length > 0;
+}
+
+function runPowerShell(script) {
+    return new Promise((resolve) => {
+        const child = spawn("powershell.exe", [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ], { shell: false });
+        const output = [];
+        child.stdout.on("data", (chunk) => output.push(chunk.toString()));
+        child.stderr.on("data", (chunk) => output.push(chunk.toString()));
+        child.on("error", (error) => resolve({ code: 1, output: `${error.name}: ${error.message}\n` }));
+        child.on("close", (code) => resolve({ code: code ?? 0, output: output.join("") }));
     });
 }
 
@@ -1489,6 +1622,7 @@ async function startServer(ctx, copilotSession) {
         readinessAgentNames,
         reconcileSelectedAgentFromReadiness,
         reconcileLocalReadinessAfterHealth,
+        localStartupStillPending,
         commandStartLocal,
         stopLocalAgent,
         responseTurn,
@@ -1545,6 +1679,7 @@ copilotSession = await joinSession({
                 readinessAgentNames,
                 reconcileSelectedAgentFromReadiness,
                 reconcileLocalReadinessAfterHealth,
+                localStartupStillPending,
                 responseTurn,
                 completeResponseTurn,
                 completedResponseResult,

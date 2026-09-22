@@ -40,6 +40,7 @@ export function createRequestHandler({
     readinessAgentNames,
     reconcileSelectedAgentFromReadiness,
     reconcileLocalReadinessAfterHealth,
+    localStartupStillPending,
     commandStartLocal,
     stopLocalAgent,
     responseTurn,
@@ -179,20 +180,26 @@ export function createRequestHandler({
                     summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
                     details: { target: state.target, endpoint: activeEndpoint(state) },
                 });
-                state.lastHealth = setTargetHealth(state, {
+                const health = {
                     ...(await checkReadiness(activeEndpoint(state), {
                         expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
                     })),
                     source: "manual",
-                });
-                if (state.target === "local") {
+                };
+                const stillStarting = localStartupStillPending(state, health);
+                if (!stillStarting) {
+                    state.lastHealth = setTargetHealth(state, health);
+                }
+                if (state.target === "local" && !stillStarting) {
                     reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "manual" });
                     reconcileLocalReadinessAfterHealth(state);
                 }
                 updateActivity(state, activity.id, {
-                    status: state.lastHealth.ok ? "completed" : "failed",
-                    summary: `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
-                    details: { health: state.lastHealth },
+                    status: stillStarting ? "running" : state.lastHealth.ok ? "completed" : "failed",
+                    summary: stillStarting
+                        ? `Local agent is still starting; readiness ${health.status} in ${health.durationMs}ms.`
+                        : `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
+                    details: { health, stillStarting },
                 });
                 sendJson(res, 200, snapshotState(state));
                 return;
