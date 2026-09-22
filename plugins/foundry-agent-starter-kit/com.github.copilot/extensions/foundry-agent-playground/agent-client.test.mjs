@@ -80,6 +80,13 @@ test("checkReadiness treats hosted Responses endpoints as ready without probing 
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "hosted");
+    assert.deepEqual(result.readinessStatus, { status: "hosted", reachable: true, ready: true });
+    assert.deepEqual(result.protocolSupport, {
+        status: "supported",
+        required: ["responses"],
+        protocols: ["responses"],
+        missing: [],
+    });
 });
 
 test("parseReadinessResponse treats Castia JSON status ok as ready", () => {
@@ -110,10 +117,17 @@ test("checkReadiness rejects endpoints owned by a different selected agent", asy
 
         assert.equal(result.ok, false);
         assert.equal(result.body, "Endpoint belongs to contract-expert; selected contract-policy-expert.");
+        assert.deepEqual(result.readinessStatus, { status: "ok", reachable: true, ready: false });
         assert.deepEqual(result.identity, {
             expected: "contract-policy-expert",
             actual: "contract-expert",
             status: "mismatch",
+        });
+        assert.deepEqual(result.protocolSupport, {
+            status: "supported",
+            required: ["responses"],
+            protocols: ["responses"],
+            missing: [],
         });
     } finally {
         globalThis.fetch = previousFetch;
@@ -155,6 +169,7 @@ test("checkReadiness accepts structured readiness for the selected agent", async
 
         assert.equal(result.ok, true);
         assert.equal(calls[0].headers["X-Castia-Readiness"], "diagnostics");
+        assert.deepEqual(result.readinessStatus, { status: "ok", reachable: true, ready: true });
         assert.deepEqual(result.identity, {
             expected: "contract-policy-expert",
             actual: "contract-policy-expert",
@@ -245,6 +260,71 @@ test("checkReadiness accepts normalized selected agent names", async () => {
             expected: "Contract Policy Expert",
             actual: "contract_policy_expert",
             status: "match",
+        });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness reports missing required configuration separately from reachability", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        status: "configuration_missing",
+        agent: { name: "contract-policy-expert" },
+        protocols: ["responses"],
+        configuration: { missing_required: ["FOUNDRY_PROJECT_ENDPOINT"] },
+    }), { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8096", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, false);
+        assert.deepEqual(result.readinessStatus, { status: "configuration_missing", reachable: true, ready: false });
+        assert.deepEqual(result.identity, {
+            expected: "contract-policy-expert",
+            actual: "contract-policy-expert",
+            status: "match",
+        });
+        assert.deepEqual(result.configurationStatus, {
+            status: "missing",
+            missingRequired: ["FOUNDRY_PROJECT_ENDPOINT"],
+        });
+        assert.deepEqual(result.protocolSupport, {
+            status: "supported",
+            required: ["responses"],
+            protocols: ["responses"],
+            missing: [],
+        });
+    } finally {
+        globalThis.fetch = previousFetch;
+    }
+});
+
+test("checkReadiness reports reachable endpoints missing required protocol support", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        status: "ok",
+        agent: { name: "contract-policy-expert" },
+        protocols: ["invocations"],
+        configuration: { missing_required: [] },
+    }), { status: 200 });
+    try {
+        const result = await checkReadiness("http://127.0.0.1:8096", {
+            expectedAgentName: "contract-policy-expert",
+        });
+
+        assert.equal(result.ok, false);
+        assert.deepEqual(result.readinessStatus, { status: "ok", reachable: true, ready: false });
+        assert.deepEqual(result.protocolSupport, {
+            status: "missing",
+            required: ["responses"],
+            protocols: ["invocations"],
+            missing: ["responses"],
+        });
+        assert.deepEqual(result.configurationStatus, {
+            status: "configured",
+            missingRequired: [],
         });
     } finally {
         globalThis.fetch = previousFetch;

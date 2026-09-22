@@ -9,6 +9,24 @@ export function localReadinessState(state) {
         return { ready: false, reason: "Local agent is running; waiting for readiness." };
     }
     if (state?.lastHealth && !state.lastHealth.ok) {
+        if (state.lastHealth.identity?.status === "mismatch") {
+            return { ready: false, reason: "Selected agent does not match endpoint: " + String(state.lastHealth.body || "identity mismatch").slice(0, 160) };
+        }
+        if (state.lastHealth.identity?.status === "unknown") {
+            return { ready: false, reason: "Endpoint identity is unknown for the selected agent." };
+        }
+        if (state.lastHealth.configurationStatus?.status === "missing") {
+            return {
+                ready: false,
+                reason: "Missing required configuration: " + state.lastHealth.configurationStatus.missingRequired.join(", "),
+            };
+        }
+        if (state.lastHealth.protocolSupport?.status === "missing") {
+            return {
+                ready: false,
+                reason: "Missing required protocol support: " + state.lastHealth.protocolSupport.missing.join(", "),
+            };
+        }
         const status = state.lastHealth.status ? " (" + state.lastHealth.status + ")" : "";
         const detail = state.lastHealth.body ? ": " + String(state.lastHealth.body).slice(0, 160) : "";
         return { ready: false, reason: "Readiness check failed" + status + detail };
@@ -28,6 +46,10 @@ export function isStartupReadinessPending(state) {
         state.localRun.readiness?.status === "starting" &&
         state?.lastHealth?.source !== "manual",
     );
+}
+
+export function shouldOpenProjectEndpointDialog(state) {
+    return Boolean(state?.projectEndpointPrompt?.open);
 }
 
 export function responseDetailsKey(turn, index = 0) {
@@ -180,6 +202,7 @@ export const rendererClientScript = `
     const responseDetailsKey = ${responseDetailsKey.toString()};
     const responseDetailsPanelId = ${responseDetailsPanelId.toString()};
     const composerGate = ${composerGate.toString()};
+    const shouldOpenProjectEndpointDialog = ${shouldOpenProjectEndpointDialog.toString()};
     const responseText = ${responseText.toString()};
     const responseDisplayState = ${responseDisplayState.toString()};
     const latestVisibleAnswerText = ${latestVisibleAnswerText.toString()};
@@ -305,6 +328,11 @@ export const rendererClientScript = `
       renderDeployTicker(state);
       renderJourney(state);
       renderView();
+      if (shouldOpenProjectEndpointDialog(state) && projectEndpointDialog.hidden) {
+        showProjectEndpointDialog();
+      } else if (!shouldOpenProjectEndpointDialog(state) && !projectEndpointDialog.hidden) {
+        hideProjectEndpointDialog();
+      }
     }
 
     function renderLocalEndpointBanner(state) {
@@ -1208,6 +1236,7 @@ export const rendererClientScript = `
 
     projectEndpointCancel.addEventListener("click", () => {
       hideProjectEndpointDialog();
+      request("/api/project-endpoint-prompt/clear", { method: "POST" }).catch(() => {});
       setStatus("fail", "Foundry project endpoint is required before starting local.");
     });
 

@@ -168,7 +168,8 @@ export function switchSelectedAgent(state, agentId, { stopLocalRun } = {}) {
         }
         state.localRun = emptyLocalRun();
         state.lastHealth = null;
-        clearMessagesForTarget(state, "local");
+        state.messages.length = 0;
+        state.projectEndpointPrompt = null;
     }
     return agent;
 }
@@ -295,7 +296,10 @@ export function transcriptState(state) {
             ok: state.lastHealth?.ok ?? null,
             status: state.lastHealth?.status ?? null,
             body: state.lastHealth?.body ?? null,
+            readinessStatus: state.lastHealth?.readinessStatus ?? null,
             identity: state.lastHealth?.identity ?? null,
+            protocolSupport: state.lastHealth?.protocolSupport ?? null,
+            configurationStatus: state.lastHealth?.configurationStatus ?? null,
         },
     };
 }
@@ -327,6 +331,11 @@ export function stateSnapshot(state) {
         visibleMessages,
         transcriptState: transcriptState(state),
         lastHealth: state.lastHealth,
+        readinessStatus: state.lastHealth?.readinessStatus ?? null,
+        identity: state.lastHealth?.identity ?? null,
+        protocolSupport: state.lastHealth?.protocolSupport ?? null,
+        configurationStatus: state.lastHealth?.configurationStatus ?? null,
+        projectEndpointPrompt: state.projectEndpointPrompt || null,
         stats: transcriptStats(visibleMessages),
     };
 }

@@ -124,7 +124,10 @@ test("transcriptState exposes visible prompts, pending label, latest copy target
         ok: true,
         status: 200,
         body: "agent=minimal-agent",
+        readinessStatus: null,
         identity: null,
+        protocolSupport: null,
+        configurationStatus: null,
     });
 });
 
@@ -245,7 +248,7 @@ test("switchSelectedAgent clears local transcript, health, and canvas-owned loca
     assert.equal(state.selectedAgentId, policyAgent.id);
     assert.deepEqual(state.localRun, emptyLocalRun());
     assert.equal(state.lastHealth, null);
-    assert.deepEqual(state.messages.map((message) => message.id), ["hosted-1"]);
+    assert.deepEqual(state.messages, []);
 });
 
 test("switchSelectedAgent stops any running local run before clearing ownership", () => {
@@ -278,5 +281,33 @@ test("switchSelectedAgent stops any running local run before clearing ownership"
     assert.equal(state.selectedAgentId, policyAgent.id);
     assert.deepEqual(state.localRun, emptyLocalRun());
     assert.equal(state.lastHealth, null);
+    assert.deepEqual(state.messages, []);
+});
+
+test("switchSelectedAgent clears all stale readiness, prompt, and target transcript state", () => {
+    const state = {
+        agents: [agent, policyAgent],
+        selectedAgentId: agent.id,
+        localEndpoints: { [agent.id]: "http://127.0.0.1:8095" },
+        hostedByAgent: { [agent.id]: emptyHostedContext(agent) },
+        hosted: emptyHostedContext(agent),
+        localRun: emptyLocalRun(),
+        lastHealth: {
+            ok: false,
+            readinessStatus: { status: "ok", reachable: true, ready: false },
+            identity: { expected: "minimal-agent", actual: "contract-policy-expert", status: "mismatch" },
+        },
+        projectEndpointPrompt: { open: true },
+        messages: [
+            { id: "local-1", target: "local" },
+            { id: "hosted-1", target: "hosted" },
+        ],
+    };
+
+    switchSelectedAgent(state, policyAgent.id);
+
+    assert.equal(state.selectedAgentId, policyAgent.id);
+    assert.equal(state.lastHealth, null);
+    assert.equal(state.projectEndpointPrompt, null);
     assert.deepEqual(state.messages, []);
 });

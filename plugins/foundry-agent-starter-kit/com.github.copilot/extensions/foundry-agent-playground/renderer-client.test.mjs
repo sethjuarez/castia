@@ -9,6 +9,7 @@ import {
     responseDetailsPanelId,
     responseDisplayState,
     responseText,
+    shouldOpenProjectEndpointDialog,
 } from "./renderer-client.mjs";
 
 test("composer gate enables local chat when readiness is ok", () => {
@@ -37,6 +38,40 @@ test("composer gate reports precise local readiness states", () => {
     assert.equal(
         composerGate({ target: "local", lastHealth: { ok: false, status: 503, body: "warming" } }).disabledReason,
         "Readiness check failed (503): warming",
+    );
+});
+
+test("composer gate reports independent readiness failure dimensions", () => {
+    assert.equal(
+        composerGate({
+            target: "local",
+            lastHealth: {
+                ok: false,
+                body: "Endpoint belongs to contract-expert; selected minimal-agent.",
+                identity: { expected: "minimal-agent", actual: "contract-expert", status: "mismatch" },
+            },
+        }).disabledReason,
+        "Selected agent does not match endpoint: Endpoint belongs to contract-expert; selected minimal-agent.",
+    );
+    assert.equal(
+        composerGate({
+            target: "local",
+            lastHealth: {
+                ok: false,
+                configurationStatus: { status: "missing", missingRequired: ["FOUNDRY_PROJECT_ENDPOINT"] },
+            },
+        }).disabledReason,
+        "Missing required configuration: FOUNDRY_PROJECT_ENDPOINT",
+    );
+    assert.equal(
+        composerGate({
+            target: "local",
+            lastHealth: {
+                ok: false,
+                protocolSupport: { status: "missing", missing: ["responses"] },
+            },
+        }).disabledReason,
+        "Missing required protocol support: responses",
     );
 });
 
@@ -217,4 +252,11 @@ test("renderer script defines activity rendering at top level", () => {
 test("renderer subscribes to canvas action state updates", () => {
     assert.match(rendererClientScript, /new EventSource\("\/api\/events"\)/);
     assert.match(rendererClientScript, /addEventListener\("snapshot"/);
+});
+
+test("project endpoint prompt state opens and closes the endpoint dialog", () => {
+    assert.equal(shouldOpenProjectEndpointDialog({ projectEndpointPrompt: { open: true } }), true);
+    assert.equal(shouldOpenProjectEndpointDialog({ projectEndpointPrompt: null }), false);
+    assert.match(rendererClientScript, /shouldOpenProjectEndpointDialog\(state\).*showProjectEndpointDialog/s);
+    assert.match(rendererClientScript, /!shouldOpenProjectEndpointDialog\(state\).*hideProjectEndpointDialog/s);
 });

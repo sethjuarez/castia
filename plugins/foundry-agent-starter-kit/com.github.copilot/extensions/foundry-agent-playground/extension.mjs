@@ -890,6 +890,21 @@ function readinessAgentNames(agent) {
     return [agent.serviceName, agent.displayName].filter(Boolean);
 }
 
+function setProjectEndpointPrompt(state, reason = "missing_configuration") {
+    state.projectEndpointPrompt = {
+        open: true,
+        reason,
+        selectedAgentId: state.selectedAgentId,
+        requestedAt: new Date().toISOString(),
+        message: "Foundry project endpoint is required before starting local.",
+    };
+    return state.projectEndpointPrompt;
+}
+
+function clearProjectEndpointPrompt(state) {
+    state.projectEndpointPrompt = null;
+}
+
 function normalizedAgentName(name) {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -921,34 +936,14 @@ function reconcileSelectedAgentFromReadiness(state, health, { source = "manual" 
 
     if (matchingAgent.id === selected.id) return;
 
-    const safeToAutoSelect = source === "startup";
-    if (safeToAutoSelect) {
-        const endpoint = state.localRun?.endpoint || selectedLocalEndpoint(state);
-        setSelectedAgent(state, matchingAgent.id);
-        state.target = "local";
-        state.localEndpoints[matchingAgent.id] = endpoint;
-        if (state.localRun) {
-            state.localRun.agentId = matchingAgent.id;
-            state.localRun.agentName = matchingAgent.serviceName;
-            state.localRun.endpoint = endpoint;
-        }
-        state.localRun.identityMismatch = {
-            expected: selected.displayName || selected.serviceName,
-            actual,
-            autoSelected: true,
-            canSwitch: false,
-            message: `Readiness reports ${actual}; selected agent was updated from ${selected.displayName || selected.serviceName}.`,
-        };
-        addLocalEvent(state, "ok", state.localRun.identityMismatch.message);
-    } else {
-        state.localRun.identityMismatch = {
-            expected: selected.displayName || selected.serviceName,
-            actual,
-            agentId: matchingAgent.id,
-            canSwitch: true,
-            message: `Endpoint belongs to ${actual}; selected ${selected.displayName || selected.serviceName}.`,
-        };
-    }
+    state.localRun.identityMismatch = {
+        expected: selected.displayName || selected.serviceName,
+        actual,
+        agentId: matchingAgent.id,
+        canSwitch: true,
+        source,
+        message: `Endpoint belongs to ${actual}; selected ${selected.displayName || selected.serviceName}.`,
+    };
 }
 
 async function selectAgent(state, agentId) {
@@ -965,9 +960,55 @@ function setLocalEndpoint(state, endpoint) {
     const current = selectedLocalEndpoint(state);
     state.localEndpoints[state.selectedAgentId] = normalized;
     state.target = "local";
+    clearProjectEndpointPrompt(state);
     if (normalized !== current) {
         state.lastHealth = null;
     }
+}
+
+async function commandSelectAgent(state, agentId, { actor = "Canvas" } = {}) {
+    const agent = await selectAgent(state, agentId);
+    await refreshHostedContext(state);
+    addActivity(state, {
+        actor,
+        kind: "select_agent",
+        status: "completed",
+        summary: `Selected ${agent.displayName || agent.serviceName}.`,
+        details: { selectedAgent: agent },
+    });
+    return stateSnapshot(state);
+}
+
+async function commandStartLocal(state, { actor = "Canvas" } = {}) {
+    state.target = "local";
+    const sync = await syncLocalBootstrapForStart(state);
+    if (!sync.ok) {
+        const prompt = setProjectEndpointPrompt(state);
+        addActivity(state, {
+            actor,
+            kind: "start_local",
+            status: "blocked",
+            summary: prompt.message,
+            details: { prompt, sync },
+        });
+        return {
+            ok: false,
+            needsProjectEndpoint: true,
+            projectEndpointPrompt: prompt,
+            state: stateSnapshot(state),
+        };
+    }
+    clearProjectEndpointPrompt(state);
+    await startLocalAgent(state);
+    state.target = "local";
+    addActivity(state, {
+        actor,
+        kind: "start_local",
+        status: "running",
+        summary: "Local agent start requested.",
+        details: { endpoint: selectedLocalEndpoint(state), selectedAgent: selectedAgent(state) },
+    });
+    return { ok: true, state: stateSnapshot(state) };
 }
 
 async function refreshHostedContext(state) {
@@ -1406,9 +1447,7 @@ async function handleRequest(req, res, state) {
         }
         if (req.method === "POST" && url.pathname === "/api/agent") {
             const body = await readBody(req);
-            await selectAgent(state, body.agentId);
-            await refreshHostedContext(state);
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, await commandSelectAgent(state, body.agentId, { actor: "You" }));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/foundry/connect") {
@@ -1424,10 +1463,16 @@ async function handleRequest(req, res, state) {
         if (req.method === "POST" && url.pathname === "/api/env/bootstrap") {
             const body = await readBody(req);
             const result = await bootstrapLocalEnv(state, body);
+            clearProjectEndpointPrompt(state);
             if (state.foundryConnection.projectEndpoint) {
                 await refreshHostedContext(state);
             }
             sendJson(res, 200, { result, state: stateSnapshot(state) });
+            return;
+        }
+        if (req.method === "POST" && url.pathname === "/api/project-endpoint-prompt/clear") {
+            clearProjectEndpointPrompt(state);
+            sendJson(res, 200, stateSnapshot(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/target") {
@@ -1497,24 +1542,24 @@ async function handleRequest(req, res, state) {
                 endpoint,
                 identityMismatch: null,
             };
+            state.lastHealth = null;
+            state.messages.length = 0;
             addLocalEvent(state, "ok", `Selected ${selectedAgent(state).displayName || selectedAgent(state).serviceName} from readiness.`);
             sendJson(res, 200, stateSnapshot(state));
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/start") {
-            state.target = "local";
-            const sync = await syncLocalBootstrapForStart(state);
-            if (!sync.ok) {
+            const result = await commandStartLocal(state, { actor: "You" });
+            if (!result.ok) {
                 sendJson(res, 409, {
-                    error: "Foundry project endpoint is required before starting local.",
+                    error: result.projectEndpointPrompt.message,
                     needsProjectEndpoint: true,
-                    state: stateSnapshot(state),
+                    projectEndpointPrompt: result.projectEndpointPrompt,
+                    state: result.state,
                 });
                 return;
             }
-            await startLocalAgent(state);
-            state.target = "local";
-            sendJson(res, 200, stateSnapshot(state));
+            sendJson(res, 200, result.state);
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/local/stop") {
@@ -1678,6 +1723,7 @@ async function startServer(ctx) {
         },
         messages: [],
         lastHealth: null,
+        projectEndpointPrompt: null,
         eventClients: new Set(),
     };
     await hydrateFoundryConnection(state);
@@ -1747,6 +1793,22 @@ await joinSession({
                     },
                 },
                 {
+                    name: "select_agent",
+                    description: "Select a discovered agent and clear stale readiness and transcript state from the previous agent.",
+                    inputSchema: {
+                        type: "object",
+                        properties: { agentId: { type: "string" } },
+                        required: ["agentId"],
+                        additionalProperties: false,
+                    },
+                    handler: async (ctx) => {
+                        const state = instanceState(ctx);
+                        const snapshot = await commandSelectAgent(state, ctx.input?.agentId, { actor: "Copilot" });
+                        broadcastSnapshot(state);
+                        return snapshot;
+                    },
+                },
+                {
                     name: "set_target",
                     description: "Switch the playground target between local and hosted Foundry chat.",
                     inputSchema: {
@@ -1769,6 +1831,16 @@ await joinSession({
                         });
                         broadcastSnapshot(state);
                         return stateSnapshot(state);
+                    },
+                },
+                {
+                    name: "start_local",
+                    description: "Start the selected local agent, or open the in-canvas Foundry project endpoint prompt when configuration is missing.",
+                    handler: async (ctx) => {
+                        const state = instanceState(ctx);
+                        const result = await commandStartLocal(state, { actor: "Copilot" });
+                        broadcastSnapshot(state);
+                        return result;
                     },
                 },
                 {
