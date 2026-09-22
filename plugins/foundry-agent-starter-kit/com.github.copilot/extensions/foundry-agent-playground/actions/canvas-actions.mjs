@@ -21,6 +21,7 @@ export function createCanvasActions({
     commandSelectAgent,
     commandStartLocal,
     commandCancelOperation,
+    commandBootstrapLocalEnv,
     setLocalEndpoint,
     readinessAgentNames,
     reconcileSelectedAgentFromReadiness,
@@ -106,6 +107,59 @@ export function createCanvasActions({
             handler: async (ctx) => {
                 const state = instanceState(ctx);
                 const result = await commandStartLocal(state, { actor: "Copilot" });
+                broadcastSnapshot(state);
+                return result;
+            },
+        },
+        {
+            name: "configure_project_endpoint",
+            description: "Submit the already-open in-canvas Foundry project endpoint prompt and write non-secret values to gitignored .env files.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    projectEndpoint: {
+                        type: "string",
+                        description: "Foundry project endpoint ending in /api/projects/<project>.",
+                    },
+                    modelDeployment: {
+                        type: "string",
+                        description: "Optional model deployment name. Defaults to the starter kit default.",
+                    },
+                    toolboxName: {
+                        type: "string",
+                        description: "Optional toolbox name for derived MCP endpoint values.",
+                    },
+                    overwrite: {
+                        type: "boolean",
+                        description: "Overwrite existing non-empty .env values.",
+                    },
+                    dryRun: {
+                        type: "boolean",
+                        description: "Preview writable .env targets without writing files.",
+                    },
+                    targetPaths: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Optional workspace-relative .env target paths.",
+                    },
+                },
+                required: ["projectEndpoint"],
+                additionalProperties: false,
+            },
+            handler: async (ctx) => {
+                const state = instanceState(ctx);
+                if (!state.projectEndpointPrompt?.open) {
+                    throw new CanvasError(
+                        "project_endpoint_prompt_not_open",
+                        "Use start_local first. Project endpoint configuration is only accepted while the in-canvas prompt is open.",
+                    );
+                }
+                const result = await commandBootstrapLocalEnv(state, ctx.input || {}, { actor: "Copilot" });
+                if (!ctx.input?.dryRun) {
+                    const startLocal = await commandStartLocal(state, { actor: "Copilot" });
+                    broadcastSnapshot(state);
+                    return { result: result.result, startLocal, state: startLocal.state };
+                }
                 broadcastSnapshot(state);
                 return result;
             },

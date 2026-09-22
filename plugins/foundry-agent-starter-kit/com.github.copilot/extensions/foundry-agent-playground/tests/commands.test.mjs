@@ -14,6 +14,7 @@ function commandFactory(overrides = {}) {
         snapshotState: () => ({ snapshot: true }),
         syncLocalBootstrapForStart: async () => ({ ok: true, source: "test" }),
         startLocalAgent: async () => {},
+        bootstrapLocalEnv: async () => ({ written: [] }),
         recordOperation: () => {},
         ...overrides,
     });
@@ -171,4 +172,57 @@ test("commandCancelOperation skips side effects when cancellation is rejected", 
     assert.equal(aborted, false);
     assert.equal(recorded, false);
     assert.equal(state.activity, undefined);
+});
+
+test("commandBootstrapLocalEnv clears prompt, refreshes hosted context, and returns state", async () => {
+    let refreshed = false;
+    const state = {
+        projectEndpointPrompt: { open: true },
+        foundryConnection: { projectEndpoint: "https://example.services.ai.azure.com/api/projects/demo" },
+    };
+    const commands = commandFactory({
+        bootstrapLocalEnv: async (_state, input) => ({ projectEndpoint: input.projectEndpoint, written: [] }),
+        refreshHostedContext: async () => {
+            refreshed = true;
+        },
+    });
+
+    const result = await commands.commandBootstrapLocalEnv(state, {
+        projectEndpoint: "https://example.services.ai.azure.com/api/projects/demo",
+    });
+
+    assert.equal(state.projectEndpointPrompt, null);
+    assert.equal(refreshed, true);
+    assert.deepEqual(result.result, {
+        projectEndpoint: "https://example.services.ai.azure.com/api/projects/demo",
+        written: [],
+    });
+    assert.deepEqual(result.state, { snapshot: true });
+    assert.equal(state.activity.at(-1).kind, "configure_project_endpoint");
+    assert.equal(state.activity.at(-1).actor, "Canvas");
+});
+
+test("commandBootstrapLocalEnv dry run preserves open prompt and records preview activity", async () => {
+    const state = {
+        projectEndpointPrompt: { open: true },
+        foundryConnection: { projectEndpoint: "https://example.services.ai.azure.com/api/projects/demo" },
+    };
+    const commands = commandFactory({
+        bootstrapLocalEnv: async () => ({ targets: [{ path: ".env" }], written: [], skipped: [] }),
+    });
+
+    const result = await commands.commandBootstrapLocalEnv(
+        state,
+        {
+            projectEndpoint: "https://example.services.ai.azure.com/api/projects/demo",
+            dryRun: true,
+        },
+        { actor: "Copilot" },
+    );
+
+    assert.equal(state.projectEndpointPrompt.open, true);
+    assert.deepEqual(result.state, { snapshot: true });
+    assert.equal(state.activity.at(-1).kind, "configure_project_endpoint");
+    assert.equal(state.activity.at(-1).actor, "Copilot");
+    assert.equal(state.activity.at(-1).details.dryRun, true);
 });

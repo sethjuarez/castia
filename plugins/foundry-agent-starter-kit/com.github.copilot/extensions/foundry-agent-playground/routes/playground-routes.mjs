@@ -31,8 +31,8 @@ export function createRequestHandler({
     commandSelectAgent,
     connectFoundry,
     refreshHostedContext,
-    bootstrapLocalEnv,
     clearProjectEndpointPrompt,
+    commandBootstrapLocalEnv,
     hydrateFoundryConnection,
     readinessAgentNames,
     reconcileSelectedAgentFromReadiness,
@@ -136,12 +136,7 @@ export function createRequestHandler({
             }
             if (req.method === "POST" && url.pathname === "/api/env/bootstrap") {
                 const body = await readBody(req);
-                const result = await bootstrapLocalEnv(state, body);
-                clearProjectEndpointPrompt(state);
-                if (state.foundryConnection.projectEndpoint) {
-                    await refreshHostedContext(state);
-                }
-                sendJson(res, 200, { result, state: snapshotState(state) });
+                sendJson(res, 200, await commandBootstrapLocalEnv(state, body));
                 return;
             }
             if (req.method === "POST" && url.pathname === "/api/project-endpoint-prompt/clear") {

@@ -22,6 +22,7 @@ export function createPlaygroundCommands({
     snapshotState,
     syncLocalBootstrapForStart,
     startLocalAgent,
+    bootstrapLocalEnv,
     recordOperation,
 }) {
     async function commandSelectAgent(state, agentId, { actor = "Canvas" } = {}) {
@@ -90,9 +91,35 @@ export function createPlaygroundCommands({
         };
     }
 
+    async function commandBootstrapLocalEnv(state, input = {}, { actor = "Canvas" } = {}) {
+        const result = await bootstrapLocalEnv(state, input);
+        if (!input.dryRun) {
+            clearProjectEndpointPrompt(state);
+        }
+        if (state.foundryConnection?.projectEndpoint) {
+            await refreshHostedContext(state);
+        }
+        addActivity(state, {
+            actor,
+            kind: "configure_project_endpoint",
+            status: "completed",
+            summary: input.dryRun
+                ? "Previewed project endpoint configuration targets."
+                : "Configured project endpoint values for local startup.",
+            details: {
+                dryRun: Boolean(input.dryRun),
+                targetCount: Array.isArray(result?.targets) ? result.targets.length : undefined,
+                writtenCount: Array.isArray(result?.written) ? result.written.length : undefined,
+                skippedCount: Array.isArray(result?.skipped) ? result.skipped.length : undefined,
+            },
+        });
+        return { result, state: snapshotState(state) };
+    }
+
     return {
         commandSelectAgent,
         commandStartLocal,
         commandCancelOperation,
+        commandBootstrapLocalEnv,
     };
 }

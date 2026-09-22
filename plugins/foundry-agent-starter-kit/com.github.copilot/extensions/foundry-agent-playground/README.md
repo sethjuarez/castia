@@ -32,7 +32,7 @@ The UI includes these parts.
 - a guided Local -> Foundry -> Teams step rail with one primary action at a time;
 - a first-run `.env` bootstrap for an existing Foundry project endpoint, owned
   by the **Start local** in-canvas endpoint dialog rather than chat prompts or
-  agent-invoked bootstrap actions;
+  standalone agent bootstrap actions;
 - a deterministic local-start guard: if the user clicks **Start local** before
   Foundry project values are present, the plugin opens an in-canvas question box
   for the project endpoint, bootstraps `.env`, and then starts the local agent;
@@ -74,8 +74,9 @@ Safety rules:
 
 Targets are discovered from `.env.example` siblings, hosted agent roots found in
 `azure.yaml`, and common `modules\agents` layouts. The project endpoint is
-entered only through the Start local dialog; the SDK canvas action surface does
-not expose a separate endpoint-bootstrap action.
+entered only through the Start local dialog; the SDK canvas action surface can
+submit that already-open prompt for validation, but does not expose a standalone
+endpoint-bootstrap path.
 
 The Foundry step keeps hosted state visible in the main playground context.
 

@@ -1331,12 +1331,14 @@ const {
     commandSelectAgent,
     commandStartLocal,
     commandCancelOperation,
+    commandBootstrapLocalEnv,
 } = createPlaygroundCommands({
     selectAgent,
     refreshHostedContext,
     snapshotState,
     syncLocalBootstrapForStart,
     startLocalAgent,
+    bootstrapLocalEnv,
     recordOperation,
 });
 
@@ -1466,8 +1468,8 @@ async function startServer(ctx, copilotSession) {
         commandSelectAgent,
         connectFoundry,
         refreshHostedContext,
-        bootstrapLocalEnv,
         clearProjectEndpointPrompt,
+        commandBootstrapLocalEnv,
         hydrateFoundryConnection,
         readinessAgentNames,
         reconcileSelectedAgentFromReadiness,
@@ -1523,6 +1525,7 @@ copilotSession = await joinSession({
                 commandSelectAgent,
                 commandStartLocal,
                 commandCancelOperation,
+                commandBootstrapLocalEnv,
                 setLocalEndpoint,
                 readinessAgentNames,
                 reconcileSelectedAgentFromReadiness,

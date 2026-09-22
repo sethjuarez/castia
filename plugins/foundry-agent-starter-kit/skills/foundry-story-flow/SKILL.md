@@ -62,11 +62,13 @@ it before local testing or deployment.
 
 **Required canvas gate:** if the selected agent root does not already have a
 resolved Foundry project endpoint from `.env` or `azd env get-values`, do not ask
-for it in chat and do not call an agent-facing bootstrap action. Open the Foundry
-Agent Playground and use **Start local**. The canvas opens the in-canvas endpoint
-dialog, writes only non-secret derived values to gitignored `.env` files, and
-then starts the local agent. Do not infer, guess, create, or silently select a
-Foundry project.
+for it in chat and do not call a standalone agent-facing bootstrap action. Open
+the Foundry Agent Playground and use **Start local**. The canvas opens the
+in-canvas endpoint dialog, writes only non-secret derived values to gitignored
+`.env` files, and then starts the local agent. A canvas action may submit that
+already-open Start local prompt with a user-provided endpoint; it is not a
+first-run entry path. Do not infer, guess, create, or silently select a Foundry
+project.
 
 When Copilot is validating a Playground flow, drive the shared open canvas
 instance. Open or focus **Foundry Agent Playground** with `open_canvas`, then use
@@ -103,8 +105,10 @@ create those first before starting the local run.
 
 Persist these values first to developer-local `.env` only through the Foundry
 Agent Playground **Start local** dialog. Do not ask for the endpoint in chat,
-do not invoke an agent-facing bootstrap action, and do not tell the user to edit
-`.env` manually unless they explicitly reject the canvas flow.
+do not invoke a standalone agent-facing bootstrap action, and do not tell the
+user to edit `.env` manually unless they explicitly reject the canvas flow. A
+canvas action may only submit an already-open Start local prompt with a
+user-provided endpoint.
 
 Set the same values in the azd environment only when the user explicitly moves
 from local testing to hosted deployment.

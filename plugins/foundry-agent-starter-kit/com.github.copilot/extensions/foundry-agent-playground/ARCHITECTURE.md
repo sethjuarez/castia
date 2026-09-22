@@ -29,7 +29,7 @@ Healthy endpoint details stay hidden unless they provide a useful diagnostic.
 
 ## User and Copilot command equivalence
 
-UI clicks and canvas actions should call the same logical command handlers where feasible. The current packaged extension exposes agent-facing actions such as `set_target`, `health_check`, `send_response`, `get_transcript_state`, `clear_transcript`, `select_agent`, and `start_local`; matching iframe routes should route through the same state transitions.
+UI clicks and canvas actions should call the same logical command handlers where feasible. The current packaged extension exposes agent-facing actions such as `set_target`, `health_check`, `send_response`, `get_transcript_state`, `clear_transcript`, `select_agent`, `start_local`, and `configure_project_endpoint`; matching iframe routes should route through the same state transitions.
 
 Copilot gets structured diagnostics through the bridge rather than scraping renderer text. Diagnostic action/state surfaces should remain deterministic:
 
@@ -74,6 +74,7 @@ Implemented now:
 
 - Structured readiness dimensions for endpoint readiness, selected-agent identity, protocol support, and configuration status.
 - Shared command handlers for agent selection and local startup across UI routes and Copilot canvas actions.
+- Equivalent project-endpoint prompt submission for UI routes and Copilot canvas actions, so the in-canvas setup flow can be exercised without browser automation while preserving the Start local first-run contract.
 - Session-scoped `state.json` and `operations.jsonl` persistence under Copilot session files storage.
 - First-in-wins operation tracking for deploy/provision lifecycle commands.
 - Phase-aware cancellation requests: stop before irreversible remote phases, wait-for-settle after remote registration begins.
