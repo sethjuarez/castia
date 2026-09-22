@@ -248,9 +248,6 @@ export const rendererClientScript = `
     const hostedAgent = document.getElementById("hostedAgent");
     const hostedVersion = document.getElementById("hostedVersion");
     const deployLog = document.getElementById("deployLog");
-    const teamsStatus = document.getElementById("teamsStatus");
-    const teamsAgent = document.getElementById("teamsAgent");
-    const teamsVersion = document.getElementById("teamsVersion");
     const stopLocalAction = document.getElementById("stopLocalAction");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
@@ -322,7 +319,6 @@ export const rendererClientScript = `
       }
       renderFoundryStatus(state);
       renderDeploy(state);
-      renderTeams(state);
       renderActionStateChip(state);
       renderLocalEndpointBanner(state);
       renderLocalTicker(state);
@@ -721,13 +717,6 @@ export const rendererClientScript = `
         "Deploy changes to Foundry and register a new hosted version.\\n",
       ].join("");
       deployLog.scrollTop = deployLog.scrollHeight;
-    }
-
-    function renderTeams(state) {
-      const hosted = state.hosted || {};
-      teamsStatus.textContent = "Informational only";
-      teamsAgent.textContent = hosted.agentName || state.selectedAgent?.displayName || "Not resolved";
-      teamsVersion.textContent = hosted.version ? "Version " + hosted.version : "Not deployed";
     }
 
     function renderMessages(messages) {

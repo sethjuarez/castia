@@ -144,25 +144,7 @@ export function renderHtml() {
         <pre id="deployLog" class="terminal"></pre>
       </section>
       <section id="teamsView" class="teams-view view" hidden>
-        <div class="deploy-summary">
-          <div class="deploy-card">
-            <div class="deploy-label">Teams status</div>
-            <div id="teamsStatus" class="deploy-value">Not tested</div>
-          </div>
-          <div class="deploy-card">
-            <div class="deploy-label">Hosted agent</div>
-            <div id="teamsAgent" class="deploy-value">Not resolved</div>
-          </div>
-          <div class="deploy-card">
-            <div class="deploy-label">Foundry version</div>
-            <div id="teamsVersion" class="deploy-value">Not deployed</div>
-          </div>
-        </div>
         <div class="guide-card">
-          <div>
-            <div class="guide-title">Publish and hire the hosted agent</div>
-            <div class="guide-copy">After Foundry hosted chat works, finish the user-controlled Microsoft 365 handoff in three steps.</div>
-          </div>
           <div class="teams-gates">
             <div class="teams-gate">
               <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-service-AI-Foundry.svg" alt="" /></span>

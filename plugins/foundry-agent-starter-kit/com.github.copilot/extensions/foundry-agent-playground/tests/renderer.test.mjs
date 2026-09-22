@@ -17,4 +17,6 @@ test("renderer includes pending and answer-copy chat affordances", () => {
     assert.match(html, /class="status-row"/);
     assert.match(html, /id="guideTitle" class="action-title"[\s\S]*id="actionStateChip"[\s\S]*class="action-detail-trigger"/);
     assert.match(html, /class="gate-logo a365-logo" src="\/assets\/icon-a365-agents\.svg"/);
+    assert.doesNotMatch(html, /id="teamsStatus"/);
+    assert.doesNotMatch(html, /Publish and hire the hosted agent/);
 });
