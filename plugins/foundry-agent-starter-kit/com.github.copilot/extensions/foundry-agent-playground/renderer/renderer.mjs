@@ -169,7 +169,7 @@ export function renderHtml() {
               <div><div class="gate-title">Publish in Foundry</div><div class="gate-meta">Confirm the active hosted version, then use Publish to Teams and Microsoft 365 Copilot. Review name, version, descriptions, developer, and scope.</div></div>
             </div>
             <div class="teams-gate">
-              <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-a365-agents.svg" alt="" /></span>
+              <span class="gate-icon a365-gate-icon" aria-hidden="true"><img class="gate-logo a365-logo" src="/assets/icon-a365-agents.svg" alt="" /></span>
               <div><div class="gate-title">Approve request in A365</div><div class="gate-meta">Complete the Microsoft 365 publish request or admin approval flow for the chosen tenant scope.</div></div>
             </div>
             <div class="teams-gate">

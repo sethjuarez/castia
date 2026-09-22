@@ -1284,6 +1284,17 @@ export const rendererStyles = `
       height: 28px;
       object-fit: contain;
     }
+    .a365-gate-icon {
+      border-color: color-mix(in srgb, #5993f7 24%, var(--cp-border));
+      background: color-mix(in srgb, #5993f7 8%, transparent);
+      box-shadow: none;
+    }
+    .a365-logo {
+      width: 32px;
+      height: 32px;
+      opacity: 0.88;
+      filter: saturate(0.9) contrast(0.96);
+    }
     .gate-title {
       font-weight: 800;
     }
