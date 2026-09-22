@@ -342,7 +342,7 @@ export const rendererClientScript = `
       if (activeView === "deploy") {
         if (state.deployment?.running) return { kind: "warn", label: "Deploying", detail: "Deploy operation is running." };
         if (state.deployment?.needsProvision) return { kind: "warn", label: "Prepare deploy", detail: "Provisioning is needed before hosted deployment." };
-        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: "Hosted v" + (state.hosted.version || "ready"), detail: "Hosted Responses endpoint is available." };
+        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: state.hosted.version ? "v" + state.hosted.version : "Hosted ready", detail: "Hosted Responses endpoint is available." };
         return { kind: "", label: "Not deployed", detail: "No hosted release has been discovered for this agent." };
       }
       if (activeView === "teams") {
@@ -350,7 +350,7 @@ export const rendererClientScript = `
         return { kind: "", label: "Teams pending", detail: "Publish and hire the hosted agent before marking Teams tested." };
       }
       if (state.target === "hosted") {
-        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: "Hosted ready", detail: "Hosted Responses endpoint is selected." };
+        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: state.hosted.version ? "v" + state.hosted.version : "Hosted ready", detail: "Hosted Responses endpoint is selected." };
         return { kind: "warn", label: "Hosted missing", detail: "Discover or deploy a hosted Responses endpoint before chatting." };
       }
       if (state.localRun?.running && state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
@@ -566,7 +566,7 @@ export const rendererClientScript = `
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk);
-        guideTitle.textContent = !connected ? "Connect Foundry project" : "Make it work in Foundry";
+        guideTitle.textContent = !connected ? "Connect Foundry project" : "Deploy";
         guideCopy.textContent = !connected
           ? "Use Start local to open the Foundry project endpoint dialog and bootstrap .env, then refresh discovery here."
           : needsProvision
@@ -574,7 +574,7 @@ export const rendererClientScript = `
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : foundryOk ? "Deploy new version" : "Deploy first version";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = false;
@@ -587,7 +587,7 @@ export const rendererClientScript = `
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk && state.target !== "hosted");
-        guideTitle.textContent = !connected ? "Connect Foundry project" : foundryOk ? "Test it in Foundry" : "Deploy to Foundry";
+        guideTitle.textContent = !connected ? "Connect Foundry project" : "Foundry Agent";
         guideCopy.textContent = !connected
           ? "Project endpoint needed before hosted chat."
           : needsProvision
@@ -595,12 +595,12 @@ export const rendererClientScript = `
           : foundryOk
           ? "Hosted " + (state.hosted?.version ? "v" + state.hosted.version : "agent") + " ready. Send a prompt below."
           : "No hosted release found. Deploy the first version when local is ready.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : foundryOk ? "Deploy new version" : "Deploy first version";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
         setActiveStep("foundry");
       } else {
         primaryGuideAction.hidden = state.target !== "hosted" && localRunning;
         testHostedAction.hidden = true;
-        guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Local agent";
+        guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Foundry Agent" : "Local agent";
         guideCopy.textContent = state.target === "hosted" && !connected
           ? "Use Start local to open the Foundry project endpoint dialog and bootstrap .env, then refresh discovery here."
           : state.target === "hosted"
@@ -679,7 +679,7 @@ export const rendererClientScript = `
       if (activeView === "deploy") {
         provisionButton.hidden = !latestState?.deployment?.needsProvision;
         deployButton.hidden = Boolean(latestState?.deployment?.needsProvision);
-        deployButton.textContent = latestState?.hosted?.version || latestState?.hosted?.responsesEndpoint ? "Deploy new version" : "Deploy first version";
+        deployButton.textContent = "Deploy";
       }
       primaryGuideAction.disabled = deploymentRunning && activeView !== "teams" && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted");
       clearButton.hidden = activeView === "teams";

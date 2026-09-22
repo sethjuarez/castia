@@ -309,7 +309,7 @@ export const rendererStyles = `
     }
     .action-summary {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-columns: minmax(0, auto) minmax(0, 1fr);
       gap: 8px;
       align-items: center;
       min-width: 0;
@@ -319,7 +319,7 @@ export const rendererStyles = `
       align-items: center;
       gap: 8px;
       min-width: 0;
-      max-width: min(34ch, 100%);
+      max-width: min(42ch, 100%);
     }
     .action-title {
       min-width: 0;
@@ -328,6 +328,7 @@ export const rendererStyles = `
       white-space: nowrap;
       font-weight: 800;
       line-height: 18px;
+      flex: 0 1 auto;
     }
     .action-detail-trigger {
       position: relative;
@@ -383,7 +384,7 @@ export const rendererStyles = `
       align-items: center;
       gap: 6px;
       flex: 0 0 auto;
-      max-width: 18rem;
+      max-width: 12rem;
       min-height: 20px;
       padding: 2px 8px;
       border: 1px solid var(--cp-border);

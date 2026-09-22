@@ -15,5 +15,5 @@ test("renderer includes pending and answer-copy chat affordances", () => {
     assert.match(html, /id="transcript" class="transcript empty-state"/);
     assert.match(html, /class="action-detail-trigger"/);
     assert.match(html, /class="status-row"/);
-    assert.match(html, /id="actionStateChip"/);
+    assert.match(html, /id="guideTitle" class="action-title"[\s\S]*id="actionStateChip"[\s\S]*class="action-detail-trigger"/);
 });

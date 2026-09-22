@@ -43,13 +43,13 @@ export function renderHtml() {
         <div class="action-summary">
           <div class="action-heading">
             <div id="guideTitle" class="action-title">Make it work locally</div>
+            <div id="actionStateChip" class="action-state-chip" title="Current agent state">Not checked</div>
             <span class="action-detail-trigger" tabindex="0" aria-describedby="guideCopy">
               Details
               <span id="guideCopy" class="action-copy" role="tooltip">Start or stop the local agent.</span>
             </span>
           </div>
           <div class="status-row" aria-live="polite">
-            <div id="actionStateChip" class="action-state-chip" title="Current agent state">Not checked</div>
             <div id="localEndpointBanner" class="local-endpoint-banner" hidden></div>
             <div id="localTicker" class="local-ticker" hidden></div>
             <div id="deployTicker" class="deploy-ticker" hidden></div>
