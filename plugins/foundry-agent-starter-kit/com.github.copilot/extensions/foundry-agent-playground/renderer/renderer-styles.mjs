@@ -309,7 +309,9 @@ export const rendererStyles = `
     }
     .action-summary {
       display: grid;
-      gap: 4px;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
       min-width: 0;
     }
     .action-heading {
@@ -317,6 +319,7 @@ export const rendererStyles = `
       align-items: center;
       gap: 8px;
       min-width: 0;
+      max-width: min(34ch, 100%);
     }
     .action-title {
       min-width: 0;
@@ -372,7 +375,7 @@ export const rendererStyles = `
       align-items: center;
       gap: 6px;
       min-width: 0;
-      min-height: 20px;
+      min-height: 0;
       overflow: visible;
     }
     .local-endpoint-banner {
@@ -1358,6 +1361,13 @@ export const rendererStyles = `
         gap: 6px;
         padding: 6px;
         border-radius: 12px;
+      }
+      .action-summary {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .action-heading {
+        max-width: 100%;
       }
       .action-card > div:first-child {
         min-width: 0;

@@ -30,6 +30,8 @@ test("empty transcript state fills the available transcript space", () => {
 });
 
 test("header guidance and diagnostics use compact hoverable details", () => {
+    assert.match(rendererStyles, /\.action-summary\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);/);
+    assert.match(rendererStyles, /\.action-summary\s*{[^}]*align-items:\s*center;/);
     assert.match(rendererStyles, /\.action-detail-trigger:hover \.action-copy/);
     assert.match(rendererStyles, /\.status-row\s*{[^}]*display:\s*flex;/);
     assert.match(rendererStyles, /\.local-ticker\[data-detail\]::after/);
