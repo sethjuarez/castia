@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     addActivity,
+    clearTargetHealth,
     clearMessagesForTarget,
     copyableAnswerText,
     emptyFoundryConnection,
@@ -14,11 +15,13 @@ import {
     selectedAgent,
     selectedLocalEndpoint,
     setSelectedAgent,
+    setTarget,
+    setTargetHealth,
     switchSelectedAgent,
     stateSnapshot,
     transcriptState,
     updateActivity,
-} from "./state.mjs";
+} from "../state/snapshot.mjs";
 
 const agent = {
     id: "examples\\python\\minimal-agent:minimal-agent",
@@ -124,8 +127,55 @@ test("transcriptState exposes visible prompts, pending label, latest copy target
         ok: true,
         status: 200,
         body: "agent=minimal-agent",
+        readinessStatus: null,
         identity: null,
+        protocolSupport: null,
+        configurationStatus: null,
     });
+});
+
+test("transcriptState keeps health banners scoped to the active target", () => {
+    const state = {
+        target: "local",
+        selectedAgentId: "agent-1",
+        agents: [{ id: "agent-1", displayName: "Agent One", serviceName: "agent-one" }],
+        localEndpoints: { "agent-1": "http://127.0.0.1:8088" },
+        hosted: { responsesEndpoint: "https://example.test/responses" },
+        messages: [],
+        lastHealth: null,
+        lastHealthByTarget: {},
+    };
+
+    setTargetHealth(state, {
+        ok: true,
+        status: 200,
+        body: "agent=agent-one",
+        identity: { status: "match", expected: "agent-one", actual: "agent-one" },
+    }, "local");
+    setTarget(state, "hosted");
+
+    let transcript = transcriptState(state);
+    assert.equal(transcript.target, "hosted");
+    assert.equal(transcript.healthBanner.ok, null);
+
+    setTargetHealth(state, {
+        ok: true,
+        status: "hosted",
+        body: "Hosted Responses endpoint discovered.",
+        protocolSupport: { status: "supported", protocols: ["responses"], missing: [] },
+    }, "hosted");
+    transcript = transcriptState(state);
+    assert.equal(transcript.healthBanner.status, "hosted");
+
+    setTarget(state, "local");
+    transcript = transcriptState(state);
+    assert.equal(transcript.healthBanner.status, 200);
+    assert.deepEqual(transcript.healthBanner.identity, { status: "match", expected: "agent-one", actual: "agent-one" });
+
+    clearTargetHealth(state, "local");
+    transcript = transcriptState(state);
+    assert.equal(stateSnapshot(state).lastHealth, null);
+    assert.equal(transcript.healthBanner.ok, null);
 });
 
 test("copy helpers skip pending, failed, and diagnostic-only responses", () => {
@@ -178,14 +228,15 @@ test("setSelectedAgent keeps local endpoints keyed by agent id", () => {
     assert.equal(state.localEndpoints[agent.id], "http://127.0.0.1:8095");
 });
 
-test("selectedLocalEndpoint prefers the selected agent running local run endpoint", () => {
+test("selectedLocalEndpoint prefers the selected agent local run endpoint", () => {
     const state = {
         agents: [agent],
         selectedAgentId: agent.id,
         localEndpoints: { [agent.id]: "http://127.0.0.1:8095" },
         localRun: {
             ...emptyLocalRun(),
-            running: true,
+            running: false,
+            exitCode: 1,
             agentId: agent.id,
             endpoint: "http://127.0.0.1:8096",
         },
@@ -245,7 +296,7 @@ test("switchSelectedAgent clears local transcript, health, and canvas-owned loca
     assert.equal(state.selectedAgentId, policyAgent.id);
     assert.deepEqual(state.localRun, emptyLocalRun());
     assert.equal(state.lastHealth, null);
-    assert.deepEqual(state.messages.map((message) => message.id), ["hosted-1"]);
+    assert.deepEqual(state.messages, []);
 });
 
 test("switchSelectedAgent stops any running local run before clearing ownership", () => {
@@ -278,5 +329,33 @@ test("switchSelectedAgent stops any running local run before clearing ownership"
     assert.equal(state.selectedAgentId, policyAgent.id);
     assert.deepEqual(state.localRun, emptyLocalRun());
     assert.equal(state.lastHealth, null);
+    assert.deepEqual(state.messages, []);
+});
+
+test("switchSelectedAgent clears all stale readiness, prompt, and target transcript state", () => {
+    const state = {
+        agents: [agent, policyAgent],
+        selectedAgentId: agent.id,
+        localEndpoints: { [agent.id]: "http://127.0.0.1:8095" },
+        hostedByAgent: { [agent.id]: emptyHostedContext(agent) },
+        hosted: emptyHostedContext(agent),
+        localRun: emptyLocalRun(),
+        lastHealth: {
+            ok: false,
+            readinessStatus: { status: "ok", reachable: true, ready: false },
+            identity: { expected: "minimal-agent", actual: "contract-policy-expert", status: "mismatch" },
+        },
+        projectEndpointPrompt: { open: true },
+        messages: [
+            { id: "local-1", target: "local" },
+            { id: "hosted-1", target: "hosted" },
+        ],
+    };
+
+    switchSelectedAgent(state, policyAgent.id);
+
+    assert.equal(state.selectedAgentId, policyAgent.id);
+    assert.equal(state.lastHealth, null);
+    assert.equal(state.projectEndpointPrompt, null);
     assert.deepEqual(state.messages, []);
 });

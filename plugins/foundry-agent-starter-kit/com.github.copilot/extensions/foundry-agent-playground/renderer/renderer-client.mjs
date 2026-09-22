@@ -9,6 +9,24 @@ export function localReadinessState(state) {
         return { ready: false, reason: "Local agent is running; waiting for readiness." };
     }
     if (state?.lastHealth && !state.lastHealth.ok) {
+        if (state.lastHealth.identity?.status === "mismatch") {
+            return { ready: false, reason: "Selected agent does not match endpoint: " + String(state.lastHealth.body || "identity mismatch").slice(0, 160) };
+        }
+        if (state.lastHealth.identity?.status === "unknown") {
+            return { ready: false, reason: "Endpoint identity is unknown for the selected agent." };
+        }
+        if (state.lastHealth.configurationStatus?.status === "missing") {
+            return {
+                ready: false,
+                reason: "Missing required configuration: " + state.lastHealth.configurationStatus.missingRequired.join(", "),
+            };
+        }
+        if (state.lastHealth.protocolSupport?.status === "missing") {
+            return {
+                ready: false,
+                reason: "Missing required protocol support: " + state.lastHealth.protocolSupport.missing.join(", "),
+            };
+        }
         const status = state.lastHealth.status ? " (" + state.lastHealth.status + ")" : "";
         const detail = state.lastHealth.body ? ": " + String(state.lastHealth.body).slice(0, 160) : "";
         return { ready: false, reason: "Readiness check failed" + status + detail };
@@ -28,6 +46,10 @@ export function isStartupReadinessPending(state) {
         state.localRun.readiness?.status === "starting" &&
         state?.lastHealth?.source !== "manual",
     );
+}
+
+export function shouldOpenProjectEndpointDialog(state) {
+    return Boolean(state?.projectEndpointPrompt?.open);
 }
 
 export function responseDetailsKey(turn, index = 0) {
@@ -180,6 +202,7 @@ export const rendererClientScript = `
     const responseDetailsKey = ${responseDetailsKey.toString()};
     const responseDetailsPanelId = ${responseDetailsPanelId.toString()};
     const composerGate = ${composerGate.toString()};
+    const shouldOpenProjectEndpointDialog = ${shouldOpenProjectEndpointDialog.toString()};
     const responseText = ${responseText.toString()};
     const responseDisplayState = ${responseDisplayState.toString()};
     const latestVisibleAnswerText = ${latestVisibleAnswerText.toString()};
@@ -203,6 +226,7 @@ export const rendererClientScript = `
     const teamsStepState = document.getElementById("teamsStepState");
     const guideTitle = document.getElementById("guideTitle");
     const guideCopy = document.getElementById("guideCopy");
+    const actionStateChip = document.getElementById("actionStateChip");
     const localEndpointBanner = document.getElementById("localEndpointBanner");
     const localTicker = document.getElementById("localTicker");
     const deployTicker = document.getElementById("deployTicker");
@@ -224,9 +248,6 @@ export const rendererClientScript = `
     const hostedAgent = document.getElementById("hostedAgent");
     const hostedVersion = document.getElementById("hostedVersion");
     const deployLog = document.getElementById("deployLog");
-    const teamsStatus = document.getElementById("teamsStatus");
-    const teamsAgent = document.getElementById("teamsAgent");
-    const teamsVersion = document.getElementById("teamsVersion");
     const stopLocalAction = document.getElementById("stopLocalAction");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
@@ -244,7 +265,7 @@ export const rendererClientScript = `
     const sendButton = document.getElementById("send");
     const provisionButton = document.getElementById("provisionButton");
     const deployButton = document.getElementById("deployButton");
-    const teamsTestedButton = document.getElementById("teamsTestedButton");
+    const cancelOperationButton = document.getElementById("cancelOperationButton");
     const clearButton = document.getElementById("clear");
     const projectEndpointDialog = document.getElementById("projectEndpointDialog");
     const projectEndpointForm = document.getElementById("projectEndpointForm");
@@ -298,19 +319,62 @@ export const rendererClientScript = `
       }
       renderFoundryStatus(state);
       renderDeploy(state);
-      renderTeams(state);
+      renderActionStateChip(state);
       renderLocalEndpointBanner(state);
       renderLocalTicker(state);
       renderActivity(state);
       renderDeployTicker(state);
       renderJourney(state);
       renderView();
+      if (shouldOpenProjectEndpointDialog(state) && projectEndpointDialog.hidden) {
+        showProjectEndpointDialog();
+      } else if (!shouldOpenProjectEndpointDialog(state) && !projectEndpointDialog.hidden) {
+        hideProjectEndpointDialog();
+      }
+    }
+
+    function actionState(state) {
+      if (activeView === "deploy") {
+        if (state.deployment?.running) return { kind: "warn", label: "Deploying", detail: "Deploy operation is running." };
+        if (state.deployment?.needsProvision) return { kind: "warn", label: "Prepare deploy", detail: "Provisioning is needed before hosted deployment." };
+        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: state.hosted.version ? "v" + state.hosted.version : "Hosted ready", detail: "Hosted Responses endpoint is available." };
+        return { kind: "", label: "Not deployed", detail: "No hosted release has been discovered for this agent." };
+      }
+      if (activeView === "teams") {
+        return { kind: "", label: "Info only", detail: "Teams publish and hire are manual external steps." };
+      }
+      if (state.target === "hosted") {
+        if (state.hosted?.responsesEndpoint) return { kind: "ok", label: state.hosted.version ? "v" + state.hosted.version : "Hosted ready", detail: "Hosted Responses endpoint is selected." };
+        return { kind: "warn", label: "Hosted missing", detail: "Discover or deploy a hosted Responses endpoint before chatting." };
+      }
+      if (state.localRun?.running && state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
+      if (state.localRun?.running) return { kind: "warn", label: "Starting", detail: "Local agent is running; waiting for readiness." };
+      if (state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
+      if (state.lastHealth && !state.lastHealth.ok) return { kind: "fail", label: "Needs attention", detail: state.lastHealth.body || "Readiness check failed." };
+      if (state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
+        return {
+          kind: state.localRun.exitCode === 0 ? "" : "fail",
+          label: state.localRun.exitCode === 0 ? "Stopped" : "Start failed",
+          detail: state.localRun.exitCode === 0 ? "Local agent stopped." : "Local agent exited with code " + state.localRun.exitCode + ".",
+        };
+      }
+      return { kind: "", label: "Not checked", detail: "Start local or run a readiness check." };
+    }
+
+    function renderActionStateChip(state) {
+      const current = actionState(state || {});
+      actionStateChip.className = "action-state-chip " + (current.kind || "");
+      actionStateChip.textContent = current.label;
+      actionStateChip.title = current.detail || current.label;
+      actionStateChip.setAttribute("aria-label", "Current state: " + current.label + (current.detail ? ". " + current.detail : ""));
     }
 
     function renderLocalEndpointBanner(state) {
       if (state.target === "hosted") {
         localEndpointBanner.hidden = true;
         localEndpointBanner.innerHTML = "";
+        localEndpointBanner.removeAttribute("data-detail");
+        localEndpointBanner.removeAttribute("tabindex");
         return;
       }
       const endpoint = state.activeEndpoint || state.localEndpoint || "";
@@ -323,21 +387,25 @@ export const rendererClientScript = `
       if (!needsDiagnostic) {
         localEndpointBanner.hidden = true;
         localEndpointBanner.innerHTML = "";
+        localEndpointBanner.removeAttribute("data-detail");
+        localEndpointBanner.removeAttribute("tabindex");
         return;
       }
       const details = "Endpoint: " + endpoint + " · port=" + String(port || "unknown") +
         " · selected=" + selected + " · readiness=" + readiness;
       localEndpointBanner.hidden = false;
       localEndpointBanner.className = "local-endpoint-banner warn";
+      localEndpointBanner.setAttribute("data-detail", details + (portWarning ? " · " + portWarning : "") + (mismatch?.message ? " · " + mismatch.message : ""));
+      localEndpointBanner.setAttribute("tabindex", "0");
       localEndpointBanner.innerHTML =
-        '<div class="endpoint-compact" title="' + escapeHtml(details) + '">' +
+        '<div class="endpoint-compact">' +
           '<span class="endpoint-label">Local</span>' +
           '<code>' + escapeHtml(formatEndpointShort(endpoint)) + '</code>' +
-          '<span class="endpoint-meta">ready=' + escapeHtml(readiness) + '</span>' +
+          '<span class="endpoint-meta">' + escapeHtml(readiness) + '</span>' +
         '</div>' +
-        (portWarning ? '<div class="endpoint-warning" title="' + escapeHtml(portWarning) + '">Fallback port ' + escapeHtml(String(port || "unknown")) + '</div>' : "") +
+        (portWarning ? '<div class="endpoint-warning"><span class="endpoint-warning-text">Fallback ' + escapeHtml(String(port || "unknown")) + '</span></div>' : "") +
         (mismatch && !mismatch.autoSelected
-          ? '<div class="endpoint-warning">' + escapeHtml(mismatch.message || "Selected agent does not match readiness.") +
+          ? '<div class="endpoint-warning"><span class="endpoint-warning-text">' + escapeHtml(mismatch.message || "Selected agent does not match readiness.") + '</span>' +
             (mismatch.canSwitch ? ' <button id="switchReadinessAgent" type="button">Switch to ' + escapeHtml(mismatch.actual) + '</button>' : "") +
             '</div>'
           : "");
@@ -360,11 +428,15 @@ export const rendererClientScript = `
       if (!events.length || activeView !== "chat") {
         localTicker.innerHTML = "";
         localTicker.className = "local-ticker";
+        localTicker.removeAttribute("data-detail");
+        localTicker.removeAttribute("tabindex");
         return;
       }
       const event = events.at(-1);
       const kind = event.kind || "";
       localTicker.className = "local-ticker " + kind;
+      localTicker.setAttribute("data-detail", events.map((entry) => entry.text).filter(Boolean).join(" · "));
+      localTicker.setAttribute("tabindex", "0");
       localTicker.innerHTML = '<span class="ticker-mark" aria-hidden="true"></span>' +
         '<span class="ticker-text">' + escapeHtml(event.text) + '</span>';
     }
@@ -425,9 +497,13 @@ export const rendererClientScript = `
         }
         deployTicker.hidden = true;
         deployTicker.innerHTML = "";
+        deployTicker.removeAttribute("data-detail");
+        deployTicker.removeAttribute("tabindex");
         return;
       }
       deployTicker.hidden = false;
+      deployTicker.setAttribute("data-detail", latestDeployPhase(state.deployment.log));
+      deployTicker.setAttribute("tabindex", "0");
       deployTicker.innerHTML =
         '<div class="deploy-ticker-row"><span class="deploy-label">Deploying</span><span class="deploy-elapsed" aria-label="Elapsed deployment time">' +
         escapeHtml(elapsedLabel(state.deployment.startedAt)) +
@@ -469,22 +545,21 @@ export const rendererClientScript = `
       const connected = Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
       const foundryOk = Boolean(state.hosted?.version || state.hosted?.responsesEndpoint);
       const versionLabel = state.hosted?.version ? "v" + state.hosted.version : "";
-      const teamsOk = Boolean(state.teams?.testedAt);
       const showingFoundryContext = activeView === "chat" && (foundryPanelOpen || state.target === "hosted");
       localStep.classList.toggle("done", localOk);
       foundryStep.classList.toggle("done", foundryOk);
-      teamsStep.classList.toggle("done", teamsOk);
+      teamsStep.classList.remove("done");
       localStepText.textContent = localRunning && !localOk ? "Starting" : localOk ? "Answered" : "Run it";
       foundryStepText.textContent = foundryOk ? "Hosted" : connected ? "Not deployed" : "Needs project";
-      teamsStepText.textContent = teamsOk ? "Tested" : "Hire it";
+      teamsStepText.textContent = "Manual steps";
       localStepState.textContent = localOk ? "Done" : "Start";
       foundryStepState.textContent = versionLabel || (foundryOk ? "Ready" : localOk ? "Next" : "Later");
-      teamsStepState.textContent = teamsOk ? "Done" : foundryOk ? "Next" : "Later";
+      teamsStepState.textContent = "Info";
       if (activeView === "deploy") {
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk);
-        guideTitle.textContent = !connected ? "Connect Foundry project" : "Make it work in Foundry";
+        guideTitle.textContent = !connected ? "Connect Foundry project" : "Deploy";
         guideCopy.textContent = !connected
           ? "Use Start local to open the Foundry project endpoint dialog and bootstrap .env, then refresh discovery here."
           : needsProvision
@@ -492,20 +567,20 @@ export const rendererClientScript = `
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : foundryOk ? "Deploy new version" : "Deploy first version";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
-        primaryGuideAction.hidden = false;
+        primaryGuideAction.hidden = true;
         testHostedAction.hidden = true;
-        guideTitle.textContent = "Publish and hire it in Teams";
-        guideCopy.textContent = "Confirm the active Foundry version, publish it to Microsoft 365, approve it if needed, hire it in Teams, then run the same smoke prompt.";
-        primaryGuideAction.textContent = teamsOk ? "Teams tested" : "Mark Teams tested";
+        guideTitle.textContent = "Teams handoff";
+        guideCopy.textContent = "Informational only: publish in Foundry, approve in Microsoft 365, hire in Teams, then manually run the same smoke prompt.";
+        primaryGuideAction.textContent = "";
         setActiveStep("teams");
       } else if (showingFoundryContext) {
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
         testHostedAction.hidden = !(connected && foundryOk && state.target !== "hosted");
-        guideTitle.textContent = !connected ? "Connect Foundry project" : foundryOk ? "Test it in Foundry" : "Deploy to Foundry";
+        guideTitle.textContent = !connected ? "Connect Foundry project" : "Foundry Agent";
         guideCopy.textContent = !connected
           ? "Project endpoint needed before hosted chat."
           : needsProvision
@@ -513,12 +588,12 @@ export const rendererClientScript = `
           : foundryOk
           ? "Hosted " + (state.hosted?.version ? "v" + state.hosted.version : "agent") + " ready. Send a prompt below."
           : "No hosted release found. Deploy the first version when local is ready.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : foundryOk ? "Deploy new version" : "Deploy first version";
+        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
         setActiveStep("foundry");
       } else {
         primaryGuideAction.hidden = state.target !== "hosted" && localRunning;
         testHostedAction.hidden = true;
-        guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Test it in Foundry" : "Local agent";
+        guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Foundry Agent" : "Local agent";
         guideCopy.textContent = state.target === "hosted" && !connected
           ? "Use Start local to open the Foundry project endpoint dialog and bootstrap .env, then refresh discovery here."
           : state.target === "hosted"
@@ -531,6 +606,9 @@ export const rendererClientScript = `
       }
       advancedToggle.hidden = true;
       advancedToggle.textContent = "Refresh .env";
+      const guideDetail = guideCopy.textContent || "";
+      const guideLabel = (guideTitle.textContent || "Guidance") + (guideDetail ? ". " + guideDetail : "");
+      guideCopy.parentElement?.setAttribute("aria-label", guideLabel);
     }
 
     function renderAgentPicker(state) {
@@ -568,6 +646,10 @@ export const rendererClientScript = `
     function renderView() {
       const gate = composerGate(latestState, { activeView, inFlight });
       const deploymentRunning = Boolean(latestState?.deployment?.running);
+      const cancellableOperation = Boolean(
+        latestState?.operations?.active?.cancellable &&
+        ["running", "cancel_requested"].includes(latestState.operations.active.status),
+      );
       chatView.hidden = activeView !== "chat";
       deployView.hidden = activeView !== "deploy";
       teamsView.hidden = activeView !== "teams";
@@ -575,9 +657,10 @@ export const rendererClientScript = `
       sendButton.disabled = !gate.canSend;
       provisionButton.hidden = true;
       deployButton.hidden = true;
+      cancelOperationButton.hidden = !(activeView === "deploy" && deploymentRunning && cancellableOperation);
+      cancelOperationButton.disabled = !cancellableOperation || latestState?.operations?.active?.status === "cancel_requested";
       provisionButton.disabled = deploymentRunning;
       deployButton.disabled = deploymentRunning;
-      teamsTestedButton.hidden = true;
       promptInput.hidden = activeView !== "chat";
       promptInput.disabled = gate.inputDisabled;
       promptInput.placeholder = gate.inputDisabled
@@ -588,7 +671,7 @@ export const rendererClientScript = `
       if (activeView === "deploy") {
         provisionButton.hidden = !latestState?.deployment?.needsProvision;
         deployButton.hidden = Boolean(latestState?.deployment?.needsProvision);
-        deployButton.textContent = latestState?.hosted?.version || latestState?.hosted?.responsesEndpoint ? "Deploy new version" : "Deploy first version";
+        deployButton.textContent = "Deploy";
       }
       primaryGuideAction.disabled = deploymentRunning && activeView !== "teams" && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted");
       clearButton.hidden = activeView === "teams";
@@ -634,13 +717,6 @@ export const rendererClientScript = `
         "Deploy changes to Foundry and register a new hosted version.\\n",
       ].join("");
       deployLog.scrollTop = deployLog.scrollHeight;
-    }
-
-    function renderTeams(state) {
-      const hosted = state.hosted || {};
-      teamsStatus.textContent = state.teams?.testedAt ? "Tested " + formatTime(state.teams.testedAt) : "Not tested";
-      teamsAgent.textContent = hosted.agentName || state.selectedAgent?.displayName || "Not resolved";
-      teamsVersion.textContent = hosted.version ? "Version " + hosted.version : "Not deployed";
     }
 
     function renderMessages(messages) {
@@ -1169,21 +1245,6 @@ export const rendererClientScript = `
       }
     }
 
-    async function markTeamsTested() {
-      primaryGuideAction.disabled = true;
-      teamsTestedButton.disabled = true;
-      try {
-        const state = await request("/api/teams/tested", { method: "POST" });
-        renderSnapshot(state);
-        setStatus("ok", "Teams test marked complete.");
-      } catch (error) {
-        setStatus("fail", error.message);
-      } finally {
-        primaryGuideAction.disabled = false;
-        teamsTestedButton.disabled = false;
-      }
-    }
-
     async function checkReadinessFromCanvas() {
       if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
         setStatus("fail", "No hosted Responses endpoint is discovered yet. Use Start local to bootstrap .env from the endpoint dialog, then refresh.");
@@ -1208,6 +1269,7 @@ export const rendererClientScript = `
 
     projectEndpointCancel.addEventListener("click", () => {
       hideProjectEndpointDialog();
+      request("/api/project-endpoint-prompt/clear", { method: "POST" }).catch(() => {});
       setStatus("fail", "Foundry project endpoint is required before starting local.");
     });
 
@@ -1326,8 +1388,6 @@ export const rendererClientScript = `
         } else {
           void runDeploy();
         }
-      } else if (activeView === "teams") {
-        void markTeamsTested();
       } else if (foundryPanelOpen || latestState?.target === "hosted") {
         if (latestState?.deployment?.needsProvision) {
           void runProvision();
@@ -1399,6 +1459,24 @@ export const rendererClientScript = `
       } finally {
         button.disabled = false;
         primaryGuideAction.disabled = false;
+        renderView();
+      }
+    }
+
+    async function cancelOperationFromCanvas() {
+      cancelOperationButton.disabled = true;
+      setStatus("", "Requesting cancellation...");
+      try {
+        const payload = await request("/api/operation/cancel", {
+          method: "POST",
+          body: JSON.stringify({ operationId: latestState?.operations?.active?.id || null }),
+        });
+        renderSnapshot(payload.state);
+        setStatus(payload.accepted ? "warn" : "fail", payload.accepted ? (payload.operation?.cancellation?.message || "Cancellation requested.") : "No cancellable operation is running.");
+      } catch (error) {
+        setStatus("fail", error.message);
+      } finally {
+        renderView();
       }
     }
 
@@ -1432,8 +1510,8 @@ export const rendererClientScript = `
       void runDeploy();
     });
 
-    teamsTestedButton.addEventListener("click", async () => {
-      await markTeamsTested();
+    cancelOperationButton.addEventListener("click", () => {
+      void cancelOperationFromCanvas();
     });
 
     connectStateEvents();

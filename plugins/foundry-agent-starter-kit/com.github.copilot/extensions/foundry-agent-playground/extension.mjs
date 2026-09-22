@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
@@ -7,19 +7,17 @@ import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 import {
     callAgent,
-    callAgentStream,
     checkReadiness,
     configureAgentClient,
     azureAccessToken,
     isLoopbackEndpoint,
     responseText,
-} from "./agent-client.mjs";
-import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./constants.mjs";
-import { renderHtml } from "./renderer.mjs";
+} from "./client/agent-client.mjs";
+import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./domain/constants.mjs";
 import {
     activeEndpoint,
-    addActivity,
     addLocalEvent,
+    clearTargetHealth,
     clearMessagesForTarget,
     copyableAnswerText,
     emptyFoundryConnection,
@@ -31,19 +29,40 @@ import {
     normalizeEndpoint,
     selectedAgent,
     selectedLocalEndpoint,
-    setSelectedAgent,
+    setTarget,
+    setTargetHealth,
     switchSelectedAgent,
     responseDisplayText,
     responsePendingLabel,
     stateSnapshot,
     transcriptState,
     updateActivity,
-} from "./state.mjs";
-import { discoverAgents, serviceEnvPrefix } from "./agent-discovery.mjs";
+} from "./state/snapshot.mjs";
+import {
+    beginOperation,
+    completeOperation,
+    emptyOperationState,
+    enterIrreversiblePhase,
+    updateOperation,
+} from "./domain/operations.mjs";
+import {
+    appendOperationRecord,
+    configureRuntimeStore,
+    persistStateSnapshot,
+} from "./state/persistence.mjs";
+import { localStartupStillPending } from "./state/local-readiness.mjs";
+import { discoverAgents, serviceEnvPrefix } from "./client/agent-discovery.mjs";
 import {
     discoverHostedContextFromFoundry,
     hostedContextFromAzd,
-} from "./hosted-discovery.mjs";
+} from "./client/hosted-discovery.mjs";
+import { writeEvent } from "./routes/http.mjs";
+import { createRequestHandler } from "./routes/playground-routes.mjs";
+import { createCanvasActions } from "./actions/canvas-actions.mjs";
+import {
+    clearProjectEndpointPrompt,
+    createPlaygroundCommands,
+} from "./commands/playground-commands.mjs";
 
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
@@ -53,7 +72,7 @@ function cleanupManagedLocalRuns() {
     for (const entry of servers.values()) {
         const child = entry.state?.localRun?.process;
         if (child && !child.killed) {
-            child.kill();
+            killLocalProcessTreeSync(child.pid);
         }
     }
 }
@@ -94,38 +113,6 @@ function instanceState(ctx) {
         throw new CanvasError("instance_not_open", "Open the canvas before invoking actions.");
     }
     return entry.state;
-}
-
-async function readBody(req) {
-    const chunks = [];
-    for await (const chunk of req) {
-        chunks.push(chunk);
-    }
-    if (chunks.length === 0) {
-        return {};
-    }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-}
-
-function sendJson(res, status, payload) {
-    res.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-    });
-    res.end(JSON.stringify(payload));
-}
-
-function sendHtml(res, html) {
-    res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-    });
-    res.end(html);
-}
-
-function sendNoContent(res) {
-    res.writeHead(204, { "Cache-Control": "no-store" });
-    res.end();
 }
 
 
@@ -536,14 +523,30 @@ async function syncLocalBootstrapForStart(state) {
     return { ok: false, source: "missing" };
 }
 
-function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
+function runCommand(command, args, { cwd = process.cwd(), onOutput, signal, onChild } = {}) {
     return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve({ code: 130, output: "Command cancelled before start.\n", cancelled: true });
+            return;
+        }
         const output = [];
+        let cancelled = false;
         const child = spawn(command, args, {
             cwd,
             shell: process.platform === "win32",
             env: { ...process.env, AZURE_DEV_USER_AGENT: "agent_playground" },
         });
+        onChild?.(child);
+        const abort = () => {
+            cancelled = true;
+            if (child.killed || child.exitCode !== null || child.signalCode) return;
+            if (process.platform === "win32") {
+                void killLocalProcessTree(child.pid);
+            } else {
+                child.kill("SIGTERM");
+            }
+        };
+        signal?.addEventListener?.("abort", abort, { once: true });
         const append = (chunk) => {
             const text = chunk.toString();
             output.push(text);
@@ -552,13 +555,15 @@ function runCommand(command, args, { cwd = process.cwd(), onOutput } = {}) {
         child.stdout.on("data", append);
         child.stderr.on("data", append);
         child.on("error", (error) => {
+            signal?.removeEventListener?.("abort", abort);
             const text = `${error.name}: ${error.message}`;
             output.push(text);
             onOutput?.(text);
-            resolve({ code: 1, output: output.join("") });
+            resolve({ code: 1, output: output.join(""), cancelled });
         });
         child.on("close", (code) => {
-            resolve({ code: code ?? 0, output: output.join("") });
+            signal?.removeEventListener?.("abort", abort);
+            resolve({ code: cancelled ? 130 : code ?? 0, output: output.join(""), cancelled });
         });
     });
 }
@@ -576,6 +581,7 @@ async function localStartCommand(agent) {
         const pythonPath = await discoverPythonPath(agent.root);
         if (!(await exists(localVenv)) && !(await exists(workspaceVenv)) && pythonPath) {
             const packageRoot = dirname(pythonPath);
+            const extras = ["deploy", "optimize", "test", ...(await localSdkExtrasForAgent(agent))];
             return {
                 command: "uv",
                 args: [
@@ -584,12 +590,7 @@ async function localStartCommand(agent) {
                     packageRoot,
                     "--with-editable",
                     packageRoot,
-                    "--extra",
-                    "deploy",
-                    "--extra",
-                    "optimize",
-                    "--extra",
-                    "test",
+                    ...extras.flatMap((extra) => ["--extra", extra]),
                     "python",
                     "main.py",
                 ],
@@ -608,6 +609,22 @@ async function localStartCommand(agent) {
     return null;
 }
 
+async function localSdkExtrasForAgent(agent) {
+    const extras = new Set();
+    const pyproject = join(agent.root, "pyproject.toml");
+    if (await exists(pyproject)) {
+        const text = await readFile(pyproject, "utf8");
+        const dependencyExtras = text.matchAll(/castia\[([^\]]+)\]/g);
+        for (const match of dependencyExtras) {
+            for (const extra of match[1].split(",")) {
+                const normalized = extra.trim();
+                if (normalized) extras.add(normalized);
+            }
+        }
+    }
+    return [...extras].filter((extra) => !["deploy", "optimize", "test"].includes(extra)).sort();
+}
+
 async function discoverPythonPath(start) {
     let current = start;
     while (true) {
@@ -621,7 +638,7 @@ async function discoverPythonPath(start) {
 
 async function startLocalAgent(state) {
     if (state.localRun?.running) return;
-    state.lastHealth = null;
+    clearTargetHealth(state, "local");
     const agent = selectedAgent(state);
     const local = await localStartCommand(agent);
     if (!local) {
@@ -630,6 +647,7 @@ async function startLocalAgent(state) {
     let endpoint = state.localEndpoints[agent.id] || selectedLocalEndpoint(state);
     const requestedEndpoint = endpoint;
     let portWarning = null;
+    await cleanupStaleWorkspaceLocalPorts(state, endpoint);
     if (await isEndpointPortOpen(endpoint)) {
         portWarning = `${endpoint} is already in use.`;
         addLocalEvent(state, "warn", portWarning);
@@ -701,7 +719,7 @@ async function startLocalAgent(state) {
         state.localRun.readiness = state.localRun.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "failed", completedAt: new Date().toISOString() }
             : state.localRun.readiness;
-        state.lastHealth = null;
+        clearTargetHealth(state, "local");
         state.localRun.log.push(`${error.name}: ${error.message}\n`);
         addLocalEvent(state, "fail", error.message);
     });
@@ -713,13 +731,13 @@ async function startLocalAgent(state) {
         state.localRun.readiness = state.localRun.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
             : state.localRun.readiness;
-        state.lastHealth = null;
+        clearTargetHealth(state, "local");
         addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
         delete state.localRun.process;
     });
     waitForLocalReadiness(state, { agent, endpoint, runId }).then((health) => {
         if (state.localRun?.runId !== runId || !state.localRun?.running) return;
-        state.lastHealth = { ...health, source: "startup" };
+        state.lastHealth = setTargetHealth(state, { ...health, source: "startup" }, "local");
         reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "startup" });
         if (health.ok) {
             state.localEndpoints[agent.id] = endpoint;
@@ -738,6 +756,7 @@ async function startLocalAgent(state) {
 
 function reconcileLocalReadinessAfterHealth(state) {
     if (state.target !== "local" || !state.localRun?.running || !state.lastHealth) return;
+    if (localStartupStillPending(state, state.lastHealth)) return;
     const previousStatus = state.localRun.readiness?.status;
     state.localRun.readiness = {
         ...(state.localRun.readiness || {}),
@@ -785,6 +804,24 @@ async function nextAvailableLocalEndpoint(endpoint) {
     throw new CanvasError("local_port_unavailable", `No free local port was found after ${basePort}.`);
 }
 
+async function cleanupStaleWorkspaceLocalPorts(state, endpoint) {
+    if (!isLoopbackEndpoint(endpoint)) return;
+    const basePort = endpointPort(endpoint) || 8088;
+    const cleaned = [];
+    for (let port = basePort; port < basePort + 100; port += 1) {
+        const candidate = endpointWithPort(endpoint, port);
+        if (!(await isEndpointPortOpen(candidate))) continue;
+        const killed = await killLoopbackPortOwner(candidate, { workspaceRoot: process.cwd() });
+        if (!killed) continue;
+        if (await waitForEndpointPortClosed(candidate, 2000)) {
+            cleaned.push(candidate);
+        }
+    }
+    if (cleaned.length) {
+        addLocalEvent(state, "", `Cleaned up stale local agent listener${cleaned.length === 1 ? "" : "s"}: ${cleaned.join(", ")}.`);
+    }
+}
+
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -816,9 +853,22 @@ async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
 async function stopLocalAgent(state) {
     const child = state.localRun?.process;
     const pid = child?.pid;
+    const endpoint = state.localRun?.endpoint;
     if (child && !child.killed) {
         await killLocalProcessTree(pid);
         await waitForProcessClose(child, 3000);
+    }
+    const events = [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }];
+    let released = await waitForEndpointPortClosed(endpoint, child ? 5000 : 250);
+    if (endpoint && !released) {
+        const killedByPort = await killLoopbackPortOwner(endpoint);
+        if (killedByPort) {
+            events.push({ kind: "", text: `Cleaned up stale local process on ${endpoint}.`, at: new Date().toISOString() });
+            released = await waitForEndpointPortClosed(endpoint, 5000);
+        }
+    }
+    if (endpoint && !released) {
+        events.push({ kind: "warn", text: `${endpoint} is still in use after stopping local agent.`, at: new Date().toISOString() });
     }
     state.localRun = {
         ...state.localRun,
@@ -826,14 +876,14 @@ async function stopLocalAgent(state) {
         completedAt: new Date().toISOString(),
         exitCode: state.localRun?.exitCode ?? null,
         log: [...(state.localRun?.log || []), "$ stopped local agent\n"],
-        events: [...(state.localRun?.events || []), { kind: "", text: "Local agent stopped.", at: new Date().toISOString() }].slice(-5),
+        events: events.slice(-5),
         process: null,
         runId: null,
         readiness: state.localRun?.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
             : state.localRun?.readiness || null,
     };
-    state.lastHealth = null;
+    clearTargetHealth(state, "local");
 }
 
 async function killLocalProcessTree(pid) {
@@ -875,6 +925,45 @@ $ids | Sort-Object -Descending -Unique | ForEach-Object {
     ]);
 }
 
+function killLocalProcessTreeSync(pid) {
+    if (!pid) return;
+    if (process.platform !== "win32") {
+        try {
+            process.kill(pid, "SIGTERM");
+        } catch {
+            // The local runner already exited.
+        }
+        return;
+    }
+    const pidValue = Number.isInteger(pid) ? pid : 0;
+    const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$ids = New-Object System.Collections.Generic.List[int]
+if (${pidValue} -gt 0) {
+  $queue = New-Object System.Collections.Generic.Queue[int]
+  $queue.Enqueue(${pidValue})
+  while ($queue.Count -gt 0) {
+    $current = $queue.Dequeue()
+    if (-not $ids.Contains($current)) { $ids.Add($current) }
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $current" | ForEach-Object {
+      $queue.Enqueue([int]$_.ProcessId)
+    }
+  }
+}
+$ids | Sort-Object -Descending -Unique | ForEach-Object {
+  Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+}
+`;
+    spawnSync("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ], { stdio: "ignore" });
+}
+
 async function waitForProcessClose(child, timeoutMs) {
     if (!child || child.killed || child.exitCode !== null || child.signalCode) return;
     await new Promise((resolve) => {
@@ -883,6 +972,66 @@ async function waitForProcessClose(child, timeoutMs) {
             clearTimeout(timeout);
             resolve();
         });
+    });
+}
+
+async function waitForEndpointPortClosed(endpoint, timeoutMs) {
+    if (!endpoint || !isLoopbackEndpoint(endpoint)) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!(await isEndpointPortOpen(endpoint))) return true;
+        await sleep(100);
+    }
+    return !(await isEndpointPortOpen(endpoint));
+}
+
+function powershellString(value) {
+    return `'${String(value || "").replace(/'/g, "''")}'`;
+}
+
+async function killLoopbackPortOwner(endpoint, { workspaceRoot = null } = {}) {
+    if (!endpoint || !isLoopbackEndpoint(endpoint) || process.platform !== "win32") return false;
+    const port = endpointPort(endpoint);
+    if (!port) return false;
+    const workspaceFilter = workspaceRoot
+        ? `
+$workspaceRoot = ${powershellString(resolve(workspaceRoot))}
+$owners = $owners | Where-Object {
+  $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $_"
+  $proc -and (($proc.ExecutablePath -like "*$workspaceRoot*") -or ($proc.CommandLine -like "*$workspaceRoot*"))
+}
+`
+        : "";
+    const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$owners = Get-NetTCPConnection -LocalPort ${port} -State Listen |
+  Where-Object { @('127.0.0.1','0.0.0.0','::','::1') -contains $_.LocalAddress } |
+  Select-Object -ExpandProperty OwningProcess -Unique
+${workspaceFilter}
+$owners | Where-Object { $_ -and $_ -ne $PID } | ForEach-Object {
+  Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+  $_
+}
+`;
+    const result = await runPowerShell(script);
+    return result.code === 0 && result.output.trim().length > 0;
+}
+
+function runPowerShell(script) {
+    return new Promise((resolve) => {
+        const child = spawn("powershell.exe", [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ], { shell: false });
+        const output = [];
+        child.stdout.on("data", (chunk) => output.push(chunk.toString()));
+        child.stderr.on("data", (chunk) => output.push(chunk.toString()));
+        child.on("error", (error) => resolve({ code: 1, output: `${error.name}: ${error.message}\n` }));
+        child.on("close", (code) => resolve({ code: code ?? 0, output: output.join("") }));
     });
 }
 
@@ -921,34 +1070,14 @@ function reconcileSelectedAgentFromReadiness(state, health, { source = "manual" 
 
     if (matchingAgent.id === selected.id) return;
 
-    const safeToAutoSelect = source === "startup";
-    if (safeToAutoSelect) {
-        const endpoint = state.localRun?.endpoint || selectedLocalEndpoint(state);
-        setSelectedAgent(state, matchingAgent.id);
-        state.target = "local";
-        state.localEndpoints[matchingAgent.id] = endpoint;
-        if (state.localRun) {
-            state.localRun.agentId = matchingAgent.id;
-            state.localRun.agentName = matchingAgent.serviceName;
-            state.localRun.endpoint = endpoint;
-        }
-        state.localRun.identityMismatch = {
-            expected: selected.displayName || selected.serviceName,
-            actual,
-            autoSelected: true,
-            canSwitch: false,
-            message: `Readiness reports ${actual}; selected agent was updated from ${selected.displayName || selected.serviceName}.`,
-        };
-        addLocalEvent(state, "ok", state.localRun.identityMismatch.message);
-    } else {
-        state.localRun.identityMismatch = {
-            expected: selected.displayName || selected.serviceName,
-            actual,
-            agentId: matchingAgent.id,
-            canSwitch: true,
-            message: `Endpoint belongs to ${actual}; selected ${selected.displayName || selected.serviceName}.`,
-        };
-    }
+    state.localRun.identityMismatch = {
+        expected: selected.displayName || selected.serviceName,
+        actual,
+        agentId: matchingAgent.id,
+        canSwitch: true,
+        source,
+        message: `Endpoint belongs to ${actual}; selected ${selected.displayName || selected.serviceName}.`,
+    };
 }
 
 async function selectAgent(state, agentId) {
@@ -964,9 +1093,13 @@ function setLocalEndpoint(state, endpoint) {
     const normalized = normalizeEndpoint(endpoint);
     const current = selectedLocalEndpoint(state);
     state.localEndpoints[state.selectedAgentId] = normalized;
-    state.target = "local";
+    if (!state.localRun?.running && state.localRun?.agentId === selectedAgent(state).id) {
+        state.localRun = emptyLocalRun();
+    }
+    setTarget(state, "local");
+    clearProjectEndpointPrompt(state);
     if (normalized !== current) {
-        state.lastHealth = null;
+        clearTargetHealth(state, "local");
     }
 }
 
@@ -1190,13 +1323,41 @@ async function ensureAzdDeploymentContext(state, log, { stampDeployment = false 
     return exitCode;
 }
 
+function azdLifecyclePhase(text, commandName) {
+    const value = String(text || "");
+    if (/Uploading|Registering|Creating agent|Updating agent|Polling|Waiting for deployment|Remote/i.test(value)) {
+        return { phase: "remote_registration", irreversible: true };
+    }
+    if (/Packaging|Building|Preparing|Resolving/i.test(value)) {
+        return { phase: "prepare_artifacts", irreversible: false };
+    }
+    if (/Provisioning|Deploying/i.test(value)) {
+        return { phase: commandName === "deploy" ? "deploying" : "provisioning", irreversible: false };
+    }
+    return null;
+}
+
 async function streamAzdLifecycle(res, state, { commandName, args }) {
     res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-store",
         Connection: "keep-alive",
     });
+    const started = beginOperation(state, {
+        kind: commandName,
+        actor: "Canvas",
+        phase: "starting",
+        cancellable: true,
+    });
+    if (!started.started) {
+        writeEvent(res, "snapshot", snapshotState(state));
+        writeEvent(res, "operation", { duplicate: true, operation: started.operation });
+        res.end();
+        return;
+    }
+    recordOperation(state, "started", { commandName, args });
     const agent = selectedAgent(state);
+    const abortController = new AbortController();
     state.deployment = {
         running: true,
         exitCode: null,
@@ -1205,23 +1366,45 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         command: `azd ${args.join(" ")}`,
         needsProvision: false,
         log: [`$ azd ${args.join(" ")}\n`],
+        process: null,
+        abortController,
     };
     if (commandName === "deploy") {
         clearMessagesForTarget(state, "hosted");
     }
     try {
         if (commandName === "deploy" || commandName === "provision") {
+            updateOperation(state, { phase: "configure_environment" });
             await ensureAzdDeploymentContext(state, state.deployment.log, { stampDeployment: commandName === "deploy" });
         }
-        writeEvent(res, "snapshot", stateSnapshot(state));
+        writeEvent(res, "snapshot", snapshotState(state));
         const previousVersion = commandName === "deploy" ? state.hosted?.version : null;
-        const result = await runCommand("azd", args, {
-            cwd: agent.root,
-            onOutput: (text) => {
-                state.deployment.log.push(text);
-                writeEvent(res, "snapshot", stateSnapshot(state));
-            },
-        });
+        updateOperation(state, { phase: "run_azd" });
+        const result = state.operations?.active?.status === "cancel_requested" && !state.operations.active.irreversible
+            ? { code: 130, output: "Command cancelled before start.\n", cancelled: true }
+            : await runCommand("azd", args, {
+                cwd: agent.root,
+                signal: abortController.signal,
+                onChild: (child) => {
+                    state.deployment.process = child;
+                },
+                onOutput: (text) => {
+                    state.deployment.log.push(text);
+                    const phase = azdLifecyclePhase(text, commandName);
+                    if (phase?.irreversible) {
+                        enterIrreversiblePhase(state, phase.phase);
+                    } else if (phase?.phase) {
+                        updateOperation(state, { phase: phase.phase });
+                    }
+                    if (state.operations?.active?.status === "cancel_requested" && !state.operations.active.irreversible) {
+                        abortController.abort();
+                    }
+                    writeEvent(res, "snapshot", snapshotState(state));
+                },
+            });
+        if (result.cancelled && !state.deployment.log.join("").includes("Command cancelled")) {
+            state.deployment.log.push(result.output || "Command cancelled.\n");
+        }
         const output = state.deployment.log.join("");
         state.deployment.exitCode = result.code;
         state.deployment.needsProvision =
@@ -1231,7 +1414,7 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         if (state.deployment.needsProvision) {
             state.deployment.log.push("\nNext: prepare this repo for hosted deployment, then deploy again.\n");
         }
-        if (commandName === "provision" || result.code === 0) {
+        if (!result.cancelled && (commandName === "provision" || result.code === 0)) {
             state.deployment.log.push(`\n$ azd env get-values\n`);
             const refresh = await refreshHostedContext(state);
             state.deployment.log.push(refresh.result.output || "(no output)\n");
@@ -1249,21 +1432,66 @@ async function streamAzdLifecycle(res, state, { commandName, args }) {
         if (commandName === "provision" && result.code === 0) {
             state.deployment.log.push("\nDeploy prep complete. Deploy is ready.\n");
         }
+        const cancellationMode = state.operations?.active?.cancellation?.mode || null;
+        const terminal = completeOperation(state, {
+            status: cancellationMode === "stop_requested" && result.cancelled ? "cancelled" : result.code === 0 ? "completed" : "failed",
+            exitCode: result.code,
+            summary: `${commandName} exited with code ${result.code}.`,
+        });
+        recordOperation(state, "completed", { commandName, exitCode: result.code, operation: terminal });
     } catch (error) {
         state.deployment.exitCode = state.deployment.exitCode ?? 1;
         state.deployment.log.push(`\nERROR: ${error instanceof Error ? error.message : String(error)}\n`);
+        const cancellationMode = state.operations?.active?.cancellation?.mode || null;
+        const terminal = completeOperation(state, {
+            status: cancellationMode === "stop_requested" ? "cancelled" : "failed",
+            exitCode: state.deployment.exitCode,
+            summary: error instanceof Error ? error.message : String(error),
+        });
+        recordOperation(state, "failed", {
+            commandName,
+            error: error instanceof Error ? error.message : String(error),
+            operation: terminal,
+        });
     } finally {
         state.deployment.running = false;
         state.deployment.completedAt = new Date().toISOString();
-        writeEvent(res, "snapshot", stateSnapshot(state));
+        delete state.deployment.process;
+        delete state.deployment.abortController;
+        writeEvent(res, "snapshot", snapshotState(state));
         res.end();
     }
 }
 
-function writeEvent(res, name, payload) {
-    res.write(`event: ${name}\n`);
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+function snapshotState(state) {
+    const snapshot = stateSnapshot(state);
+    void persistStateSnapshot(state, snapshot).catch(() => {});
+    return snapshot;
 }
+
+function recordOperation(state, event, details = {}) {
+    const { operation, ...rest } = details;
+    void appendOperationRecord(state, {
+        event,
+        operation: operation || state.operations?.active || null,
+        details: rest,
+    }).catch(() => {});
+}
+
+const {
+    commandSelectAgent,
+    commandStartLocal,
+    commandCancelOperation,
+    commandBootstrapLocalEnv,
+} = createPlaygroundCommands({
+    selectAgent,
+    refreshHostedContext,
+    snapshotState,
+    syncLocalBootstrapForStart,
+    startLocalAgent,
+    bootstrapLocalEnv,
+    recordOperation,
+});
 
 function openSnapshotStream(req, res, state) {
     res.writeHead(200, {
@@ -1272,7 +1500,7 @@ function openSnapshotStream(req, res, state) {
         Connection: "keep-alive",
     });
     state.eventClients.add(res);
-    writeEvent(res, "snapshot", stateSnapshot(state));
+    writeEvent(res, "snapshot", snapshotState(state));
     req.on("close", () => {
         state.eventClients.delete(res);
     });
@@ -1281,7 +1509,7 @@ function openSnapshotStream(req, res, state) {
 function broadcastSnapshot(state) {
     for (const client of state.eventClients) {
         try {
-            writeEvent(client, "snapshot", stateSnapshot(state));
+            writeEvent(client, "snapshot", snapshotState(state));
         } catch {
             state.eventClients.delete(client);
         }
@@ -1322,7 +1550,7 @@ function completedResponseResult(state, turn) {
         displayText: responseDisplayText(turn.response),
         copyableText: copyableAnswerText(turn.response),
         transcript: transcriptState(state),
-        state: stateSnapshot(state),
+        state: snapshotState(state),
     };
 }
 
@@ -1339,312 +1567,7 @@ async function completeResponseTurn(state, turn, activityId = null) {
     return completedResponseResult(state, turn);
 }
 
-async function handleRequest(req, res, state) {
-    try {
-        const url = new URL(req.url || "/", "http://127.0.0.1");
-        if (req.method === "GET" && url.pathname === "/") {
-            sendHtml(res, renderHtml());
-            return;
-        }
-        if (req.method === "GET" && url.pathname === "/favicon.ico") {
-            sendNoContent(res);
-            return;
-        }
-        if (req.method === "GET" && url.pathname === "/assets/icon-service-AI-Foundry.svg") {
-            const svg = await readFile(join(EXTENSION_ROOT, "assets", "icon-service-AI-Foundry.svg"), "utf8");
-            res.writeHead(200, {
-                "Content-Type": "image/svg+xml; charset=utf-8",
-                "Cache-Control": "no-store",
-            });
-            res.end(svg);
-            return;
-        }
-        if (req.method === "GET" && url.pathname === "/assets/icon-teams.svg") {
-            const svg = await readFile(join(EXTENSION_ROOT, "assets", "icon-teams.svg"), "utf8");
-            res.writeHead(200, {
-                "Content-Type": "image/svg+xml; charset=utf-8",
-                "Cache-Control": "no-store",
-            });
-            res.end(svg);
-            return;
-        }
-        if (req.method === "GET" && url.pathname === "/assets/icon-a365-agents.svg") {
-            const svg = await readFile(join(EXTENSION_ROOT, "assets", "icon-a365-agents.svg"), "utf8");
-            res.writeHead(200, {
-                "Content-Type": "image/svg+xml; charset=utf-8",
-                "Cache-Control": "no-store",
-            });
-            res.end(svg);
-            return;
-        }
-        if (req.method === "GET" && url.pathname === "/api/state") {
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "GET" && url.pathname === "/api/events") {
-            openSnapshotStream(req, res, state);
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/endpoint") {
-            const body = await readBody(req);
-            if (body.target === "hosted" || state.target === "hosted") {
-                state.hosted.responsesEndpoint = String(body.endpoint || "").trim().replace(/\/+$/, "");
-                state.hostedByAgent[state.selectedAgentId] = state.hosted;
-                state.target = "hosted";
-            } else {
-                setLocalEndpoint(state, body.endpoint);
-            }
-            addActivity(state, {
-                actor: "You",
-                kind: "set_endpoint",
-                status: "completed",
-                summary: `Endpoint set to ${activeEndpoint(state) || "not configured"}.`,
-                details: { target: state.target, endpoint: activeEndpoint(state) },
-            });
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/agent") {
-            const body = await readBody(req);
-            await selectAgent(state, body.agentId);
-            await refreshHostedContext(state);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/foundry/connect") {
-            const body = await readBody(req);
-            await connectFoundry(state, {
-                projectEndpoint: body.projectEndpoint,
-                modelDeployment: body.modelDeployment,
-            });
-            await refreshHostedContext(state);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/env/bootstrap") {
-            const body = await readBody(req);
-            const result = await bootstrapLocalEnv(state, body);
-            if (state.foundryConnection.projectEndpoint) {
-                await refreshHostedContext(state);
-            }
-            sendJson(res, 200, { result, state: stateSnapshot(state) });
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/target") {
-            const body = await readBody(req);
-            if (!["local", "hosted"].includes(body.target)) {
-                sendJson(res, 400, { error: "Target must be local or hosted." });
-                return;
-            }
-            state.target = body.target;
-            if (body.refresh && state.target === "hosted") {
-                await refreshHostedContext(state);
-            }
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/hosted/refresh") {
-            await refreshHostedContext(state);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/config/refresh") {
-            state.foundryConnection = emptyFoundryConnection();
-            await hydrateFoundryConnection(state);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/health") {
-            const activity = addActivity(state, {
-                actor: "You",
-                kind: "health_check",
-                status: "running",
-                summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
-                details: { target: state.target, endpoint: activeEndpoint(state) },
-            });
-            state.lastHealth = {
-                ...(await checkReadiness(activeEndpoint(state), {
-                    expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
-                })),
-                source: "manual",
-            };
-            if (state.target === "local") {
-                reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "manual" });
-                reconcileLocalReadinessAfterHealth(state);
-            }
-            updateActivity(state, activity.id, {
-                status: state.lastHealth.ok ? "completed" : "failed",
-                summary: `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
-                details: { health: state.lastHealth },
-            });
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/agent/switch-to-readiness") {
-            const mismatch = state.localRun?.identityMismatch;
-            if (!mismatch?.agentId) {
-                sendJson(res, 409, { error: "No discovered readiness agent is available to switch to." });
-                return;
-            }
-            const endpoint = state.localRun?.endpoint || selectedLocalEndpoint(state);
-            setSelectedAgent(state, mismatch.agentId);
-            state.target = "local";
-            state.localEndpoints[state.selectedAgentId] = endpoint;
-            state.localRun = {
-                ...state.localRun,
-                agentId: state.selectedAgentId,
-                agentName: selectedAgent(state).serviceName,
-                endpoint,
-                identityMismatch: null,
-            };
-            addLocalEvent(state, "ok", `Selected ${selectedAgent(state).displayName || selectedAgent(state).serviceName} from readiness.`);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/local/start") {
-            state.target = "local";
-            const sync = await syncLocalBootstrapForStart(state);
-            if (!sync.ok) {
-                sendJson(res, 409, {
-                    error: "Foundry project endpoint is required before starting local.",
-                    needsProjectEndpoint: true,
-                    state: stateSnapshot(state),
-                });
-                return;
-            }
-            await startLocalAgent(state);
-            state.target = "local";
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/local/stop") {
-            await stopLocalAgent(state);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/responses") {
-            const body = await readBody(req);
-            const input = String(body.input || "").trim();
-            if (!input) {
-                sendJson(res, 400, { error: "Input is required." });
-                return;
-            }
-            if (state.target !== "hosted" && !state.lastHealth?.ok) {
-                sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending a prompt." });
-                return;
-            }
-            const activity = addActivity(state, {
-                actor: "You",
-                kind: "send_response",
-                status: "running",
-                summary: "Prompt sent to the agent.",
-                details: { input, target: state.target, endpoint: activeEndpoint(state) },
-            });
-            const turn = responseTurn(state, input);
-            state.messages.push(turn);
-            await completeResponseTurn(state, turn, activity.id);
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/responses/stream") {
-            const body = await readBody(req);
-            const input = String(body.input || "").trim();
-            if (!input) {
-                sendJson(res, 400, { error: "Input is required." });
-                return;
-            }
-            if (state.target !== "hosted" && !state.lastHealth?.ok) {
-                sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending a prompt." });
-                return;
-            }
-            res.writeHead(200, {
-                "Content-Type": "text/event-stream; charset=utf-8",
-                "Cache-Control": "no-store",
-                Connection: "keep-alive",
-            });
-            const activity = addActivity(state, {
-                actor: "You",
-                kind: "send_response",
-                status: "running",
-                summary: "Prompt sent to the agent.",
-                details: { input, target: state.target, endpoint: activeEndpoint(state), stream: true },
-            });
-            const turn = responseTurn(state, input, { stream: true });
-            turn.response.delivery.mode = "pending-stream";
-            state.messages.push(turn);
-            writeEvent(res, "snapshot", stateSnapshot(state));
-            const result = await callAgentStream(activeEndpoint(state), { input }, (_delta, outputText, durationMs) => {
-                turn.response = {
-                    ok: true,
-                    status: "streaming",
-                    durationMs,
-                    body: { output_text: outputText },
-                    streaming: true,
-                    delivery: {
-                        mode: "upstream-stream",
-                        upstreamStreaming: true,
-                        active: true,
-                    },
-                };
-                writeEvent(res, "snapshot", stateSnapshot(state));
-            });
-            turn.response = result;
-            updateActivity(state, activity.id, {
-                status: result.ok ? "completed" : "failed",
-                summary: result.ok ? `Response completed (${result.status}).` : `Response failed (${result.status || "error"}).`,
-                details: { displayText: responseDisplayText(result), status: result.status, durationMs: result.durationMs },
-            });
-            writeEvent(res, "snapshot", stateSnapshot(state));
-            res.end();
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/clear") {
-            clearMessagesForTarget(state, state.target);
-            addActivity(state, {
-                actor: "You",
-                kind: "clear_transcript",
-                status: "completed",
-                summary: `Cleared ${state.target} transcript.`,
-                details: { target: state.target },
-            });
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/deploy/clear") {
-            state.deployment.log.length = 0;
-            state.deployment.exitCode = null;
-            state.deployment.needsProvision = false;
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/teams/tested") {
-            state.teams.testedAt = new Date().toISOString();
-            state.teams.agentId = state.hosted.agentId || null;
-            state.teams.version = state.hosted.version || null;
-            sendJson(res, 200, stateSnapshot(state));
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/provision/stream") {
-            await streamAzdLifecycle(res, state, {
-                commandName: "provision",
-                args: ["provision", "--no-prompt"],
-            });
-            return;
-        }
-        if (req.method === "POST" && url.pathname === "/api/deploy/stream") {
-            await streamAzdLifecycle(res, state, {
-                commandName: "deploy",
-                args: ["deploy", selectedAgent(state).serviceName, "--no-prompt"],
-            });
-            return;
-        }
-        sendJson(res, 404, { error: "Not found." });
-    } catch (error) {
-        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
-    }
-}
-
-async function startServer(ctx) {
+async function startServer(ctx, copilotSession) {
     const agents = await discoverAgents();
     const selectedAgentId = ctx.input?.agentId && agents.some((agent) => agent.id === ctx.input.agentId)
         ? ctx.input.agentId
@@ -1671,16 +1594,42 @@ async function startServer(ctx) {
             log: [],
         },
         localRun: emptyLocalRun(),
-        teams: {
-            testedAt: null,
-            agentId: null,
-            version: null,
-        },
+        teams: {},
         messages: [],
         lastHealth: null,
+        lastHealthByTarget: {},
+        projectEndpointPrompt: null,
+        operations: emptyOperationState(),
         eventClients: new Set(),
     };
+    configureRuntimeStore(state, {
+        sessionId: copilotSession?.sessionId || ctx.sessionId || process.env.SESSION_ID || process.env.COPILOT_SESSION_ID,
+        instanceId: ctx.instanceId,
+    });
     await hydrateFoundryConnection(state);
+    snapshotState(state);
+    const handleRequest = createRequestHandler({
+        extensionRoot: EXTENSION_ROOT,
+        snapshotState,
+        openSnapshotStream,
+        setLocalEndpoint,
+        commandSelectAgent,
+        connectFoundry,
+        refreshHostedContext,
+        clearProjectEndpointPrompt,
+        commandBootstrapLocalEnv,
+        hydrateFoundryConnection,
+        readinessAgentNames,
+        reconcileSelectedAgentFromReadiness,
+        reconcileLocalReadinessAfterHealth,
+        localStartupStillPending,
+        commandStartLocal,
+        stopLocalAgent,
+        responseTurn,
+        completeResponseTurn,
+        commandCancelOperation,
+        streamAzdLifecycle,
+    });
     const server = createServer((req, res) => {
         void handleRequest(req, res, state);
     });
@@ -1690,7 +1639,8 @@ async function startServer(ctx) {
     return { server, state, url: `http://127.0.0.1:${port}/` };
 }
 
-await joinSession({
+let copilotSession;
+copilotSession = await joinSession({
     systemMessage: {
         mode: "append",
         content: [
@@ -1718,206 +1668,28 @@ await joinSession({
                 },
                 additionalProperties: false,
             },
-            actions: [
-                {
-                    name: "set_endpoint",
-                    description: "Set the agent endpoint used by this tester.",
-                    inputSchema: {
-                        type: "object",
-                        properties: { endpoint: { type: "string" } },
-                        required: ["endpoint"],
-                        additionalProperties: false,
-                    },
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        if (state.target === "hosted") {
-                            state.hosted.responsesEndpoint = String(ctx.input?.endpoint || "").trim().replace(/\/+$/, "");
-                        } else {
-                            setLocalEndpoint(state, ctx.input?.endpoint);
-                        }
-                        addActivity(state, {
-                            actor: "Copilot",
-                            kind: "set_endpoint",
-                            status: "completed",
-                            summary: `Endpoint set to ${activeEndpoint(state) || "not configured"}.`,
-                            details: { target: state.target, endpoint: activeEndpoint(state) },
-                        });
-                        broadcastSnapshot(state);
-                        return stateSnapshot(state);
-                    },
-                },
-                {
-                    name: "set_target",
-                    description: "Switch the playground target between local and hosted Foundry chat.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            target: { type: "string", enum: ["local", "hosted"] },
-                        },
-                        required: ["target"],
-                        additionalProperties: false,
-                    },
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        state.target = ctx.input.target;
-                        addActivity(state, {
-                            actor: "Copilot",
-                            kind: "set_target",
-                            status: "completed",
-                            summary: `Switched to ${state.target} target.`,
-                            details: { target: state.target, endpoint: activeEndpoint(state) },
-                        });
-                        broadcastSnapshot(state);
-                        return stateSnapshot(state);
-                    },
-                },
-                {
-                    name: "health_check",
-                    description: "Call GET /readiness on the configured agent endpoint.",
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        const activity = addActivity(state, {
-                            actor: "Copilot",
-                            kind: "health_check",
-                            status: "running",
-                            summary: `Checking readiness for ${activeEndpoint(state) || "configured endpoint"}.`,
-                            details: { target: state.target, endpoint: activeEndpoint(state) },
-                        });
-                        state.lastHealth = {
-                            ...(await checkReadiness(activeEndpoint(state), {
-                                expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
-                            })),
-                            source: "copilot",
-                        };
-                        if (state.target === "local") {
-                            reconcileSelectedAgentFromReadiness(state, state.lastHealth, { source: "copilot" });
-                            reconcileLocalReadinessAfterHealth(state);
-                        }
-                        updateActivity(state, activity.id, {
-                            status: state.lastHealth.ok ? "completed" : "failed",
-                            summary: `Readiness ${state.lastHealth.status} in ${state.lastHealth.durationMs}ms.`,
-                            details: { health: state.lastHealth },
-                        });
-                        broadcastSnapshot(state);
-                        return {
-                            readiness: state.lastHealth,
-                            transcript: transcriptState(state),
-                            state: stateSnapshot(state),
-                        };
-                    },
-                },
-                {
-                    name: "send_response",
-                    description: "Send a prompt to POST /responses and append the result to the transcript.",
-                    inputSchema: {
-                        type: "object",
-                        properties: {
-                            input: { type: "string" },
-                            waitForFinal: {
-                                type: "boolean",
-                                description: "When false, append a visible pending turn and return immediately while completion continues in the background.",
-                            },
-                            appendVisible: {
-                                type: "boolean",
-                                description: "Append the prompt and answer to the visible transcript. Defaults to true.",
-                            },
-                            expectAgent: {
-                                type: "string",
-                                description: "Optional expected selected agent id or display/service name for diagnostics.",
-                            },
-                        },
-                        required: ["input"],
-                        additionalProperties: false,
-                    },
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        const input = String(ctx.input?.input || "").trim();
-                        if (!input) {
-                            throw new CanvasError("input_required", "Input is required.");
-                        }
-                        if (ctx.input?.appendVisible === false && ctx.input?.waitForFinal === false) {
-                            throw new CanvasError("unsupported_options", "appendVisible=false cannot be combined with waitForFinal=false.");
-                        }
-                        if (state.target !== "hosted" && !state.lastHealth?.ok) {
-                            throw new CanvasError("not_ready", "Start the local agent and wait for readiness before sending a prompt.");
-                        }
-                        const expected = String(ctx.input?.expectAgent || "").trim();
-                        const agent = selectedAgent(state);
-                        if (expected && ![agent.id, agent.serviceName, agent.displayName].includes(expected)) {
-                            addActivity(state, {
-                                actor: "Copilot",
-                                kind: "send_response",
-                                status: "warn",
-                                summary: `Expected ${expected}, selected ${agent.displayName || agent.serviceName}.`,
-                                details: { expected, selectedAgent: agent },
-                            });
-                        }
-                        const activity = addActivity(state, {
-                            actor: "Copilot",
-                            kind: "send_response",
-                            status: "running",
-                            summary: "Prompt sent to the agent.",
-                            details: { input, target: state.target, endpoint: activeEndpoint(state) },
-                        });
-                        const turn = responseTurn(state, input);
-                        if (ctx.input?.appendVisible !== false) {
-                            state.messages.push(turn);
-                        }
-                        broadcastSnapshot(state);
-                        if (ctx.input?.waitForFinal === false) {
-                            void completeResponseTurn(state, turn, activity.id).catch((error) => {
-                                turn.response = {
-                                    ok: false,
-                                    status: 0,
-                                    durationMs: 0,
-                                    body: error instanceof Error ? error.message : String(error),
-                                    delivery: { mode: "error", upstreamStreaming: false, active: false },
-                                };
-                                updateActivity(state, activity.id, {
-                                    status: "failed",
-                                    summary: "Response failed.",
-                                    details: { error: turn.response.body },
-                                });
-                            }).finally(() => {
-                                broadcastSnapshot(state);
-                            });
-                            return completedResponseResult(state, turn);
-                        }
-                        const result = await completeResponseTurn(state, turn, activity.id);
-                        broadcastSnapshot(state);
-                        return result;
-                    },
-                },
-                {
-                    name: "get_transcript_state",
-                    description: "Return the visible transcript, latest copy target, pending label, and health banner state.",
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        return transcriptState(state);
-                    },
-                },
-                {
-                    name: "clear_transcript",
-                    description: "Clear the tester transcript for this canvas instance.",
-                    handler: async (ctx) => {
-                        const state = instanceState(ctx);
-                        clearMessagesForTarget(state, state.target);
-                        addActivity(state, {
-                            actor: "Copilot",
-                            kind: "clear_transcript",
-                            status: "completed",
-                            summary: `Cleared ${state.target} transcript.`,
-                            details: { target: state.target },
-                        });
-                        broadcastSnapshot(state);
-                        return stateSnapshot(state);
-                    },
-                },
-            ],
+            actions: createCanvasActions({
+                CanvasError,
+                instanceState,
+                commandSelectAgent,
+                commandStartLocal,
+                commandCancelOperation,
+                commandBootstrapLocalEnv,
+                setLocalEndpoint,
+                readinessAgentNames,
+                reconcileSelectedAgentFromReadiness,
+                reconcileLocalReadinessAfterHealth,
+                localStartupStillPending,
+                responseTurn,
+                completeResponseTurn,
+                completedResponseResult,
+                snapshotState,
+                broadcastSnapshot,
+            }),
             open: async (ctx) => {
                 let entry = servers.get(ctx.instanceId);
                 if (!entry) {
-                    entry = await startServer(ctx);
+                    entry = await startServer(ctx, copilotSession);
                     servers.set(ctx.instanceId, entry);
                 } else if (ctx.input?.endpoint) {
                     entry.state.localEndpoints[entry.state.selectedAgentId] = normalizeEndpoint(ctx.input.endpoint);

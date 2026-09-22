@@ -9,7 +9,44 @@ import {
     responseDetailsPanelId,
     responseDisplayState,
     responseText,
-} from "./renderer-client.mjs";
+    shouldOpenProjectEndpointDialog,
+} from "../renderer/renderer-client.mjs";
+import { rendererStyles } from "../renderer/renderer-styles.mjs";
+
+test("renderer styles bind to Copilot canvas dark-mode theme attributes", () => {
+    assert.match(rendererStyles, /html\[data-color-mode="dark"\]/);
+    assert.match(rendererStyles, /body\[data-color-mode="dark"\]/);
+    assert.match(rendererStyles, /--background-color-default/);
+    assert.match(rendererStyles, /--text-color-default/);
+    assert.match(rendererStyles, /--border-color-default/);
+});
+
+test("empty transcript state fills the available transcript space", () => {
+    assert.doesNotMatch(rendererStyles, /\.panel:has\(\.transcript\.empty-state\)/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*display:\s*grid;/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*height:\s*100%;/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*overflow:\s*auto;/);
+    assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
+});
+
+test("header guidance and diagnostics use compact hoverable details", () => {
+    assert.match(rendererStyles, /\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(16rem, 1fr\) minmax\(22rem, auto\);/);
+    assert.match(rendererStyles, /\.action-summary\s*{[^}]*grid-template-columns:\s*minmax\(0, auto\) minmax\(0, 1fr\);/);
+    assert.match(rendererStyles, /\.action-summary\s*{[^}]*align-items:\s*center;/);
+    assert.match(rendererStyles, /\.action-state-chip\s*{[^}]*display:\s*inline-flex;/);
+    assert.match(rendererClientScript, /guideTitle\.textContent = !connected \? "Connect Foundry project" : "Deploy";/);
+    assert.match(rendererClientScript, /guideTitle\.textContent = !connected \? "Connect Foundry project" : "Foundry Agent";/);
+    assert.match(rendererClientScript, /deployButton\.textContent = "Deploy";/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(12rem, 1fr\) minmax\(16rem, 0\.9fr\);/);
+    assert.match(rendererStyles, /@media \(max-width: 520px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*1fr;/);
+    assert.match(rendererStyles, /\.action-detail-trigger:hover \.action-copy/);
+    assert.match(rendererStyles, /\.status-row\s*{[^}]*display:\s*flex;/);
+    assert.match(rendererStyles, /\.local-ticker\[data-detail\]::after/);
+    assert.match(rendererClientScript, /function renderActionStateChip/);
+    assert.match(rendererClientScript, /setAttribute\("data-detail"/);
+    assert.match(rendererStyles, /\.a365-logo\s*{[^}]*opacity:\s*0\.88;/);
+    assert.doesNotMatch(rendererStyles, /\.a365-logo\s*{[^}]*width:\s*32px;/);
+});
 
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {
@@ -37,6 +74,40 @@ test("composer gate reports precise local readiness states", () => {
     assert.equal(
         composerGate({ target: "local", lastHealth: { ok: false, status: 503, body: "warming" } }).disabledReason,
         "Readiness check failed (503): warming",
+    );
+});
+
+test("composer gate reports independent readiness failure dimensions", () => {
+    assert.equal(
+        composerGate({
+            target: "local",
+            lastHealth: {
+                ok: false,
+                body: "Endpoint belongs to contract-expert; selected minimal-agent.",
+                identity: { expected: "minimal-agent", actual: "contract-expert", status: "mismatch" },
+            },
+        }).disabledReason,
+        "Selected agent does not match endpoint: Endpoint belongs to contract-expert; selected minimal-agent.",
+    );
+    assert.equal(
+        composerGate({
+            target: "local",
+            lastHealth: {
+                ok: false,
+                configurationStatus: { status: "missing", missingRequired: ["FOUNDRY_PROJECT_ENDPOINT"] },
+            },
+        }).disabledReason,
+        "Missing required configuration: FOUNDRY_PROJECT_ENDPOINT",
+    );
+    assert.equal(
+        composerGate({
+            target: "local",
+            lastHealth: {
+                ok: false,
+                protocolSupport: { status: "missing", missing: ["responses"] },
+            },
+        }).disabledReason,
+        "Missing required protocol support: responses",
     );
 });
 
@@ -217,4 +288,17 @@ test("renderer script defines activity rendering at top level", () => {
 test("renderer subscribes to canvas action state updates", () => {
     assert.match(rendererClientScript, /new EventSource\("\/api\/events"\)/);
     assert.match(rendererClientScript, /addEventListener\("snapshot"/);
+});
+
+test("renderer wires operation cancellation through shared route", () => {
+    assert.match(rendererClientScript, /cancelOperationButton/);
+    assert.match(rendererClientScript, /function cancelOperationFromCanvas/);
+    assert.match(rendererClientScript, /\/api\/operation\/cancel/);
+});
+
+test("project endpoint prompt state opens and closes the endpoint dialog", () => {
+    assert.equal(shouldOpenProjectEndpointDialog({ projectEndpointPrompt: { open: true } }), true);
+    assert.equal(shouldOpenProjectEndpointDialog({ projectEndpointPrompt: null }), false);
+    assert.match(rendererClientScript, /shouldOpenProjectEndpointDialog\(state\).*showProjectEndpointDialog/s);
+    assert.match(rendererClientScript, /!shouldOpenProjectEndpointDialog\(state\).*hideProjectEndpointDialog/s);
 });

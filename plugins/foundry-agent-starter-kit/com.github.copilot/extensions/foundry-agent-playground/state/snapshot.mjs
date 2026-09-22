@@ -1,6 +1,6 @@
-import { serviceEnvPrefix } from "./agent-discovery.mjs";
-import { responseText } from "./agent-client.mjs";
-import { DEFAULT_AGENT_ROOT, DEFAULT_ENDPOINT, DEFAULT_SERVICE_NAME } from "./constants.mjs";
+import { serviceEnvPrefix } from "../client/agent-discovery.mjs";
+import { responseText } from "../client/agent-client.mjs";
+import { DEFAULT_AGENT_ROOT, DEFAULT_ENDPOINT, DEFAULT_SERVICE_NAME } from "../domain/constants.mjs";
 
 const MAX_ACTIVITY_ENTRIES = 80;
 
@@ -38,7 +38,7 @@ export function selectedAgent(state) {
 
 export function selectedLocalEndpoint(state) {
     const agent = selectedAgent(state);
-    if (state.localRun?.running && state.localRun.agentId === agent.id && state.localRun.endpoint) {
+    if (state.localRun?.agentId === agent.id && state.localRun.endpoint) {
         return state.localRun.endpoint;
     }
     return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
@@ -168,7 +168,9 @@ export function switchSelectedAgent(state, agentId, { stopLocalRun } = {}) {
         }
         state.localRun = emptyLocalRun();
         state.lastHealth = null;
-        clearMessagesForTarget(state, "local");
+        state.lastHealthByTarget = {};
+        state.messages.length = 0;
+        state.projectEndpointPrompt = null;
     }
     return agent;
 }
@@ -205,6 +207,45 @@ export function clearMessagesForTarget(state, target) {
     );
     state.messages.length = 0;
     state.messages.push(...keep);
+}
+
+export function targetHealthKey(target) {
+    return target === "hosted" ? "hosted" : "local";
+}
+
+export function activeHealth(state) {
+    const key = targetHealthKey(state.target);
+    if (state.lastHealthByTarget && Object.prototype.hasOwnProperty.call(state.lastHealthByTarget, key)) {
+        return state.lastHealthByTarget[key] || null;
+    }
+    return state.lastHealth || null;
+}
+
+export function setTarget(state, target) {
+    const key = targetHealthKey(target);
+    state.target = key;
+    state.lastHealth = state.lastHealthByTarget?.[key] || null;
+    return state.target;
+}
+
+export function setTargetHealth(state, health, target = state.target) {
+    const key = targetHealthKey(target);
+    state.lastHealthByTarget ||= {};
+    const scopedHealth = { ...health, target: key };
+    state.lastHealthByTarget[key] = scopedHealth;
+    if (targetHealthKey(state.target) === key) {
+        state.lastHealth = scopedHealth;
+    }
+    return scopedHealth;
+}
+
+export function clearTargetHealth(state, target = state.target) {
+    const key = targetHealthKey(target);
+    state.lastHealthByTarget ||= {};
+    state.lastHealthByTarget[key] = null;
+    if (targetHealthKey(state.target) === key) {
+        state.lastHealth = null;
+    }
 }
 
 function parseResponseEnvelopeString(value) {
@@ -269,6 +310,7 @@ export function latestCopyTarget(messages = []) {
 export function transcriptState(state) {
     const visibleMessages = messagesForTarget(state);
     const latestCopy = latestCopyTarget(visibleMessages);
+    const health = activeHealth(state);
     const turns = visibleMessages.map((message) => ({
         prompt: message.input || "",
         answer: responseDisplayText(message.response),
@@ -292,10 +334,13 @@ export function transcriptState(state) {
             text: latestCopy?.text || "",
         },
         healthBanner: {
-            ok: state.lastHealth?.ok ?? null,
-            status: state.lastHealth?.status ?? null,
-            body: state.lastHealth?.body ?? null,
-            identity: state.lastHealth?.identity ?? null,
+            ok: health?.ok ?? null,
+            status: health?.status ?? null,
+            body: health?.body ?? null,
+            readinessStatus: health?.readinessStatus ?? null,
+            identity: health?.identity ?? null,
+            protocolSupport: health?.protocolSupport ?? null,
+            configurationStatus: health?.configurationStatus ?? null,
         },
     };
 }
@@ -303,6 +348,7 @@ export function transcriptState(state) {
 export function stateSnapshot(state) {
     const agent = selectedAgent(state);
     const visibleMessages = messagesForTarget(state);
+    const health = activeHealth(state);
     return {
         endpoint: activeEndpoint(state),
         localEndpoint: selectedLocalEndpoint(state),
@@ -313,7 +359,9 @@ export function stateSnapshot(state) {
         foundryConnection: state.foundryConnection,
         envBootstrap: state.envBootstrap,
         hosted: state.hosted,
-        deployment: state.deployment,
+        deployment: state.deployment
+            ? { ...state.deployment, process: undefined, abortController: undefined }
+            : state.deployment,
         localEnv: state.localEnv,
         localRun: {
             ...state.localRun,
@@ -326,7 +374,21 @@ export function stateSnapshot(state) {
         messages: state.messages,
         visibleMessages,
         transcriptState: transcriptState(state),
-        lastHealth: state.lastHealth,
+        lastHealth: health,
+        lastHealthByTarget: state.lastHealthByTarget || {},
+        readinessStatus: health?.readinessStatus ?? null,
+        identity: health?.identity ?? null,
+        protocolSupport: health?.protocolSupport ?? null,
+        configurationStatus: health?.configurationStatus ?? null,
+        projectEndpointPrompt: state.projectEndpointPrompt || null,
+        operations: state.operations || { active: null, history: [] },
+        runtimeStore: state.runtimeStore
+            ? {
+                root: state.runtimeStore.root,
+                statePath: state.runtimeStore.statePath,
+                operationsPath: state.runtimeStore.operationsPath,
+            }
+            : null,
         stats: transcriptStats(visibleMessages),
     };
 }

@@ -25,9 +25,13 @@ jobs:
           node-version: 24
 
       - name: Run Foundry Agent Playground tests
-        run: node --test plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/*.test.mjs
+        run: node --test plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/tests/*.test.mjs
 
       - name: Check Foundry Agent Playground extension syntax
         run: |
-          node --check plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/extension.mjs
-          node --check plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/hosted-discovery.mjs
+          set -euo pipefail
+          mapfile -d '' files < <(find plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground -name '*.mjs' -print0)
+          test "${#files[@]}" -gt 0
+          for file in "${files[@]}"; do
+            node --check "$file"
+          done

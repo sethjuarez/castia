@@ -130,6 +130,58 @@ function readinessIdentity(endpoint, expectedAgentNames, actualAgentName, requir
     return { identity: { expected, actual: actualAgentName, status: "match" } };
 }
 
+function readinessStatus(parsed) {
+    const status = parsed.readiness && typeof parsed.readiness.status === "string"
+        ? parsed.readiness.status
+        : parsed.ok
+        ? "ready"
+        : "failed";
+    return {
+        status,
+        reachable: true,
+        ready: parsed.ok,
+    };
+}
+
+function readinessProtocolSupport(readiness, requiredProtocols = []) {
+    const required = (Array.isArray(requiredProtocols) ? requiredProtocols : [requiredProtocols])
+        .map((protocol) => String(protocol || "").trim())
+        .filter(Boolean);
+    const protocols = Array.isArray(readiness?.protocols)
+        ? readiness.protocols.map((protocol) => String(protocol || "").trim()).filter(Boolean)
+        : null;
+    if (!required.length) {
+        return { status: "not_required", required, protocols: protocols || [], missing: [] };
+    }
+    if (!protocols) {
+        return { status: "unknown", required, protocols: [], missing: [] };
+    }
+    const normalized = new Set(protocols.map((protocol) => protocol.toLowerCase()));
+    const missing = required.filter((protocol) => !normalized.has(protocol.toLowerCase()));
+    return {
+        status: missing.length ? "missing" : "supported",
+        required,
+        protocols,
+        missing,
+    };
+}
+
+function readinessConfigurationStatus(readiness) {
+    const missing = readiness?.configuration && typeof readiness.configuration === "object"
+        ? readiness.configuration.missing_required
+        : null;
+    const missingRequired = Array.isArray(missing)
+        ? missing.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+    if (missingRequired.length) {
+        return { status: "missing", missingRequired };
+    }
+    if (readiness?.configuration && typeof readiness.configuration === "object") {
+        return { status: "configured", missingRequired: [] };
+    }
+    return { status: "unknown", missingRequired: [] };
+}
+
 export function parseReadinessResponse(responseOk, status, text) {
     let body = text;
     try {
@@ -348,7 +400,12 @@ export async function callAgent(endpoint, path, payload) {
     }
 }
 
-export async function checkReadiness(endpoint, { timeoutMs = 10000, expectedAgentName = null, expectedAgentNames = null } = {}) {
+export async function checkReadiness(endpoint, {
+    timeoutMs = 10000,
+    expectedAgentName = null,
+    expectedAgentNames = null,
+    requiredProtocols = ["responses"],
+} = {}) {
     const started = Date.now();
     if (isFoundryResponsesEndpoint(endpoint)) {
         return {
@@ -356,6 +413,10 @@ export async function checkReadiness(endpoint, { timeoutMs = 10000, expectedAgen
             status: "hosted",
             durationMs: 0,
             body: "Hosted Responses endpoint discovered. Send a prompt to test it.",
+            readinessStatus: { status: "hosted", reachable: true, ready: true },
+            identity: null,
+            protocolSupport: { status: "supported", required: ["responses"], protocols: ["responses"], missing: [] },
+            configurationStatus: { status: "not_required", missingRequired: [] },
         };
     }
     const expectsIdentity = Boolean(expectedAgentNames || expectedAgentName);
@@ -369,11 +430,22 @@ export async function checkReadiness(endpoint, { timeoutMs = 10000, expectedAgen
         const actualAgentName = readinessAgentName(parsed.readiness);
         const identity = readinessIdentity(endpoint, expectedAgentNames || expectedAgentName, actualAgentName, parsed.ok);
         const identityBlocksReady = identity && identity.identity?.status !== "match";
+        const protocolSupport = readinessProtocolSupport(parsed.readiness, requiredProtocols);
+        const protocolBlocksReady = protocolSupport.status === "missing";
+        const configurationStatus = readinessConfigurationStatus(parsed.readiness);
+        const configurationBlocksReady = configurationStatus.status === "missing";
+        const statusFields = readinessStatus(parsed);
         return {
-            ok: parsed.ok && !identityBlocksReady,
+            ok: parsed.ok && !identityBlocksReady && !protocolBlocksReady && !configurationBlocksReady,
             status: response.status,
             durationMs: Date.now() - started,
             body: identity?.body || parsed.body,
+            readinessStatus: {
+                ...statusFields,
+                ready: parsed.ok && !identityBlocksReady && !protocolBlocksReady && !configurationBlocksReady,
+            },
+            protocolSupport,
+            configurationStatus,
             ...(parsed.readiness ? { readiness: parsed.readiness } : {}),
             ...(identity?.identity ? { identity: identity.identity } : {}),
         };
@@ -383,6 +455,10 @@ export async function checkReadiness(endpoint, { timeoutMs = 10000, expectedAgen
             status: 0,
             durationMs: Date.now() - started,
             body: error instanceof Error ? error.message : String(error),
+            readinessStatus: { status: "unreachable", reachable: false, ready: false },
+            identity: null,
+            protocolSupport: { status: "unknown", required: requiredProtocols, protocols: [], missing: [] },
+            configurationStatus: { status: "unknown", missingRequired: [] },
         };
     }
 }

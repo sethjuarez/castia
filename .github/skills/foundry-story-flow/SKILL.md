@@ -77,11 +77,14 @@ Treat `folder + azd service name` as the local agent identity.
 ## First-run contract
 
 Before local testing can work, the agent needs a Foundry project with a deployed
-model. Do not ask for the endpoint in chat, infer one, or call an agent-facing
-bootstrap action. Use the Foundry Agent Playground **Start local** button as the
-only endpoint-entry path. It opens the in-canvas dialog for a project endpoint
-such as `https://<account>.services.ai.azure.com/api/projects/<project>`, writes
-developer-local `.env`, and then starts local mode.
+model. Do not ask for the endpoint in chat, infer one, or call a standalone
+agent-facing bootstrap action. Use the Foundry Agent Playground **Start local**
+button as the only endpoint-entry path. It opens the in-canvas dialog for a
+project endpoint such as
+`https://<account>.services.ai.azure.com/api/projects/<project>`, writes
+developer-local `.env`, and then starts local mode. A canvas action may submit
+that already-open Start local prompt with a user-provided endpoint; it is not a
+first-run entry path.
 
 Set the same values in the azd environment only when the user explicitly moves
 from local testing to hosted deployment.

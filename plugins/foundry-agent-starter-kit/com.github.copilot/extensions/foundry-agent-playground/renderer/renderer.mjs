@@ -14,6 +14,7 @@ export function renderHtml() {
       const theme =
         param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.setAttribute("data-color-mode", theme);
     })();
   </script>
   <style>${rendererStyles}</style>
@@ -39,12 +40,20 @@ export function renderHtml() {
         </button>
       </div>
       <div class="action-card">
-        <div>
-          <div id="guideTitle" class="action-title">Make it work locally</div>
-          <div id="guideCopy" class="action-copy">Start or stop the local agent.</div>
-          <div id="localEndpointBanner" class="local-endpoint-banner" aria-live="polite" hidden></div>
-          <div id="localTicker" class="local-ticker" hidden></div>
-          <div id="deployTicker" class="deploy-ticker" aria-live="polite" hidden></div>
+        <div class="action-summary">
+          <div class="action-heading">
+            <div id="guideTitle" class="action-title">Make it work locally</div>
+            <div id="actionStateChip" class="action-state-chip" title="Current agent state">Not checked</div>
+            <span class="action-detail-trigger" tabindex="0" aria-describedby="guideCopy">
+              Details
+              <span id="guideCopy" class="action-copy" role="tooltip">Start or stop the local agent.</span>
+            </span>
+          </div>
+          <div class="status-row" aria-live="polite">
+            <div id="localEndpointBanner" class="local-endpoint-banner" hidden></div>
+            <div id="localTicker" class="local-ticker" hidden></div>
+            <div id="deployTicker" class="deploy-ticker" hidden></div>
+          </div>
         </div>
         <div class="action-buttons">
           <div class="agent-picker hero-picker">
@@ -112,7 +121,7 @@ export function renderHtml() {
           </summary>
           <div id="activityItems" class="activity-items"></div>
         </details>
-        <div id="transcript" class="transcript">
+        <div id="transcript" class="transcript empty-state">
           <div class="empty">Send a prompt to test <code>POST /responses</code>.</div>
         </div>
         <button id="copyLatestAnswer" class="transcript-copy-latest" type="button" aria-label="Copy latest answer" hidden disabled>Copy latest answer</button>
@@ -135,32 +144,14 @@ export function renderHtml() {
         <pre id="deployLog" class="terminal"></pre>
       </section>
       <section id="teamsView" class="teams-view view" hidden>
-        <div class="deploy-summary">
-          <div class="deploy-card">
-            <div class="deploy-label">Teams status</div>
-            <div id="teamsStatus" class="deploy-value">Not tested</div>
-          </div>
-          <div class="deploy-card">
-            <div class="deploy-label">Hosted agent</div>
-            <div id="teamsAgent" class="deploy-value">Not resolved</div>
-          </div>
-          <div class="deploy-card">
-            <div class="deploy-label">Foundry version</div>
-            <div id="teamsVersion" class="deploy-value">Not deployed</div>
-          </div>
-        </div>
         <div class="guide-card">
-          <div>
-            <div class="guide-title">Publish and hire the hosted agent</div>
-            <div class="guide-copy">After Foundry hosted chat works, finish the user-controlled Microsoft 365 handoff in three steps.</div>
-          </div>
           <div class="teams-gates">
             <div class="teams-gate">
               <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-service-AI-Foundry.svg" alt="" /></span>
               <div><div class="gate-title">Publish in Foundry</div><div class="gate-meta">Confirm the active hosted version, then use Publish to Teams and Microsoft 365 Copilot. Review name, version, descriptions, developer, and scope.</div></div>
             </div>
             <div class="teams-gate">
-              <span class="gate-icon" aria-hidden="true"><img class="gate-logo" src="/assets/icon-a365-agents.svg" alt="" /></span>
+              <span class="gate-icon a365-gate-icon" aria-hidden="true"><img class="gate-logo a365-logo" src="/assets/icon-a365-agents.svg" alt="" /></span>
               <div><div class="gate-title">Approve request in A365</div><div class="gate-meta">Complete the Microsoft 365 publish request or admin approval flow for the chosen tenant scope.</div></div>
             </div>
             <div class="teams-gate">
@@ -179,7 +170,7 @@ export function renderHtml() {
           <button class="primary" id="send" type="button">Send</button>
           <button class="primary" id="provisionButton" type="button" hidden>Prepare deploy</button>
           <button class="primary" id="deployButton" type="button" hidden>Deploy changes</button>
-          <button class="primary" id="teamsTestedButton" type="button" hidden>Mark Teams tested</button>
+          <button class="secondary danger" id="cancelOperationButton" type="button" hidden>Cancel operation</button>
         </div>
       </div>
     </section>
