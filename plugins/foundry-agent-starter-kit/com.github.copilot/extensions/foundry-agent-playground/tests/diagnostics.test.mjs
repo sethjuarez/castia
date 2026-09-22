@@ -6,6 +6,7 @@ import {
     latestDiagnostics,
     nextActions,
     operationState,
+    telemetryState,
 } from "../state/diagnostics.mjs";
 
 test("diagnostics bridge exposes activity, operation, foundry, and next actions", () => {
@@ -35,4 +36,31 @@ test("diagnostics bridge exposes activity, operation, foundry, and next actions"
         ["project_endpoint_required", "readiness_failed"],
     );
     assert.equal(nextActions(state).actions[0].id, "enter_foundry_project_endpoint");
+});
+
+test("telemetry bridge exposes App Insights discovery context and KQL hints", () => {
+    const state = {
+        selectedAgentId: "examples\\python\\minimal-agent:minimal-agent",
+        foundryConnection: {
+            projectEndpoint: "https://example.services.ai.azure.com/api/projects/proj",
+            projectId: "/subscriptions/sub-1/resourceGroups/rg-foundry/providers/Microsoft.CognitiveServices/accounts/fdry/projects/proj",
+            subscriptionId: "sub-1",
+            accountName: "fdry",
+            projectName: "proj",
+        },
+        hosted: {
+            agentName: "minimal-agent",
+            version: "15",
+            status: "active",
+            responsesEndpoint: "https://example/agents/minimal-agent/endpoint/protocols/openai/responses?api-version=v1",
+        },
+    };
+
+    const telemetry = telemetryState(state);
+    assert.equal(telemetry.status, "ready_to_discover");
+    assert.equal(telemetry.observability.connectionCategory, "AppInsights");
+    assert.match(telemetry.observability.discoveryCommand, /az cognitiveservices account connection list/);
+    assert.match(telemetry.observability.discoveryCommand, /--resource-group rg-foundry/);
+    assert.match(telemetry.traceLookup.kqlTemplates.findTrace, /azure\.ai\.agentserver\.x-request-id|customDimensions/);
+    assert.equal(nextActions(state).actions.at(-1).id, "find_telemetry");
 });

@@ -76,6 +76,76 @@ export function foundryState(state) {
     };
 }
 
+function projectResourceGroup(projectId) {
+    const match = String(projectId || "").match(/\/resourceGroups\/([^/]+)/i);
+    return match ? match[1] : null;
+}
+
+export function telemetryState(state) {
+    const foundry = state.foundryConnection || {};
+    const hosted = state.hosted || {};
+    const subscriptionId = foundry.subscriptionId || null;
+    const resourceGroup = projectResourceGroup(foundry.projectId);
+    const accountName = foundry.accountName || null;
+    const agentName = hosted.agentName || hosted.agentId || null;
+    const agentVersion = hosted.version || null;
+    const hasProjectContext = Boolean(subscriptionId && resourceGroup && accountName);
+    const hasHostedContext = Boolean(agentName && hosted.responsesEndpoint);
+    const discoveryCommand = hasProjectContext
+        ? `az cognitiveservices account connection list --name ${accountName} --resource-group ${resourceGroup} --subscription ${subscriptionId} --output json`
+        : null;
+    return {
+        status: hasProjectContext && hasHostedContext ? "ready_to_discover" : "missing_context",
+        selectedAgentId: state.selectedAgentId || null,
+        project: {
+            endpoint: foundry.projectEndpoint || null,
+            id: foundry.projectId || null,
+            subscriptionId,
+            resourceGroup,
+            accountName,
+            projectName: foundry.projectName || null,
+        },
+        hosted: {
+            agentName,
+            version: agentVersion,
+            status: hosted.status || null,
+            responsesEndpoint: hosted.responsesEndpoint || null,
+        },
+        observability: {
+            connectionCategory: "AppInsights",
+            connectionNameHint: "appinsights",
+            discoveryCommand,
+            expectedResourceMetadataKeys: [
+                "ResourceId",
+                "ApplicationInsightsConnectionString",
+            ],
+        },
+        traceLookup: {
+            traceIdSources: [
+                "azd ai agent invoke Trace ID",
+                "azure.ai.agentserver.x-request-id in Application Insights customDimensions",
+            ],
+            operationIdHint: "Find rows where customDimensions.azure.ai.agentserver.x-request-id matches the trace ID, then use that row's operation_Id for drill-down.",
+            kqlTemplates: {
+                findTrace: [
+                    "union requests, dependencies, traces, exceptions, customEvents",
+                    "| where timestamp > ago(2h)",
+                    "| where tostring(customDimensions) contains \"<trace-id>\"",
+                    "| project timestamp, itemType, name, operation_Id, success, resultCode, duration, customDimensions",
+                    "| order by timestamp desc",
+                ].join("\n"),
+                summarizeOperation: [
+                    "union requests, dependencies, traces, exceptions, customEvents",
+                    "| where timestamp > ago(2h)",
+                    "| where operation_Id == \"<operation-id>\"",
+                    "| summarize count(), failed=countif(success == false) by itemType, name, resultCode",
+                    "| order by itemType, count_ desc",
+                ].join("\n"),
+            },
+        },
+    };
+}
+
 export function nextActions(state) {
     const actions = [];
     if (state.projectEndpointPrompt?.open) {
@@ -116,6 +186,14 @@ export function nextActions(state) {
             label: "Prepare deploy",
             command: "provision",
             reason: "Deploy reported missing provisioned infrastructure.",
+        });
+    }
+    if (state.hosted?.responsesEndpoint && state.foundryConnection?.projectEndpoint) {
+        actions.push({
+            id: "find_telemetry",
+            label: "Find hosted telemetry",
+            command: "get_telemetry_state",
+            reason: "Hosted telemetry can be discovered from the Foundry project's App Insights connection.",
         });
     }
     return { actions };

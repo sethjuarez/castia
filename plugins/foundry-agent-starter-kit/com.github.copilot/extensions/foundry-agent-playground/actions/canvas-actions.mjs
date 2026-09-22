@@ -15,6 +15,7 @@ import {
     latestDiagnostics,
     nextActions,
     operationState,
+    telemetryState,
 } from "../state/diagnostics.mjs";
 
 export function createCanvasActions({
@@ -322,6 +323,11 @@ export function createCanvasActions({
             name: "get_next_actions",
             description: "Return recommended next actions derived from current playground state.",
             handler: async (ctx) => nextActions(instanceState(ctx)),
+        },
+        {
+            name: "get_telemetry_state",
+            description: "Return telemetry discovery context for the current Foundry project and hosted agent.",
+            handler: async (ctx) => telemetryState(instanceState(ctx)),
         },
         {
             name: "cancel_operation",

@@ -102,6 +102,20 @@ export const rendererStyles = `
       --cp-sheen: color-mix(in srgb, var(--cp-text) 6%, transparent);
       --cp-highlight: var(--cp-accent-soft);
     }
+    html[data-theme="light"],
+    html[data-color-mode="light"],
+    body[data-color-mode="light"] {
+      color-scheme: light;
+      --cp-bg: #ffffff;
+      --cp-bg-elevated: #f7f7f7;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-panel: #ffffff;
+      --cp-panel-strong: #ffffff;
+      --cp-overlay: rgba(255, 255, 255, 0.92);
+      --cp-sheen: #f5f5f5;
+      --cp-highlight: color-mix(in srgb, var(--cp-accent) 10%, #ffffff);
+    }
     * { box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; }
     html {
