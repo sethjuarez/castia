@@ -307,34 +307,89 @@ export const rendererStyles = `
       background: var(--cp-panel-strong);
       box-shadow: var(--cp-shadow);
     }
-    .action-title {
-      font-weight: 800;
-      line-height: 18px;
+    .action-summary {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
     }
-    .action-copy {
-      color: var(--cp-text-muted);
-      font-size: 13px;
-      margin-top: 2px;
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-    }
-    .local-endpoint-banner {
+    .action-heading {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 5px;
-      padding: 4px 8px;
+      min-width: 0;
+    }
+    .action-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 800;
+      line-height: 18px;
+    }
+    .action-detail-trigger {
+      position: relative;
+      flex: 0 0 auto;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      padding: 1px 7px;
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 800;
+      cursor: help;
+    }
+    .action-detail-trigger:focus {
+      outline: 2px solid var(--cp-accent);
+      outline-offset: 2px;
+    }
+    .action-copy {
+      position: absolute;
+      z-index: 30;
+      top: calc(100% + 6px);
+      left: 0;
+      width: min(420px, 72vw);
+      padding: 8px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 18px;
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .action-detail-trigger:hover .action-copy,
+    .action-detail-trigger:focus .action-copy,
+    .action-detail-trigger:focus-within .action-copy {
+      opacity: 1;
+      visibility: visible;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      min-height: 20px;
+      overflow: visible;
+    }
+    .local-endpoint-banner {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: min(100%, 420px);
+      padding: 2px 7px;
       border: 1px solid var(--cp-border);
       border-radius: 999px;
       background: var(--cp-surface-soft);
       color: var(--cp-text);
       font-size: 12px;
-      min-height: 28px;
-      width: fit-content;
-      max-width: 100%;
+      min-height: 20px;
     }
     .local-endpoint-banner[hidden] { display: none; }
     .local-endpoint-banner.warn {
@@ -363,32 +418,51 @@ export const rendererStyles = `
       white-space: nowrap;
     }
     .endpoint-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
       color: var(--cp-text-muted);
+      white-space: nowrap;
+    }
+    .endpoint-warning-text {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .endpoint-warning button {
-      margin-left: 6px;
+      flex: 0 0 auto;
       padding: 4px 8px;
     }
     .local-ticker {
-      display: flex;
+      position: relative;
+      display: inline-flex;
       gap: 6px;
       align-items: center;
-      margin-top: 8px;
+      min-width: 0;
+      max-width: min(100%, 380px);
+      padding: 2px 7px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface-soft);
       color: var(--cp-text-muted);
       font-size: 12px;
-      min-height: 16px;
+      min-height: 20px;
     }
     .local-ticker[hidden] { display: none; }
     .deploy-ticker {
-      display: flex;
-      margin-top: 8px;
+      position: relative;
+      display: inline-flex;
+      min-width: 0;
+      max-width: min(100%, 520px);
+      padding: 2px 7px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface-soft);
       color: var(--cp-text-muted);
       font-size: 12px;
-      min-height: 16px;
-      width: min(100%, 520px);
+      min-height: 20px;
     }
     .deploy-ticker[hidden] { display: none; }
     .deploy-ticker-row {
@@ -429,6 +503,37 @@ export const rendererStyles = `
     .local-ticker.ok .ticker-mark { background: var(--cp-success); }
     .local-ticker.warn .ticker-mark { background: var(--cp-warning); }
     .local-ticker.fail .ticker-mark { background: var(--cp-danger); }
+    .local-endpoint-banner[data-detail]::after,
+    .local-ticker[data-detail]::after,
+    .deploy-ticker[data-detail]::after {
+      content: attr(data-detail);
+      position: absolute;
+      z-index: 30;
+      top: calc(100% + 6px);
+      left: 0;
+      width: min(520px, 72vw);
+      max-width: 72vw;
+      padding: 8px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-panel-strong);
+      color: var(--cp-text-muted);
+      box-shadow: var(--cp-shadow);
+      line-height: 18px;
+      opacity: 0;
+      pointer-events: none;
+      white-space: normal;
+      visibility: hidden;
+    }
+    .local-endpoint-banner:hover::after,
+    .local-endpoint-banner:focus-within::after,
+    .local-ticker:hover::after,
+    .local-ticker:focus-within::after,
+    .deploy-ticker:hover::after,
+    .deploy-ticker:focus-within::after {
+      opacity: 1;
+      visibility: visible;
+    }
     .deploy-ticker .ticker-mark { background: var(--cp-warning); }
     .ticker-text {
       overflow: hidden;
@@ -1262,10 +1367,7 @@ export const rendererStyles = `
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .action-copy {
-        font-size: 12px;
-        -webkit-line-clamp: 1;
-      }
+      .action-copy { font-size: 12px; }
       .action-buttons {
         flex-wrap: wrap;
         justify-content: flex-start;
@@ -1374,14 +1476,6 @@ export const rendererStyles = `
       }
       .action-card {
         padding-block: 6px;
-      }
-      .action-copy {
-        display: none;
-      }
-      .local-endpoint-banner,
-      .local-ticker,
-      .deploy-ticker {
-        margin-top: 5px;
       }
       .foundry-status-grid {
         display: none;

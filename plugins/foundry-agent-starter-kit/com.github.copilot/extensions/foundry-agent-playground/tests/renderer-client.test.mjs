@@ -29,6 +29,13 @@ test("empty transcript state fills the available transcript space", () => {
     assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
 });
 
+test("header guidance and diagnostics use compact hoverable details", () => {
+    assert.match(rendererStyles, /\.action-detail-trigger:hover \.action-copy/);
+    assert.match(rendererStyles, /\.status-row\s*{[^}]*display:\s*flex;/);
+    assert.match(rendererStyles, /\.local-ticker\[data-detail\]::after/);
+    assert.match(rendererClientScript, /setAttribute\("data-detail"/);
+});
+
 test("composer gate enables local chat when readiness is ok", () => {
     const state = {
         target: "local",

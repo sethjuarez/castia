@@ -340,6 +340,8 @@ export const rendererClientScript = `
       if (state.target === "hosted") {
         localEndpointBanner.hidden = true;
         localEndpointBanner.innerHTML = "";
+        localEndpointBanner.removeAttribute("data-detail");
+        localEndpointBanner.removeAttribute("tabindex");
         return;
       }
       const endpoint = state.activeEndpoint || state.localEndpoint || "";
@@ -352,21 +354,25 @@ export const rendererClientScript = `
       if (!needsDiagnostic) {
         localEndpointBanner.hidden = true;
         localEndpointBanner.innerHTML = "";
+        localEndpointBanner.removeAttribute("data-detail");
+        localEndpointBanner.removeAttribute("tabindex");
         return;
       }
       const details = "Endpoint: " + endpoint + " · port=" + String(port || "unknown") +
         " · selected=" + selected + " · readiness=" + readiness;
       localEndpointBanner.hidden = false;
       localEndpointBanner.className = "local-endpoint-banner warn";
+      localEndpointBanner.setAttribute("data-detail", details + (portWarning ? " · " + portWarning : "") + (mismatch?.message ? " · " + mismatch.message : ""));
+      localEndpointBanner.setAttribute("tabindex", "0");
       localEndpointBanner.innerHTML =
-        '<div class="endpoint-compact" title="' + escapeHtml(details) + '">' +
+        '<div class="endpoint-compact">' +
           '<span class="endpoint-label">Local</span>' +
           '<code>' + escapeHtml(formatEndpointShort(endpoint)) + '</code>' +
-          '<span class="endpoint-meta">ready=' + escapeHtml(readiness) + '</span>' +
+          '<span class="endpoint-meta">' + escapeHtml(readiness) + '</span>' +
         '</div>' +
-        (portWarning ? '<div class="endpoint-warning" title="' + escapeHtml(portWarning) + '">Fallback port ' + escapeHtml(String(port || "unknown")) + '</div>' : "") +
+        (portWarning ? '<div class="endpoint-warning"><span class="endpoint-warning-text">Fallback ' + escapeHtml(String(port || "unknown")) + '</span></div>' : "") +
         (mismatch && !mismatch.autoSelected
-          ? '<div class="endpoint-warning">' + escapeHtml(mismatch.message || "Selected agent does not match readiness.") +
+          ? '<div class="endpoint-warning"><span class="endpoint-warning-text">' + escapeHtml(mismatch.message || "Selected agent does not match readiness.") + '</span>' +
             (mismatch.canSwitch ? ' <button id="switchReadinessAgent" type="button">Switch to ' + escapeHtml(mismatch.actual) + '</button>' : "") +
             '</div>'
           : "");
@@ -389,11 +395,15 @@ export const rendererClientScript = `
       if (!events.length || activeView !== "chat") {
         localTicker.innerHTML = "";
         localTicker.className = "local-ticker";
+        localTicker.removeAttribute("data-detail");
+        localTicker.removeAttribute("tabindex");
         return;
       }
       const event = events.at(-1);
       const kind = event.kind || "";
       localTicker.className = "local-ticker " + kind;
+      localTicker.setAttribute("data-detail", events.map((entry) => entry.text).filter(Boolean).join(" · "));
+      localTicker.setAttribute("tabindex", "0");
       localTicker.innerHTML = '<span class="ticker-mark" aria-hidden="true"></span>' +
         '<span class="ticker-text">' + escapeHtml(event.text) + '</span>';
     }
@@ -454,9 +464,13 @@ export const rendererClientScript = `
         }
         deployTicker.hidden = true;
         deployTicker.innerHTML = "";
+        deployTicker.removeAttribute("data-detail");
+        deployTicker.removeAttribute("tabindex");
         return;
       }
       deployTicker.hidden = false;
+      deployTicker.setAttribute("data-detail", latestDeployPhase(state.deployment.log));
+      deployTicker.setAttribute("tabindex", "0");
       deployTicker.innerHTML =
         '<div class="deploy-ticker-row"><span class="deploy-label">Deploying</span><span class="deploy-elapsed" aria-label="Elapsed deployment time">' +
         escapeHtml(elapsedLabel(state.deployment.startedAt)) +
@@ -560,6 +574,9 @@ export const rendererClientScript = `
       }
       advancedToggle.hidden = true;
       advancedToggle.textContent = "Refresh .env";
+      const guideDetail = guideCopy.textContent || "";
+      const guideLabel = (guideTitle.textContent || "Guidance") + (guideDetail ? ". " + guideDetail : "");
+      guideCopy.parentElement?.setAttribute("aria-label", guideLabel);
     }
 
     function renderAgentPicker(state) {
