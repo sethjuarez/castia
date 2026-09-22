@@ -18,6 +18,7 @@ test("canvas action factory exposes the expected action contract", () => {
         "get_latest_diagnostics",
         "get_foundry_state",
         "get_next_actions",
+        "get_telemetry_state",
         "cancel_operation",
         "clear_transcript",
     ]);
