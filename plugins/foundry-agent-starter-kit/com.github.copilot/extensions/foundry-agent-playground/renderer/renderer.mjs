@@ -114,7 +114,7 @@ export function renderHtml() {
         <details id="activityLog" class="activity-log" aria-live="polite" hidden>
           <summary class="activity-head">
             <div>
-              <div class="activity-title">Activity details</div>
+              <div class="activity-title">Activity</div>
               <div id="activitySummary" class="activity-summary">No canvas actions yet.</div>
             </div>
             <span id="activityCount" class="badge">0</span>

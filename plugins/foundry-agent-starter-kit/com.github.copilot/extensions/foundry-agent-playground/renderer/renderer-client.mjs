@@ -451,7 +451,7 @@ export const rendererClientScript = `
         return;
       }
       const latest = entries[0];
-      activitySummary.textContent = latest.actor + " · " + latest.summary;
+      activitySummary.textContent = (latest.actor || "Canvas") + " · " + (latest.summary || latest.kind || "Canvas action");
       activityCount.textContent = String(state.activity.length);
       activityItems.innerHTML = entries.map((entry) => {
         const status = entry.status || "info";

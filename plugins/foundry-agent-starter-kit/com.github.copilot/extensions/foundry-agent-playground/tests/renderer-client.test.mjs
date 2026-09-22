@@ -23,10 +23,18 @@ test("renderer styles bind to Copilot canvas dark-mode theme attributes", () => 
 
 test("empty transcript state fills the available transcript space", () => {
     assert.doesNotMatch(rendererStyles, /\.panel:has\(\.transcript\.empty-state\)/);
-    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*display:\s*grid;/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*display:\s*flex;/);
     assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*height:\s*100%;/);
     assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*overflow:\s*auto;/);
+    assert.match(rendererStyles, /\.empty\s*{[^}]*gap:\s*6px;/);
     assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
+});
+
+test("activity details render as a compact disclosure strip", () => {
+    assert.match(rendererStyles, /\.activity-log\s*{[^}]*background:\s*transparent;/);
+    assert.match(rendererStyles, /\.activity-head\s*{[^}]*border-radius:\s*999px;/);
+    assert.match(rendererStyles, /\.activity-head > div\s*{[^}]*display:\s*flex;/);
+    assert.match(rendererStyles, /\.activity-log\[open\]\s+\.activity-head\s*{[^}]*background:\s*transparent;/);
 });
 
 test("header guidance and diagnostics use compact hoverable details", () => {

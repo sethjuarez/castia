@@ -11,7 +11,7 @@ test("renderer includes pending and answer-copy chat affordances", () => {
     assert.match(html, /copyLatestAnswer/);
     assert.match(html, /transcript-copy-latest/);
     assert.match(html, /activityLog/);
-    assert.match(html, /Activity details/);
+    assert.match(html, /class="activity-title">Activity</);
     assert.match(html, /id="transcript" class="transcript empty-state"/);
     assert.match(html, /class="action-detail-trigger"/);
     assert.match(html, /class="status-row"/);
