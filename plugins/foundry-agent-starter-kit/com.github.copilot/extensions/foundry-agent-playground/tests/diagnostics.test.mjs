@@ -23,7 +23,7 @@ test("diagnostics bridge exposes activity, operation, foundry, and next actions"
         foundryConnection: { projectEndpoint: null },
         hosted: { responsesEndpoint: null },
         deployment: { running: false, process: { pid: 1 }, abortController: {} },
-        teams: { testedAt: null },
+        teams: {},
     };
 
     assert.equal(activityState(state).latest.id, "act-1");

@@ -269,7 +269,6 @@ export const rendererClientScript = `
     const provisionButton = document.getElementById("provisionButton");
     const deployButton = document.getElementById("deployButton");
     const cancelOperationButton = document.getElementById("cancelOperationButton");
-    const teamsTestedButton = document.getElementById("teamsTestedButton");
     const clearButton = document.getElementById("clear");
     const projectEndpointDialog = document.getElementById("projectEndpointDialog");
     const projectEndpointForm = document.getElementById("projectEndpointForm");
@@ -346,8 +345,7 @@ export const rendererClientScript = `
         return { kind: "", label: "Not deployed", detail: "No hosted release has been discovered for this agent." };
       }
       if (activeView === "teams") {
-        if (state.teams?.testedAt) return { kind: "ok", label: "Teams tested", detail: "Teams handoff has been marked tested." };
-        return { kind: "", label: "Teams pending", detail: "Publish and hire the hosted agent before marking Teams tested." };
+        return { kind: "", label: "Info only", detail: "Teams publish and hire are manual external steps." };
       }
       if (state.target === "hosted") {
         if (state.hosted?.responsesEndpoint) return { kind: "ok", label: state.hosted.version ? "v" + state.hosted.version : "Hosted ready", detail: "Hosted Responses endpoint is selected." };
@@ -551,17 +549,16 @@ export const rendererClientScript = `
       const connected = Boolean(state.foundryConnection?.projectEndpoint && state.foundryConnection?.modelDeployment);
       const foundryOk = Boolean(state.hosted?.version || state.hosted?.responsesEndpoint);
       const versionLabel = state.hosted?.version ? "v" + state.hosted.version : "";
-      const teamsOk = Boolean(state.teams?.testedAt);
       const showingFoundryContext = activeView === "chat" && (foundryPanelOpen || state.target === "hosted");
       localStep.classList.toggle("done", localOk);
       foundryStep.classList.toggle("done", foundryOk);
-      teamsStep.classList.toggle("done", teamsOk);
+      teamsStep.classList.remove("done");
       localStepText.textContent = localRunning && !localOk ? "Starting" : localOk ? "Answered" : "Run it";
       foundryStepText.textContent = foundryOk ? "Hosted" : connected ? "Not deployed" : "Needs project";
-      teamsStepText.textContent = teamsOk ? "Tested" : "Hire it";
+      teamsStepText.textContent = "Manual steps";
       localStepState.textContent = localOk ? "Done" : "Start";
       foundryStepState.textContent = versionLabel || (foundryOk ? "Ready" : localOk ? "Next" : "Later");
-      teamsStepState.textContent = teamsOk ? "Done" : foundryOk ? "Next" : "Later";
+      teamsStepState.textContent = "Info";
       if (activeView === "deploy") {
         const needsProvision = Boolean(state.deployment?.needsProvision);
         primaryGuideAction.hidden = false;
@@ -577,11 +574,11 @@ export const rendererClientScript = `
         primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
         setActiveStep("foundry");
       } else if (activeView === "teams") {
-        primaryGuideAction.hidden = false;
+        primaryGuideAction.hidden = true;
         testHostedAction.hidden = true;
-        guideTitle.textContent = "Publish and hire it in Teams";
-        guideCopy.textContent = "Confirm the active Foundry version, publish it to Microsoft 365, approve it if needed, hire it in Teams, then run the same smoke prompt.";
-        primaryGuideAction.textContent = teamsOk ? "Teams tested" : "Mark Teams tested";
+        guideTitle.textContent = "Teams handoff";
+        guideCopy.textContent = "Informational only: publish in Foundry, approve in Microsoft 365, hire in Teams, then manually run the same smoke prompt.";
+        primaryGuideAction.textContent = "";
         setActiveStep("teams");
       } else if (showingFoundryContext) {
         const needsProvision = Boolean(state.deployment?.needsProvision);
@@ -668,7 +665,6 @@ export const rendererClientScript = `
       cancelOperationButton.disabled = !cancellableOperation || latestState?.operations?.active?.status === "cancel_requested";
       provisionButton.disabled = deploymentRunning;
       deployButton.disabled = deploymentRunning;
-      teamsTestedButton.hidden = true;
       promptInput.hidden = activeView !== "chat";
       promptInput.disabled = gate.inputDisabled;
       promptInput.placeholder = gate.inputDisabled
@@ -729,7 +725,7 @@ export const rendererClientScript = `
 
     function renderTeams(state) {
       const hosted = state.hosted || {};
-      teamsStatus.textContent = state.teams?.testedAt ? "Tested " + formatTime(state.teams.testedAt) : "Not tested";
+      teamsStatus.textContent = "Informational only";
       teamsAgent.textContent = hosted.agentName || state.selectedAgent?.displayName || "Not resolved";
       teamsVersion.textContent = hosted.version ? "Version " + hosted.version : "Not deployed";
     }
@@ -1260,21 +1256,6 @@ export const rendererClientScript = `
       }
     }
 
-    async function markTeamsTested() {
-      primaryGuideAction.disabled = true;
-      teamsTestedButton.disabled = true;
-      try {
-        const state = await request("/api/teams/tested", { method: "POST" });
-        renderSnapshot(state);
-        setStatus("ok", "Teams test marked complete.");
-      } catch (error) {
-        setStatus("fail", error.message);
-      } finally {
-        primaryGuideAction.disabled = false;
-        teamsTestedButton.disabled = false;
-      }
-    }
-
     async function checkReadinessFromCanvas() {
       if (latestState?.target === "hosted" && !latestState?.hosted?.responsesEndpoint) {
         setStatus("fail", "No hosted Responses endpoint is discovered yet. Use Start local to bootstrap .env from the endpoint dialog, then refresh.");
@@ -1418,8 +1399,6 @@ export const rendererClientScript = `
         } else {
           void runDeploy();
         }
-      } else if (activeView === "teams") {
-        void markTeamsTested();
       } else if (foundryPanelOpen || latestState?.target === "hosted") {
         if (latestState?.deployment?.needsProvision) {
           void runProvision();
@@ -1544,10 +1523,6 @@ export const rendererClientScript = `
 
     cancelOperationButton.addEventListener("click", () => {
       void cancelOperationFromCanvas();
-    });
-
-    teamsTestedButton.addEventListener("click", async () => {
-      await markTeamsTested();
     });
 
     connectStateEvents();

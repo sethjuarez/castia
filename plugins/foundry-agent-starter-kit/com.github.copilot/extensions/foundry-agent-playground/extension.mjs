@@ -1461,11 +1461,7 @@ async function startServer(ctx, copilotSession) {
             log: [],
         },
         localRun: emptyLocalRun(),
-        teams: {
-            testedAt: null,
-            agentId: null,
-            version: null,
-        },
+        teams: {},
         messages: [],
         lastHealth: null,
         lastHealthByTarget: {},

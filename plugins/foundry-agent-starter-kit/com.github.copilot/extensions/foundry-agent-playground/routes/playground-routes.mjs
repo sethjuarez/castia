@@ -342,13 +342,6 @@ export function createRequestHandler({
                 }));
                 return;
             }
-            if (req.method === "POST" && url.pathname === "/api/teams/tested") {
-                state.teams.testedAt = new Date().toISOString();
-                state.teams.agentId = state.hosted.agentId || null;
-                state.teams.version = state.hosted.version || null;
-                sendJson(res, 200, snapshotState(state));
-                return;
-            }
             if (req.method === "POST" && url.pathname === "/api/provision/stream") {
                 await streamAzdLifecycle(res, state, {
                     commandName: "provision",

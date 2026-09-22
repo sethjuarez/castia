@@ -189,7 +189,6 @@ export function renderHtml() {
           <button class="primary" id="provisionButton" type="button" hidden>Prepare deploy</button>
           <button class="primary" id="deployButton" type="button" hidden>Deploy changes</button>
           <button class="secondary danger" id="cancelOperationButton" type="button" hidden>Cancel operation</button>
-          <button class="primary" id="teamsTestedButton" type="button" hidden>Mark Teams tested</button>
         </div>
       </div>
     </section>
