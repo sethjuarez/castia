@@ -106,12 +106,13 @@ export const rendererStyles = `
     html[data-color-mode="light"],
     body[data-color-mode="light"] {
       color-scheme: light;
-      --cp-bg: #ffffff;
-      --cp-bg-elevated: #f7f7f7;
+      --cp-bg: #f6f8fa;
+      --cp-bg-elevated: #f6f8fa;
       --cp-surface: #ffffff;
       --cp-surface-soft: #f5f5f5;
       --cp-panel: #ffffff;
       --cp-panel-strong: #ffffff;
+      --cp-shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
       --cp-overlay: rgba(255, 255, 255, 0.92);
       --cp-sheen: #f5f5f5;
       --cp-highlight: color-mix(in srgb, var(--cp-accent) 10%, #ffffff);
@@ -941,6 +942,33 @@ export const rendererStyles = `
       padding: 8px 12px;
       background: var(--cp-surface-soft);
       font-size: 13px;
+    }
+    html[data-theme="light"] .hero,
+    html[data-color-mode="light"] .hero,
+    body[data-color-mode="light"] .hero {
+      border-bottom: 1px solid var(--cp-border);
+    }
+    html[data-theme="light"] .step,
+    html[data-color-mode="light"] .step,
+    body[data-color-mode="light"] .step,
+    html[data-theme="light"] .action-card,
+    html[data-color-mode="light"] .action-card,
+    body[data-color-mode="light"] .action-card {
+      border: 1px solid var(--cp-border);
+    }
+    html[data-theme="light"] .action-card,
+    html[data-color-mode="light"] .action-card,
+    body[data-color-mode="light"] .action-card,
+    html[data-theme="light"] .step.active,
+    html[data-color-mode="light"] .step.active,
+    body[data-color-mode="light"] .step.active {
+      box-shadow: var(--cp-shadow);
+    }
+    html[data-theme="light"] .empty,
+    html[data-color-mode="light"] .empty,
+    body[data-color-mode="light"] .empty {
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
     }
     .turn {
       display: grid;
