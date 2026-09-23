@@ -1,12 +1,13 @@
 import { escapeHtml } from "../shared/html.mjs";
 
 export function renderMermaidBlock(value) {
+    return renderSafeMermaidFlowchartBlock(value);
+}
+
+export function renderSafeMermaidFlowchartBlock(value) {
     const parsed = parseMermaidFlowchart(value);
     if (!parsed.ok) {
-        return '<figure class="mermaid-fallback">' +
-            '<figcaption>Mermaid diagram could not be rendered: ' + escapeHtml(parsed.error) + '</figcaption>' +
-            '<pre><code>' + escapeHtml(value) + '</code></pre>' +
-            '</figure>';
+        return renderMermaidFallbackSource(value, parsed.error);
     }
     const { nodes, edges, direction } = parsed;
     const horizontal = ["LR", "RL"].includes(direction);
@@ -49,6 +50,13 @@ export function renderMermaidBlock(value) {
         '<defs><marker id="mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>' +
         edgeSvg + nodeSvg +
         '</svg>' +
+        '</figure>';
+}
+
+export function renderMermaidFallbackSource(value, error) {
+    return '<figure class="mermaid-fallback">' +
+        '<figcaption>Mermaid diagram could not be rendered: ' + escapeHtml(error) + '</figcaption>' +
+        '<pre><code>' + escapeHtml(value) + '</code></pre>' +
         '</figure>';
 }
 

@@ -1,4 +1,4 @@
-import { renderMermaidBlock } from "../diagrams/mermaid-safe-flowchart.mjs";
+import { renderMermaidBlock } from "../diagrams/mermaid-renderer.mjs";
 import { renderJsonDocument } from "../json/json-renderer.mjs";
 import { escapeHtml } from "../shared/html.mjs";
 

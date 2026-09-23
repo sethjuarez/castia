@@ -40,13 +40,15 @@ The UI includes these parts.
 - readiness status and response latency;
 - transcript counters for total, passing, and failing turns;
 - raw request/response JSON for protocol debugging;
-- inline rendering for fenced `mermaid` flowchart/graph diagrams in agent
-  answers, while preserving the original Markdown fences for copy/export and
-  falling back to source text with a clear error when a diagram cannot be
-  rendered. The safe subset supports simple nodes plus solid `-->`, labeled
-  solid `-->|label|` and `-- label -->`, chained solid `A --> B --> C`,
-  dotted `-.->`, labeled dotted `-. "label" .->`, and transparent
-  `subgraph` grouping edges;
+- inline rendering for fenced `mermaid` diagrams in agent answers, while
+  preserving the original Markdown fences for copy/export. The browser asset
+  vendors Mermaid for selected safe families (`flowchart`/`graph`,
+  `sequenceDiagram`, `stateDiagram`, `classDiagram`, and `erDiagram`) and
+  sanitizes returned SVG before insertion. Mermaid init/config directives, raw
+  HTML labels, interactive callbacks/links, and scriptable URLs are disabled.
+  Unsupported, oversized, unsafe, or failed diagrams fall back to escaped source
+  text with a clear error, and simple flowcharts can still use the existing safe
+  flowchart renderer;
 - chat keyboard input. Enter sends, Shift+Enter adds a newline;
 - a refresh affordance for values the agent has already bootstrapped into `.env`.
 
