@@ -727,6 +727,38 @@ export const rendererStyles = `
       font-size: 12px;
       font-weight: 500;
     }
+    .protocol-toggle {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: center;
+      min-width: 0;
+    }
+    .protocol-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 28px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border-color: var(--cp-border);
+      background: var(--cp-surface-soft);
+      font-size: 12px;
+    }
+    .protocol-tab.active {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
+    .protocol-tab.unsupported,
+    .protocol-tab.unknown {
+      opacity: 0.6;
+    }
+    .protocol-state {
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
     .muted { color: var(--cp-text-muted); }
     .health {
       display: inline-flex;
@@ -992,6 +1024,45 @@ export const rendererStyles = `
       width: min(calc(100% - 48px), 1120px);
       max-width: calc(100% - 48px);
       background: var(--cp-accent-soft);
+    }
+    .activity-turn {
+      gap: 4px;
+    }
+    .bubble.activity-event {
+      background: transparent;
+      box-shadow: none;
+    }
+    .bubble.deleted {
+      opacity: 0.72;
+      background: var(--cp-surface-soft);
+    }
+    .typing-pill {
+      display: inline-flex;
+      align-items: center;
+      margin: 0 0 0 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      padding: 4px 9px;
+      color: var(--cp-text-muted);
+      background: var(--cp-surface);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .reaction-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 0 9px 7px;
+    }
+    .reaction {
+      display: inline-grid;
+      place-items: center;
+      min-width: 24px;
+      min-height: 22px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface);
+      font-size: 13px;
     }
     .bubble-head {
       display: flex;

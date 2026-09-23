@@ -314,6 +314,12 @@ test("renderer subscribes to canvas action state updates", () => {
     assert.match(rendererClientScript, /addEventListener\("snapshot"/);
 });
 
+test("renderer wires protocol toggle once outside the send loop", () => {
+    const matches = rendererClientScript.match(/protocolToggle\.addEventListener\("click"/g) || [];
+    assert.equal(matches.length, 1);
+    assert.ok(rendererClientScript.indexOf('protocolToggle.addEventListener("click"') > rendererClientScript.indexOf('sendButton.addEventListener("click"'));
+});
+
 test("renderer wires operation cancellation through shared route", () => {
     assert.match(rendererClientScript, /cancelOperationButton/);
     assert.match(rendererClientScript, /function cancelOperationFromCanvas/);

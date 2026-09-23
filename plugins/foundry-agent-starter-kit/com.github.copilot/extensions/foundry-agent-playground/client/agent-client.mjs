@@ -80,6 +80,32 @@ export function responsesUrl(endpoint) {
     return `${endpoint.replace(/\/+$/, "")}/responses`;
 }
 
+export function protocolUrl(endpoint, path) {
+    const normalizedPath = String(path || "");
+    const trimmed = String(endpoint || "").replace(/\/+$/, "");
+    let endpointPath = "";
+    try {
+        endpointPath = new URL(trimmed).pathname;
+    } catch {
+        endpointPath = "";
+    }
+    if (normalizedPath === "/responses") {
+        if (/\/responses$/i.test(endpointPath)) return trimmed;
+        return responsesUrl(trimmed);
+    }
+    if (normalizedPath === "/activity/messages") {
+        if (/\/activity\/messages$/i.test(trimmed) || /\/endpoint\/protocols\/activity$/i.test(endpointPath)) {
+            return trimmed;
+        }
+    }
+    if (normalizedPath === "/invocations") {
+        if (/\/invocations$/i.test(trimmed) || /\/endpoint\/protocols\/invocations$/i.test(endpointPath)) {
+            return trimmed;
+        }
+    }
+    return `${trimmed}${normalizedPath}`;
+}
+
 export function readinessText(body) {
     if (!body || typeof body !== "object") return body ?? "";
     const parts = [];
@@ -371,7 +397,7 @@ export async function callAgentStream(endpoint, payload, onDelta) {
 export async function callAgent(endpoint, path, payload) {
     const started = Date.now();
     try {
-        const url = path === "/responses" ? responsesUrl(endpoint) : `${endpoint}${path}`;
+        const url = protocolUrl(endpoint, path);
         const requestBody = JSON.stringify(payload);
         let response = await fetchAgent(endpoint, url, { body: requestBody });
         if (shouldRetryWithFreshToken(endpoint, response)) {

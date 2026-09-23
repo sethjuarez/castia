@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { callAgentStream, checkReadiness } from "../client/agent-client.mjs";
+import { activityEventFromConnector, applyConnectorEvent, findActivityTurnByConversation } from "../protocols/activity-protocol.mjs";
 import { renderHtml } from "../renderer/renderer.mjs";
 import {
     activityState,
@@ -11,6 +12,7 @@ import {
 } from "../state/diagnostics.mjs";
 import {
     activeEndpoint,
+    activeProtocolEndpoint,
     addActivity,
     addLocalEvent,
     clearTargetHealth,
@@ -19,6 +21,8 @@ import {
     responseDisplayText,
     selectedAgent,
     selectedLocalEndpoint,
+    protocolState as snapshotProtocolState,
+    setActiveProtocol as setStateActiveProtocol,
     setSelectedAgent,
     setTarget,
     setTargetHealth,
@@ -47,6 +51,13 @@ export function createRequestHandler({
     completeResponseTurn,
     commandCancelOperation,
     streamAzdLifecycle,
+    setActiveProtocol = setStateActiveProtocol,
+    protocolState = snapshotProtocolState,
+    createActivityTurn,
+    completeActivityTurn,
+    invocationTurn,
+    completeInvocationTurn,
+    broadcastSnapshot = () => {},
 }) {
     async function handleRequest(req, res, state) {
         try {
@@ -102,6 +113,24 @@ export function createRequestHandler({
             }
             if (req.method === "GET" && url.pathname === "/api/events") {
                 openSnapshotStream(req, res, state);
+                return;
+            }
+            if (url.pathname.startsWith("/connector/")) {
+                const pathParts = url.pathname.split("/").filter(Boolean);
+                const body = req.method === "DELETE" ? {} : await readBody(req);
+                const event = activityEventFromConnector({ method: req.method, pathParts, body });
+                if (!event) {
+                    sendJson(res, 404, { error: "Connector route not found." });
+                    return;
+                }
+                const turn = findActivityTurnByConversation(state, event.conversationId);
+                if (!turn) {
+                    sendJson(res, 404, { error: "No Activity turn is tracking this conversation." });
+                    return;
+                }
+                applyConnectorEvent(turn, event);
+                broadcastSnapshot(state);
+                sendJson(res, 200, event.activityId ? { id: event.activityId } : {});
                 return;
             }
             if (req.method === "POST" && url.pathname === "/api/endpoint") {
@@ -161,6 +190,27 @@ export function createRequestHandler({
                 sendJson(res, 200, snapshotState(state));
                 return;
             }
+            if (req.method === "POST" && url.pathname === "/api/protocol") {
+                const body = await readBody(req);
+                const previousProtocol = state.activeProtocol;
+                const protocol = String(body.protocol || "").trim().toLowerCase();
+                const capability = protocolState({ ...state, activeProtocol: protocol }).protocols[protocol];
+                if (capability?.status !== "supported") {
+                    state.activeProtocol = previousProtocol;
+                    sendJson(res, 409, { error: capability?.reason || "Protocol is not supported.", capability, state: snapshotState(state) });
+                    return;
+                }
+                setActiveProtocol(state, protocol);
+                addActivity(state, {
+                    actor: "You",
+                    kind: "set_protocol",
+                    status: "completed",
+                    summary: `Switched to ${capability.label} protocol.`,
+                    details: capability,
+                });
+                sendJson(res, 200, snapshotState(state));
+                return;
+            }
             if (req.method === "POST" && url.pathname === "/api/hosted/refresh") {
                 await refreshHostedContext(state);
                 sendJson(res, 200, snapshotState(state));
@@ -183,6 +233,7 @@ export function createRequestHandler({
                 const health = {
                     ...(await checkReadiness(activeEndpoint(state), {
                         expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+                        requiredProtocols: [],
                     })),
                     source: "manual",
                 };
@@ -268,6 +319,64 @@ export function createRequestHandler({
                 state.messages.push(turn);
                 await completeResponseTurn(state, turn, activity.id);
                 sendJson(res, 200, snapshotState(state));
+                return;
+            }
+            if (req.method === "POST" && url.pathname === "/api/activity") {
+                const body = await readBody(req);
+                const input = String(body.input || body.raw?.text || "").trim();
+                if (!input) {
+                    sendJson(res, 400, { error: "Input is required." });
+                    return;
+                }
+                const capability = protocolState(state).protocols.activity;
+                if (capability.status !== "supported") {
+                    sendJson(res, 409, { error: capability.reason || "Activity protocol is not supported.", capability });
+                    return;
+                }
+                if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                    sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending an Activity." });
+                    return;
+                }
+                const activity = addActivity(state, {
+                    actor: "You",
+                    kind: "send_activity",
+                    status: "running",
+                    summary: "Activity sent to the agent.",
+                    details: { input, target: state.target, endpoint: activeProtocolEndpoint(state, "activity") },
+                });
+                const turn = createActivityTurn(state, input, { raw: body.raw, endpoint: capability.endpoint });
+                state.messages.push(turn);
+                const result = await completeActivityTurn(state, turn, activity.id);
+                sendJson(res, 200, result.state);
+                return;
+            }
+            if (req.method === "POST" && url.pathname === "/api/invocations") {
+                const body = await readBody(req);
+                const input = String(body.input || "").trim();
+                if (!input) {
+                    sendJson(res, 400, { error: "Input is required." });
+                    return;
+                }
+                const capability = protocolState(state).protocols.invocations;
+                if (capability.status !== "supported") {
+                    sendJson(res, 409, { error: capability.reason || "Invocations protocol is not supported.", capability });
+                    return;
+                }
+                if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                    sendJson(res, 409, { error: "Start the local agent and wait for readiness before sending an invocation." });
+                    return;
+                }
+                const activity = addActivity(state, {
+                    actor: "You",
+                    kind: "send_invocation",
+                    status: "running",
+                    summary: "Invocation sent to the agent.",
+                    details: { input, target: state.target, endpoint: activeProtocolEndpoint(state, "invocations") },
+                });
+                const turn = invocationTurn(state, input);
+                state.messages.push(turn);
+                const result = await completeInvocationTurn(state, turn, activity.id);
+                sendJson(res, 200, result.state);
                 return;
             }
             if (req.method === "POST" && url.pathname === "/api/responses/stream") {

@@ -30,6 +30,12 @@ export function createCanvasActions({
     reconcileSelectedAgentFromReadiness,
     reconcileLocalReadinessAfterHealth,
     localStartupStillPending,
+    setActiveProtocol,
+    protocolState,
+    createActivityTurn,
+    completeActivityTurn,
+    invocationTurn,
+    completeInvocationTurn,
     responseTurn,
     completeResponseTurn,
     completedResponseResult,
@@ -100,6 +106,36 @@ export function createCanvasActions({
                     status: "completed",
                     summary: `Switched to ${state.target} target.`,
                     details: { target: state.target, endpoint: activeEndpoint(state) },
+                });
+                broadcastSnapshot(state);
+                return snapshotState(state);
+            },
+        },
+        {
+            name: "set_protocol",
+            description: "Switch the Playground protocol between Responses, Activity, and Invocations when supported by the selected agent.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    protocol: { type: "string", enum: ["responses", "activity", "invocations"] },
+                },
+                required: ["protocol"],
+                additionalProperties: false,
+            },
+            handler: async (ctx) => {
+                const state = instanceState(ctx);
+                const protocol = String(ctx.input.protocol || "").trim().toLowerCase();
+                const capability = protocolState({ ...state, activeProtocol: protocol }).protocols[protocol];
+                if (capability?.status !== "supported") {
+                    throw new CanvasError("protocol_not_supported", capability?.reason || "Protocol is not supported.");
+                }
+                setActiveProtocol(state, protocol);
+                addActivity(state, {
+                    actor: "Copilot",
+                    kind: "set_protocol",
+                    status: "completed",
+                    summary: `Switched to ${capability.label} protocol.`,
+                    details: capability,
                 });
                 broadcastSnapshot(state);
                 return snapshotState(state);
@@ -183,6 +219,7 @@ export function createCanvasActions({
                 const health = {
                     ...(await checkReadiness(activeEndpoint(state), {
                         expectedAgentNames: state.target === "local" ? readinessAgentNames(selectedAgent(state)) : null,
+                        requiredProtocols: [],
                     })),
                     source: "copilot",
                 };
@@ -289,6 +326,97 @@ export function createCanvasActions({
                 const result = await completeResponseTurn(state, turn, activity.id);
                 broadcastSnapshot(state);
                 return result;
+            },
+        },
+        {
+            name: "send_activity",
+            description: "Send a Bot Framework Activity turn to the selected agent and capture connector egress in the transcript.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    input: { type: "string" },
+                    raw: {
+                        type: "object",
+                        description: "Optional raw Activity JSON. Defaults are filled for id, serviceUrl, conversation, from, and recipient.",
+                    },
+                },
+                required: ["input"],
+                additionalProperties: false,
+            },
+            handler: async (ctx) => {
+                const state = instanceState(ctx);
+                const input = String(ctx.input?.input || "").trim();
+                if (!input) {
+                    throw new CanvasError("input_required", "Input is required.");
+                }
+                const capability = protocolState(state).protocols.activity;
+                if (capability.status !== "supported") {
+                    throw new CanvasError("protocol_not_supported", capability.reason || "Activity protocol is not supported.");
+                }
+                if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                    throw new CanvasError("not_ready", "Start the local agent and wait for readiness before sending an Activity.");
+                }
+                const activity = addActivity(state, {
+                    actor: "Copilot",
+                    kind: "send_activity",
+                    status: "running",
+                    summary: "Activity sent to the agent.",
+                    details: { input, target: state.target, endpoint: capability.endpoint },
+                });
+                const turn = createActivityTurn(state, input, { raw: ctx.input?.raw, endpoint: capability.endpoint });
+                state.messages.push(turn);
+                const result = await completeActivityTurn(state, turn, activity.id);
+                broadcastSnapshot(state);
+                return result;
+            },
+        },
+        {
+            name: "send_invocation",
+            description: "Send a simple invocation payload to POST /invocations and append the result to the transcript.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    input: { type: "string" },
+                },
+                required: ["input"],
+                additionalProperties: false,
+            },
+            handler: async (ctx) => {
+                const state = instanceState(ctx);
+                const input = String(ctx.input?.input || "").trim();
+                if (!input) {
+                    throw new CanvasError("input_required", "Input is required.");
+                }
+                const capability = protocolState(state).protocols.invocations;
+                if (capability.status !== "supported") {
+                    throw new CanvasError("protocol_not_supported", capability.reason || "Invocations protocol is not supported.");
+                }
+                if (state.target !== "hosted" && !state.lastHealth?.ok) {
+                    throw new CanvasError("not_ready", "Start the local agent and wait for readiness before sending an invocation.");
+                }
+                const activity = addActivity(state, {
+                    actor: "Copilot",
+                    kind: "send_invocation",
+                    status: "running",
+                    summary: "Invocation sent to the agent.",
+                    details: { input, target: state.target, endpoint: capability.endpoint },
+                });
+                const turn = invocationTurn(state, input);
+                state.messages.push(turn);
+                const result = await completeInvocationTurn(state, turn, activity.id);
+                broadcastSnapshot(state);
+                return result;
+            },
+        },
+        {
+            name: "get_protocol_state",
+            description: "Return the selected protocol, endpoint, and per-protocol support for the current agent target.",
+            handler: (ctx) => {
+                const state = instanceState(ctx);
+                return {
+                    protocolState: protocolState(state),
+                    state: snapshotState(state),
+                };
             },
         },
         {

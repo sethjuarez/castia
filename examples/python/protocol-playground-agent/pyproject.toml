@@ -1,0 +1,24 @@
+[project]
+name = "protocol-playground-agent"
+version = "0.1.0"
+description = "A deterministic Castia agent for exercising protocol-aware playground behavior."
+requires-python = ">=3.11"
+dependencies = [
+    "castia[optimize]==0.7.6",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.uv]
+package = false

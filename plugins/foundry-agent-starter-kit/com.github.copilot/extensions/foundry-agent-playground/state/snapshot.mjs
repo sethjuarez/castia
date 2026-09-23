@@ -1,6 +1,12 @@
 import { serviceEnvPrefix } from "../client/agent-discovery.mjs";
 import { responseText } from "../client/agent-client.mjs";
 import { DEFAULT_AGENT_ROOT, DEFAULT_ENDPOINT, DEFAULT_SERVICE_NAME } from "../domain/constants.mjs";
+import {
+    chooseActiveProtocol,
+    normalizeProtocol,
+    protocolCapabilities,
+    protocolEndpoint,
+} from "../protocols/protocol-state.mjs";
 
 const MAX_ACTIVITY_ENTRIES = 80;
 
@@ -22,10 +28,37 @@ export function activeEndpoint(state) {
     return state.target === "hosted" ? state.hosted.responsesEndpoint || "" : selectedLocalEndpoint(state);
 }
 
+export function protocolState(state) {
+    const health = activeHealth(state);
+    const protocols = protocolCapabilities({
+        target: state.target,
+        baseEndpoint: selectedLocalEndpoint(state),
+        hosted: state.hosted,
+        health,
+    });
+    const activeProtocol = chooseActiveProtocol(state.activeProtocol, protocols);
+    return {
+        activeProtocol,
+        protocols,
+        activeCapability: protocols[activeProtocol],
+        activeProtocolEndpoint: protocols[activeProtocol]?.endpoint || "",
+    };
+}
+
+export function activeProtocolEndpoint(state, protocol = state.activeProtocol) {
+    const normalized = normalizeProtocol(protocol);
+    return protocolEndpoint({
+        target: state.target,
+        baseEndpoint: selectedLocalEndpoint(state),
+        hosted: state.hosted,
+        health: activeHealth(state),
+    }, normalized);
+}
+
 export function selectedAgent(state) {
     return (
-        state.agents.find((agent) => agent.id === state.selectedAgentId) ||
-        state.agents[0] || {
+        (state.agents || []).find((agent) => agent.id === state.selectedAgentId) ||
+        (state.agents || [])[0] || {
             id: "minimal-agent",
             serviceName: DEFAULT_SERVICE_NAME,
             displayName: DEFAULT_SERVICE_NAME,
@@ -41,7 +74,7 @@ export function selectedLocalEndpoint(state) {
     if (state.localRun?.agentId === agent.id && state.localRun.endpoint) {
         return state.localRun.endpoint;
     }
-    return state.localEndpoints[agent.id] || DEFAULT_ENDPOINT;
+    return state.localEndpoints?.[agent.id] || DEFAULT_ENDPOINT;
 }
 
 export function endpointPort(endpoint) {
@@ -196,14 +229,19 @@ export function transcriptStats(messages) {
 }
 
 export function messagesForTarget(state) {
+    const activeProtocol = protocolState(state).activeProtocol;
     return state.messages.filter((message) =>
-        state.target === "hosted" ? message.target === "hosted" : message.target !== "hosted",
+        (state.target === "hosted" ? message.target === "hosted" : message.target !== "hosted") &&
+        (!activeProtocol || (message.protocol || "responses") === activeProtocol),
     );
 }
 
 export function clearMessagesForTarget(state, target) {
+    const activeProtocol = protocolState(state).activeProtocol;
     const keep = state.messages.filter((message) =>
-        target === "hosted" ? message.target !== "hosted" : message.target === "hosted",
+        target === "hosted"
+            ? message.target !== "hosted" || (activeProtocol && (message.protocol || "responses") !== activeProtocol)
+            : message.target === "hosted" || (activeProtocol && (message.protocol || "responses") !== activeProtocol),
     );
     state.messages.length = 0;
     state.messages.push(...keep);
@@ -225,7 +263,14 @@ export function setTarget(state, target) {
     const key = targetHealthKey(target);
     state.target = key;
     state.lastHealth = state.lastHealthByTarget?.[key] || null;
+    state.activeProtocol = protocolState(state).activeProtocol;
     return state.target;
+}
+
+export function setActiveProtocol(state, protocol) {
+    const normalized = normalizeProtocol(protocol);
+    state.activeProtocol = normalized;
+    return normalized;
 }
 
 export function setTargetHealth(state, health, target = state.target) {
@@ -311,6 +356,7 @@ export function transcriptState(state) {
     const visibleMessages = messagesForTarget(state);
     const latestCopy = latestCopyTarget(visibleMessages);
     const health = activeHealth(state);
+    const protocols = protocolState(state);
     const turns = visibleMessages.map((message) => ({
         prompt: message.input || "",
         answer: responseDisplayText(message.response),
@@ -322,8 +368,11 @@ export function transcriptState(state) {
     const latestPending = [...turns].reverse().find((turn) => turn.pendingLabel);
     return {
         target: state.target,
+        activeProtocol: protocols.activeProtocol,
+        protocols: protocols.protocols,
+        activeProtocolEndpoint: protocols.activeProtocolEndpoint,
         selectedAgentId: state.selectedAgentId,
-        endpoint: activeEndpoint(state),
+        endpoint: protocols.activeProtocolEndpoint || activeEndpoint(state),
         turns,
         prompts: turns.map((turn) => turn.prompt),
         answers: turns.map((turn) => turn.answer),
@@ -349,10 +398,15 @@ export function stateSnapshot(state) {
     const agent = selectedAgent(state);
     const visibleMessages = messagesForTarget(state);
     const health = activeHealth(state);
+    const protocols = protocolState(state);
     return {
         endpoint: activeEndpoint(state),
+        protocolEndpoint: protocols.activeProtocolEndpoint,
         localEndpoint: selectedLocalEndpoint(state),
         target: state.target,
+        activeProtocol: protocols.activeProtocol,
+        protocols: protocols.protocols,
+        activeProtocolCapability: protocols.activeCapability,
         agents: state.agents,
         selectedAgentId: state.selectedAgentId,
         selectedAgent: agent,

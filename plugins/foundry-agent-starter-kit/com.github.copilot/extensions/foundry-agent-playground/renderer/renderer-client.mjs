@@ -74,12 +74,20 @@ export function composerGate(state, { activeView = "chat", inFlight = false } = 
     if (!state) {
         return { canSend: false, inputDisabled: true, disabledReason: "Loading playground state." };
     }
+    const activeProtocol = state.activeProtocol || "responses";
+    const capability = state.protocols?.[activeProtocol] || (state.target === "hosted" && activeProtocol === "responses" && state.hosted?.responsesEndpoint
+        ? { label: "Responses", status: "supported", endpoint: state.hosted.responsesEndpoint }
+        : null);
+    if (capability && capability.status !== "supported") {
+        return { canSend: false, inputDisabled: true, disabledReason: capability.reason || activeProtocol + " protocol is not supported." };
+    }
     if (state.target === "hosted") {
-        if (!state.hosted?.responsesEndpoint) {
+        if (!capability?.endpoint) {
+            const label = capability?.label || ({ responses: "Responses", activity: "Activity", invocations: "Invocations" }[activeProtocol] || activeProtocol);
             return {
                 canSend: false,
                 inputDisabled: true,
-                disabledReason: "Discover or deploy a hosted Responses endpoint before chatting.",
+                disabledReason: "Discover or deploy a hosted " + label + " endpoint before chatting.",
             };
         }
     } else {
@@ -255,6 +263,7 @@ export const rendererClientScript = `
     const passCount = document.getElementById("passCount");
     const failCount = document.getElementById("failCount");
     const avgLatency = document.getElementById("avgLatency");
+    const protocolToggle = document.getElementById("protocolToggle");
     const activityLog = document.getElementById("activityLog");
     const activitySummary = document.getElementById("activitySummary");
     const activityCount = document.getElementById("activityCount");
@@ -308,6 +317,7 @@ export const rendererClientScript = `
       passCount.textContent = state.stats.completed + " pass";
       failCount.textContent = state.stats.failed + " fail";
       avgLatency.textContent = state.stats.averageMs + "ms avg";
+      renderProtocolToggle(state);
       renderMessages(state.visibleMessages || []);
       if (state.target !== "hosted" && state.lastHealth && !isStartupReadinessPending(state)) {
         const detail = !state.lastHealth.ok && state.lastHealth.body ? " · " + String(state.lastHealth.body).slice(0, 160) : "";
@@ -665,7 +675,9 @@ export const rendererClientScript = `
       promptInput.disabled = gate.inputDisabled;
       promptInput.placeholder = gate.inputDisabled
         ? gate.disabledReason
-        : "Ask the agent something... Enter sends, Shift+Enter adds a line.";
+        : (latestState?.activeProtocol === "activity"
+          ? "Send a Teams Activity message... Enter sends, Shift+Enter adds a line."
+          : "Ask the agent something... Enter sends, Shift+Enter adds a line.");
       stopLocalAction.hidden = !(activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running);
       stopLocalAction.disabled = false;
       if (activeView === "deploy") {
@@ -676,6 +688,21 @@ export const rendererClientScript = `
       primaryGuideAction.disabled = deploymentRunning && activeView !== "teams" && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted");
       clearButton.hidden = activeView === "teams";
       clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
+    }
+
+    function renderProtocolToggle(state) {
+      const protocols = state.protocols || {};
+      const order = ["responses", "activity", "invocations"];
+      protocolToggle.innerHTML = order.map((protocol) => {
+        const capability = protocols[protocol] || { label: protocol, status: "unknown", reason: "Not discovered." };
+        const active = (state.activeProtocol || "responses") === protocol;
+        const disabled = capability.status !== "supported";
+        const title = capability.reason || capability.endpoint || capability.label;
+        return '<button type="button" role="tab" class="protocol-tab ' + (active ? "active " : "") + escapeHtml(capability.status || "unknown") + '" data-protocol="' + escapeHtml(protocol) + '" aria-selected="' + String(active) + '" ' + (disabled ? "disabled " : "") + 'title="' + escapeHtml(title) + '">' +
+          '<span>' + escapeHtml(capability.label || protocol) + '</span>' +
+          '<span class="protocol-state">' + escapeHtml(capability.status || "unknown") + '</span>' +
+        '</button>';
+      }).join("");
     }
 
     function renderFoundryStatus(state) {
@@ -722,7 +749,13 @@ export const rendererClientScript = `
     function renderMessages(messages) {
       transcript.classList.toggle("empty-state", !messages.length);
       if (!messages.length) {
-        transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
+        const activeProtocol = latestState?.activeProtocol || "responses";
+        const copy = activeProtocol === "activity"
+          ? 'Send a prompt to test <code>POST /activity/messages</code> and connector egress.'
+          : activeProtocol === "invocations"
+          ? 'Send an invocation payload to test <code>POST /invocations</code>.'
+          : 'Send a prompt to test <code>POST /responses</code>.';
+        transcript.innerHTML = '<div class="empty">' + copy + '</div>';
         copyLatestAnswerButton.hidden = true;
         copyLatestAnswerButton.disabled = true;
         return;
@@ -733,6 +766,9 @@ export const rendererClientScript = `
       });
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => {
+        if ((turn.protocol || "responses") === "activity") {
+          return renderActivityTurn(turn, index);
+        }
         const detailsKey = responseDetailsKey(turn, index);
         const detailsId = responseDetailsPanelId(detailsKey);
         const detailsOpen = expandedResponseDetails.has(detailsKey);
@@ -776,6 +812,76 @@ export const rendererClientScript = `
       restoreDetailsScroll();
       if (shouldStickToBottom) transcript.scrollTop = transcript.scrollHeight;
       requestAnimationFrame(restoreDetailsScroll);
+    }
+
+    function renderReaction(value) {
+      const normalized = String(value || "like").toLowerCase();
+      return {
+        like: "👍",
+        eyes: "👀",
+        heart: "❤️",
+        laugh: "😄",
+        angry: "😠",
+        sad: "😢",
+      }[normalized] || ":" + normalized + ":";
+    }
+
+    function activityReactions(turn, targetId) {
+      const reactions = [];
+      for (const event of turn.events || []) {
+        if (event.activityId !== targetId) continue;
+        if (event.kind === "outbound.reaction.add") reactions.push(event.reaction || "like");
+        if (event.kind === "outbound.reaction.remove") {
+          const index = reactions.lastIndexOf(event.reaction || "like");
+          if (index >= 0) reactions.splice(index, 1);
+        }
+      }
+      return reactions;
+    }
+
+    function renderReactionRow(reactions) {
+      if (!reactions.length) return "";
+      return '<div class="reaction-row">' + reactions.map((reaction) =>
+        '<span class="reaction" title="' + escapeHtml(reaction) + '">' + escapeHtml(renderReaction(reaction)) + '</span>'
+      ).join("") + '</div>';
+    }
+
+    function renderActivityTurn(turn, index) {
+      const detailsKey = responseDetailsKey(turn, index);
+      const detailsId = responseDetailsPanelId(detailsKey);
+      const detailsOpen = expandedResponseDetails.has(detailsKey);
+      const target = turn.target === "hosted" ? "Foundry Activity" : "Local Activity";
+      const inbound = (turn.events || []).find((event) => event.kind === "inbound.message");
+      const inboundReactions = activityReactions(turn, inbound?.activityId);
+      const outbound = (turn.events || []).filter((event) => event.kind && event.kind.startsWith("outbound."));
+      const bubbles = outbound.map((event) => {
+        if (event.kind === "outbound.typing") {
+          return '<section class="bubble agent activity-event"><div class="typing-pill">Agent is typing...</div></section>';
+        }
+        if (event.kind === "outbound.reaction.add" || event.kind === "outbound.reaction.remove") {
+          return "";
+        }
+        if (event.kind === "outbound.message.delete") {
+          return '<section class="bubble agent deleted"><div class="bubble-head"><span class="speaker agent">Agent</span><span>deleted</span></div><div class="bubble-body"><em>Message deleted</em></div></section>';
+        }
+        const reactions = activityReactions(turn, event.activityId);
+        const updated = event.kind === "outbound.message.update";
+        return '<section class="bubble agent">' +
+          '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ok">' + escapeHtml(updated ? "updated" : "message") + '</span></div>' +
+          '<div class="bubble-body">' + (event.text ? renderMarkdown(event.text) : '<div class="no-answer">Connector event returned no text.</div>') + '</div>' +
+          renderReactionRow(reactions) +
+          '</section>';
+      }).join("");
+      return '<article class="turn activity-turn">' +
+        '<section class="bubble user">' +
+        '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
+        '<div class="bubble-body">' + renderMarkdown(inbound?.text || turn.input || "") + '</div>' +
+        renderReactionRow(inboundReactions) +
+        '</section>' +
+        (bubbles || '<section class="bubble agent"><div class="first-token" role="status" aria-live="polite"><span>Waiting for connector events...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></section>') +
+        '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Activity details</span></button></div>' +
+        '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Activity details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
+        '</article>';
     }
 
     transcript.addEventListener("scroll", (event) => {
@@ -870,6 +976,28 @@ export const rendererClientScript = `
       }
       try {
         await saveEndpointFromInput();
+        if (latestState?.activeProtocol === "activity") {
+          const state = await request("/api/activity", {
+            method: "POST",
+            body: JSON.stringify({ input }),
+          });
+          promptInput.value = "";
+          renderSnapshot(state);
+          const latest = state.messages[state.messages.length - 1];
+          setStatus(latest?.response?.ok ? "ok" : "fail", "Activity " + (latest?.response?.status ?? "error") + " in " + (latest?.response?.durationMs ?? 0) + "ms");
+          return;
+        }
+        if (latestState?.activeProtocol === "invocations") {
+          const state = await request("/api/invocations", {
+            method: "POST",
+            body: JSON.stringify({ input }),
+          });
+          promptInput.value = "";
+          renderSnapshot(state);
+          const latest = state.messages[state.messages.length - 1];
+          setStatus(latest?.response?.ok ? "ok" : "fail", "Invocation " + (latest?.response?.status ?? "error") + " in " + (latest?.response?.durationMs ?? 0) + "ms");
+          return;
+        }
         const response = await fetch("/api/responses/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -907,6 +1035,7 @@ export const rendererClientScript = `
               setStatus(latest.response.ok ? "ok" : "fail", "Response " + latest.response.status + " in " + latest.response.durationMs + "ms");
             }
           }
+
         }
       } catch (error) {
         setStatus("fail", error.message);
@@ -1413,6 +1542,21 @@ export const rendererClientScript = `
 
     sendButton.addEventListener("click", () => {
       void sendPrompt();
+    });
+
+    protocolToggle.addEventListener("click", async (event) => {
+      const button = event.target.closest(".protocol-tab");
+      if (!button || button.disabled) return;
+      const protocol = button.dataset.protocol;
+      try {
+        renderSnapshot(await request("/api/protocol", {
+          method: "POST",
+          body: JSON.stringify({ protocol }),
+        }));
+        setStatus("ok", "Switched to " + button.innerText.split("\\n")[0] + ".");
+      } catch (error) {
+        setStatus("fail", error.message);
+      }
     });
 
     clearButton.addEventListener("click", async () => {

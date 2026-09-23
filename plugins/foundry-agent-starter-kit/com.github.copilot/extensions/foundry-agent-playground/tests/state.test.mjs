@@ -10,6 +10,8 @@ import {
     emptyLocalRun,
     latestCopyTarget,
     normalizeEndpoint,
+    activeProtocolEndpoint,
+    protocolState,
     responseDisplayText,
     responsePendingLabel,
     selectedAgent,
@@ -178,6 +180,58 @@ test("transcriptState keeps health banners scoped to the active target", () => {
     assert.equal(transcript.healthBanner.ok, null);
 });
 
+test("protocolState derives local Activity and invocation support from readiness diagnostics", () => {
+    const state = {
+        target: "local",
+        activeProtocol: "responses",
+        agents: [agent],
+        selectedAgentId: agent.id,
+        localEndpoints: { [agent.id]: "http://127.0.0.1:8100" },
+        hosted: emptyHostedContext(agent),
+        lastHealth: {
+            ok: true,
+            readiness: {
+                protocols: ["activity", "responses", "invocations"],
+                routes: {
+                    activity: "/activity/messages",
+                    responses: "/responses",
+                    invocations: "/invocations",
+                },
+            },
+        },
+        lastHealthByTarget: {},
+    };
+
+    const protocols = protocolState(state);
+
+    assert.equal(protocols.protocols.activity.status, "supported");
+    assert.equal(protocols.protocols.activity.endpoint, "http://127.0.0.1:8100/activity/messages");
+    assert.equal(protocols.protocols.invocations.endpoint, "http://127.0.0.1:8100/invocations");
+    assert.equal(activeProtocolEndpoint(state, "activity"), "http://127.0.0.1:8100/activity/messages");
+});
+
+test("protocolState disables unsupported protocols with an explicit reason", () => {
+    const state = {
+        target: "local",
+        activeProtocol: "activity",
+        agents: [agent],
+        selectedAgentId: agent.id,
+        localEndpoints: { [agent.id]: "http://127.0.0.1:8100" },
+        hosted: emptyHostedContext(agent),
+        lastHealth: {
+            ok: true,
+            readiness: { protocols: ["responses"], routes: { responses: "/responses" } },
+        },
+        lastHealthByTarget: {},
+    };
+
+    const protocols = protocolState(state);
+
+    assert.equal(protocols.activeProtocol, "responses");
+    assert.equal(protocols.protocols.activity.status, "unsupported");
+    assert.match(protocols.protocols.activity.reason, /not declared/);
+});
+
 test("copy helpers skip pending, failed, and diagnostic-only responses", () => {
     assert.equal(responseDisplayText({ body: { output_text: "answer" } }), "answer");
     assert.equal(responsePendingLabel({ status: "waiting", streaming: true, body: { output_text: "" } }), "Thinking...");
@@ -206,6 +260,43 @@ test("clearMessagesForTarget clears only the selected target transcript", () => 
     clearMessagesForTarget(state, "local");
 
     assert.deepEqual(state.messages.map((message) => message.id), []);
+});
+
+test("clearMessagesForTarget clears only the active protocol transcript", () => {
+    const state = {
+        target: "local",
+        activeProtocol: "activity",
+        agents: [agent],
+        selectedAgentId: agent.id,
+        localEndpoints: { [agent.id]: "http://127.0.0.1:8100" },
+        hosted: emptyHostedContext(agent),
+        lastHealth: {
+            ok: true,
+            readiness: {
+                protocols: ["activity", "responses", "invocations"],
+                routes: {
+                    activity: "/activity/messages",
+                    responses: "/responses",
+                    invocations: "/invocations",
+                },
+            },
+        },
+        lastHealthByTarget: {},
+        messages: [
+            { id: "local-response", target: "local", protocol: "responses" },
+            { id: "local-activity", target: "local", protocol: "activity" },
+            { id: "local-invocation", target: "local", protocol: "invocations" },
+            { id: "hosted-activity", target: "hosted", protocol: "activity" },
+        ],
+    };
+
+    clearMessagesForTarget(state, "local");
+
+    assert.deepEqual(state.messages.map((message) => message.id), [
+        "local-response",
+        "local-invocation",
+        "hosted-activity",
+    ]);
 });
 
 test("selectedAgent falls back to the default minimal agent", () => {
