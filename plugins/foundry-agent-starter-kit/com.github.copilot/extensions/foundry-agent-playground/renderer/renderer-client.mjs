@@ -74,12 +74,20 @@ export function composerGate(state, { activeView = "chat", inFlight = false } = 
     if (!state) {
         return { canSend: false, inputDisabled: true, disabledReason: "Loading playground state." };
     }
+    const activeProtocol = state.activeProtocol || "responses";
+    const capability = state.protocols?.[activeProtocol] || (state.target === "hosted" && activeProtocol === "responses" && state.hosted?.responsesEndpoint
+        ? { label: "Responses", status: "supported", endpoint: state.hosted.responsesEndpoint }
+        : null);
+    if (capability && capability.status !== "supported") {
+        return { canSend: false, inputDisabled: true, disabledReason: capability.reason || activeProtocol + " protocol is not supported." };
+    }
     if (state.target === "hosted") {
-        if (!state.hosted?.responsesEndpoint) {
+        if (!capability?.endpoint) {
+            const label = capability?.label || ({ responses: "Responses", activity: "Activity", invocations: "Invocations" }[activeProtocol] || activeProtocol);
             return {
                 canSend: false,
                 inputDisabled: true,
-                disabledReason: "Discover or deploy a hosted Responses endpoint before chatting.",
+                disabledReason: "Discover or deploy a hosted " + label + " endpoint before chatting.",
             };
         }
     } else {
@@ -255,6 +263,7 @@ export const rendererClientScript = `
     const passCount = document.getElementById("passCount");
     const failCount = document.getElementById("failCount");
     const avgLatency = document.getElementById("avgLatency");
+    const protocolToggle = document.getElementById("protocolToggle");
     const activityLog = document.getElementById("activityLog");
     const activitySummary = document.getElementById("activitySummary");
     const activityCount = document.getElementById("activityCount");
@@ -308,6 +317,7 @@ export const rendererClientScript = `
       passCount.textContent = state.stats.completed + " pass";
       failCount.textContent = state.stats.failed + " fail";
       avgLatency.textContent = state.stats.averageMs + "ms avg";
+      renderProtocolToggle(state);
       renderMessages(state.visibleMessages || []);
       if (state.target !== "hosted" && state.lastHealth && !isStartupReadinessPending(state)) {
         const detail = !state.lastHealth.ok && state.lastHealth.body ? " · " + String(state.lastHealth.body).slice(0, 160) : "";
@@ -665,7 +675,9 @@ export const rendererClientScript = `
       promptInput.disabled = gate.inputDisabled;
       promptInput.placeholder = gate.inputDisabled
         ? gate.disabledReason
-        : "Ask the agent something... Enter sends, Shift+Enter adds a line.";
+        : (latestState?.activeProtocol === "activity"
+          ? "Send a Teams Activity message... Enter sends, Shift+Enter adds a line."
+          : "Ask the agent something... Enter sends, Shift+Enter adds a line.");
       stopLocalAction.hidden = !(activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running);
       stopLocalAction.disabled = false;
       if (activeView === "deploy") {
@@ -676,6 +688,21 @@ export const rendererClientScript = `
       primaryGuideAction.disabled = deploymentRunning && activeView !== "teams" && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted");
       clearButton.hidden = activeView === "teams";
       clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
+    }
+
+    function renderProtocolToggle(state) {
+      const protocols = state.protocols || {};
+      const order = ["responses", "activity", "invocations"];
+      protocolToggle.innerHTML = order.map((protocol) => {
+        const capability = protocols[protocol] || { label: protocol, status: "unknown", reason: "Not discovered." };
+        const active = (state.activeProtocol || "responses") === protocol;
+        const disabled = capability.status !== "supported";
+        const title = capability.reason || capability.endpoint || capability.label;
+        return '<button type="button" role="tab" class="protocol-tab ' + (active ? "active " : "") + escapeHtml(capability.status || "unknown") + '" data-protocol="' + escapeHtml(protocol) + '" aria-selected="' + String(active) + '" ' + (disabled ? "disabled " : "") + 'title="' + escapeHtml(title) + '">' +
+          '<span>' + escapeHtml(capability.label || protocol) + '</span>' +
+          '<span class="protocol-state">' + escapeHtml(capability.status || "unknown") + '</span>' +
+        '</button>';
+      }).join("");
     }
 
     function renderFoundryStatus(state) {
@@ -719,10 +746,112 @@ export const rendererClientScript = `
       deployLog.scrollTop = deployLog.scrollHeight;
     }
 
+    function defineProtocolTurnElements() {
+      const definitions = [
+        ["responses-turn", "responses"],
+        ["activity-turn", "activity"],
+        ["invocation-turn", "invocations"],
+      ];
+      for (const [tagName, protocol] of definitions) {
+        if (customElements.get(tagName)) continue;
+        customElements.define(tagName, class extends HTMLElement {
+          connectedCallback() {
+            this.classList.add("turn", "protocol-turn", protocol + "-turn");
+            this.dataset.protocol = protocol;
+            if (!this.hasAttribute("role")) this.setAttribute("role", "article");
+          }
+        });
+      }
+    }
+
+    function turnTargetLabel(turn, protocolLabel) {
+      const base = turn.target === "hosted" ? "Foundry" : "Local";
+      return protocolLabel ? base + " · " + protocolLabel : base;
+    }
+
+    function renderUserBubble(turn, { target, input, reactions = [] } = {}) {
+      return '<section class="bubble user">' +
+        '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target || turnTargetLabel(turn)) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
+        '<div class="bubble-body">' + renderMarkdown(input ?? turn.input ?? "") + '</div>' +
+        renderReactionRow(reactions) +
+        '</section>';
+    }
+
+    function renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, label = "Details", copyableAnswer = "") {
+      return '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>' + escapeHtml(label) + '</span></button>' +
+        (copyableAnswer ? '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '">Copy answer</button>' : label === "Details" ? '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" disabled>Copy answer</button>' : "") +
+        '</div>' +
+        '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="' + escapeHtml(label) + '" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>';
+    }
+
+    function renderResponsesTurn(turn, index) {
+      const detailsKey = responseDetailsKey(turn, index);
+      const detailsId = responseDetailsPanelId(detailsKey);
+      const detailsOpen = expandedResponseDetails.has(detailsKey);
+      const ok = turn.response?.ok;
+      const streaming = turn.response?.streaming;
+      const display = responseDisplayState(turn.response);
+      const answer = display.answer;
+      const hasAnswer = display.hasAnswer;
+      const copyableAnswer = copyableAnswerText(turn.response);
+      const waitingForFirstToken = display.waitingForFirstToken;
+      const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
+      const body = waitingForFirstToken
+        ? '<div class="first-token" role="status" aria-live="polite"><span>Thinking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
+        : hasAnswer
+        ? renderMarkdown(answer)
+        : '<div class="no-answer">No answer text returned. Open Details for the raw response.</div>';
+      return '<responses-turn>' +
+        renderUserBubble(turn, { target: turnTargetLabel(turn, "Responses") }) +
+        '<section class="bubble agent">' +
+        '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
+        '<div class="bubble-body">' + body + '</div>' +
+        renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Details", copyableAnswer) +
+        '</section>' +
+        '</responses-turn>';
+    }
+
+    function renderInvocationTurn(turn, index) {
+      const detailsKey = responseDetailsKey(turn, index);
+      const detailsId = responseDetailsPanelId(detailsKey);
+      const detailsOpen = expandedResponseDetails.has(detailsKey);
+      const ok = turn.response?.ok;
+      const display = responseDisplayState(turn.response);
+      const streaming = turn.response?.streaming;
+      const waitingForFirstToken = display.waitingForFirstToken;
+      const answer = waitingForFirstToken
+        ? '<div class="first-token" role="status" aria-live="polite"><span>Invoking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
+        : display.hasAnswer
+        ? renderMarkdown(display.answer)
+        : '<div class="no-answer">No invocation output returned. Open Details for the raw result.</div>';
+      const copyableAnswer = copyableAnswerText(turn.response);
+      return '<invocation-turn>' +
+        renderUserBubble(turn, { target: turnTargetLabel(turn, "Invocations") }) +
+        '<section class="bubble agent invocation-result">' +
+        '<div class="bubble-head"><span class="speaker agent">Invocation result</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(String(streaming ? "waiting" : turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
+        '<div class="bubble-body">' + answer + '</div>' +
+        renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Invocation details", copyableAnswer) +
+        '</section>' +
+        '</invocation-turn>';
+    }
+
+    function renderProtocolTurn(turn, index) {
+      const protocol = turn.protocol || "responses";
+      if (protocol === "activity") return renderActivityTurn(turn, index);
+      if (protocol === "invocations") return renderInvocationTurn(turn, index);
+      return renderResponsesTurn(turn, index);
+    }
+
     function renderMessages(messages) {
       transcript.classList.toggle("empty-state", !messages.length);
       if (!messages.length) {
-        transcript.innerHTML = '<div class="empty">Send a prompt to test <code>POST /responses</code>.</div>';
+        const activeProtocol = latestState?.activeProtocol || "responses";
+        const copy = activeProtocol === "activity"
+          ? 'Send a prompt to test <code>POST /activity/messages</code> and connector egress.'
+          : activeProtocol === "invocations"
+          ? 'Send an invocation payload to test <code>POST /invocations</code>.'
+          : 'Send a prompt to test <code>POST /responses</code>.';
+        transcript.innerHTML = '<div class="empty">' + copy + '</div>';
         copyLatestAnswerButton.hidden = true;
         copyLatestAnswerButton.disabled = true;
         return;
@@ -732,38 +861,7 @@ export const rendererClientScript = `
         if (panel?.dataset?.detailsKey) responseDetailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
       });
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
-      transcript.innerHTML = messages.map((turn, index) => {
-        const detailsKey = responseDetailsKey(turn, index);
-        const detailsId = responseDetailsPanelId(detailsKey);
-        const detailsOpen = expandedResponseDetails.has(detailsKey);
-        const ok = turn.response?.ok;
-        const streaming = turn.response?.streaming;
-        const display = responseDisplayState(turn.response);
-        const answer = display.answer;
-        const hasAnswer = display.hasAnswer;
-        const copyableAnswer = copyableAnswerText(turn.response);
-        const waitingForFirstToken = display.waitingForFirstToken;
-        const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
-        const body = waitingForFirstToken
-          ? '<div class="first-token" role="status" aria-live="polite"><span>Thinking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
-          : hasAnswer
-          ? renderMarkdown(answer)
-          : '<div class="no-answer">No answer text returned. Open Details for the raw response.</div>';
-        const target = turn.target === "hosted" ? "Foundry" : "Local";
-        return '<article class="turn">' +
-          '<section class="bubble user">' +
-          '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
-          '<div class="bubble-body">' + renderMarkdown(turn.input) + '</div>' +
-          '</section>' +
-          '<section class="bubble agent">' +
-          '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
-          '<div class="bubble-body">' + body + '</div>' +
-          '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button>' +
-          '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" ' + (copyableAnswer ? "" : "disabled") + '>Copy answer</button></div>' +
-          '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
-          '</section>' +
-          '</article>';
-      }).join("");
+      transcript.innerHTML = messages.map((turn, index) => renderProtocolTurn(turn, index)).join("");
       const latestAnswer = latestVisibleAnswerText(messages);
       copyLatestAnswerButton.hidden = !latestAnswer;
       copyLatestAnswerButton.disabled = !latestAnswer;
@@ -776,6 +874,99 @@ export const rendererClientScript = `
       restoreDetailsScroll();
       if (shouldStickToBottom) transcript.scrollTop = transcript.scrollHeight;
       requestAnimationFrame(restoreDetailsScroll);
+    }
+
+    function renderReaction(value) {
+      const normalized = String(value || "like").toLowerCase();
+      return {
+        like: "👍",
+        eyes: "👀",
+        heart: "❤️",
+        laugh: "😄",
+        angry: "😠",
+        sad: "😢",
+      }[normalized] || ":" + normalized + ":";
+    }
+
+    function activityReactions(turn, targetId) {
+      const reactions = [];
+      for (const event of turn.events || []) {
+        if (event.activityId !== targetId) continue;
+        if (event.kind === "outbound.reaction.add") reactions.push(event.reaction || "like");
+        if (event.kind === "outbound.reaction.remove") {
+          const index = reactions.lastIndexOf(event.reaction || "like");
+          if (index >= 0) reactions.splice(index, 1);
+        }
+      }
+      return reactions;
+    }
+
+    function activityMessageItems(turn) {
+      const items = [];
+      const byId = new Map();
+      for (const event of turn.events || []) {
+        if (!event?.kind?.startsWith?.("outbound.")) continue;
+        if (event.kind === "outbound.typing") {
+          items.push({ type: "typing", event });
+          continue;
+        }
+        if (event.kind === "outbound.reaction.add" || event.kind === "outbound.reaction.remove") continue;
+        const activityId = event.activityId || "event-" + items.length;
+        let item = byId.get(activityId);
+        if (!item) {
+          item = { type: "message", activityId, text: "", edited: false, deleted: false, event };
+          byId.set(activityId, item);
+          items.push(item);
+        }
+        item.event = event;
+        if (event.kind === "outbound.message.update") {
+          item.text = event.text || item.text;
+          item.edited = true;
+          item.deleted = false;
+        } else if (event.kind === "outbound.message.delete") {
+          item.deleted = true;
+        } else {
+          item.text = event.text || "";
+        }
+      }
+      return items;
+    }
+
+    function renderReactionRow(reactions) {
+      if (!reactions.length) return "";
+      return '<div class="reaction-row">' + reactions.map((reaction) =>
+        '<span class="reaction" title="' + escapeHtml(reaction) + '">' + escapeHtml(renderReaction(reaction)) + '</span>'
+      ).join("") + '</div>';
+    }
+
+    function renderActivityTurn(turn, index) {
+      const detailsKey = responseDetailsKey(turn, index);
+      const detailsId = responseDetailsPanelId(detailsKey);
+      const detailsOpen = expandedResponseDetails.has(detailsKey);
+      const target = turn.target === "hosted" ? "Foundry Activity" : "Local Activity";
+      const inbound = (turn.events || []).find((event) => event.kind === "inbound.message");
+      const inboundReactions = activityReactions(turn, inbound?.activityId);
+      const bubbles = activityMessageItems(turn).map((item) => {
+        if (item.type === "typing") {
+          return '<section class="teams-typing" aria-live="polite"><span class="avatar agent-avatar" aria-hidden="true">A</span><div class="typing-pill"><span>Agent is typing</span><span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></section>';
+        }
+        const reactions = activityReactions(turn, item.activityId);
+        const meta = item.deleted ? "Deleted" : item.edited ? "Edited" : "Activity";
+        return '<section class="bubble agent teams-message ' + (item.deleted ? "deleted" : "") + '">' +
+          '<div class="bubble-head"><span class="speaker agent">Agent</span><span>' + escapeHtml(meta) + ' · ' + escapeHtml(formatTime(item.event?.at || turn.createdAt)) + '</span></div>' +
+          '<div class="bubble-body">' + (item.deleted ? '<em>This message was deleted.</em>' : item.text ? renderMarkdown(item.text) : '<div class="no-answer">Connector event returned no text.</div>') + '</div>' +
+          renderReactionRow(reactions) +
+          '</section>';
+      }).join("");
+      return '<activity-turn>' +
+        '<div class="teams-thread">' +
+        '<div class="teams-row outgoing"><div class="teams-stack">' + renderUserBubble(turn, { target, input: inbound?.text || turn.input || "", reactions: inboundReactions }) + '</div><span class="avatar user-avatar" aria-hidden="true">You</span></div>' +
+        '<div class="teams-row incoming"><span class="avatar agent-avatar" aria-hidden="true">A</span><div class="teams-stack">' +
+        (bubbles || '<section class="bubble agent"><div class="first-token" role="status" aria-live="polite"><span>Waiting for connector events...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></section>') +
+        '</div></div>' +
+        '</div>' +
+        renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Activity details") +
+        '</activity-turn>';
     }
 
     transcript.addEventListener("scroll", (event) => {
@@ -870,6 +1061,28 @@ export const rendererClientScript = `
       }
       try {
         await saveEndpointFromInput();
+        if (latestState?.activeProtocol === "activity") {
+          const state = await request("/api/activity", {
+            method: "POST",
+            body: JSON.stringify({ input }),
+          });
+          promptInput.value = "";
+          renderSnapshot(state);
+          const latest = state.messages[state.messages.length - 1];
+          setStatus(latest?.response?.ok ? "ok" : "fail", "Activity " + (latest?.response?.status ?? "error") + " in " + (latest?.response?.durationMs ?? 0) + "ms");
+          return;
+        }
+        if (latestState?.activeProtocol === "invocations") {
+          const state = await request("/api/invocations", {
+            method: "POST",
+            body: JSON.stringify({ input }),
+          });
+          promptInput.value = "";
+          renderSnapshot(state);
+          const latest = state.messages[state.messages.length - 1];
+          setStatus(latest?.response?.ok ? "ok" : "fail", "Invocation " + (latest?.response?.status ?? "error") + " in " + (latest?.response?.durationMs ?? 0) + "ms");
+          return;
+        }
         const response = await fetch("/api/responses/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -907,6 +1120,7 @@ export const rendererClientScript = `
               setStatus(latest.response.ok ? "ok" : "fail", "Response " + latest.response.status + " in " + latest.response.durationMs + "ms");
             }
           }
+
         }
       } catch (error) {
         setStatus("fail", error.message);
@@ -1415,6 +1629,21 @@ export const rendererClientScript = `
       void sendPrompt();
     });
 
+    protocolToggle.addEventListener("click", async (event) => {
+      const button = event.target.closest(".protocol-tab");
+      if (!button || button.disabled) return;
+      const protocol = button.dataset.protocol;
+      try {
+        renderSnapshot(await request("/api/protocol", {
+          method: "POST",
+          body: JSON.stringify({ protocol }),
+        }));
+        setStatus("ok", "Switched to " + button.innerText.split("\\n")[0] + ".");
+      } catch (error) {
+        setStatus("fail", error.message);
+      }
+    });
+
     clearButton.addEventListener("click", async () => {
       renderSnapshot(await request(activeView === "deploy" ? "/api/deploy/clear" : "/api/clear", { method: "POST" }));
       setStatus("", activeView === "deploy" ? "Deploy log cleared." : "Transcript cleared.");
@@ -1514,6 +1743,7 @@ export const rendererClientScript = `
       void cancelOperationFromCanvas();
     });
 
+    defineProtocolTurnElements();
     connectStateEvents();
     load().catch((error) => setStatus("fail", error.message));
 `;

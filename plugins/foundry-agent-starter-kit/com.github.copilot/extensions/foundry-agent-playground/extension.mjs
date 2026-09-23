@@ -16,6 +16,7 @@ import {
 import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from "./domain/constants.mjs";
 import {
     activeEndpoint,
+    activeProtocolEndpoint,
     addLocalEvent,
     clearTargetHealth,
     clearMessagesForTarget,
@@ -29,9 +30,11 @@ import {
     normalizeEndpoint,
     selectedAgent,
     selectedLocalEndpoint,
+    setActiveProtocol,
     setTarget,
     setTargetHealth,
     switchSelectedAgent,
+    protocolState,
     responseDisplayText,
     responsePendingLabel,
     stateSnapshot,
@@ -59,6 +62,7 @@ import {
 import { writeEvent } from "./routes/http.mjs";
 import { createRequestHandler } from "./routes/playground-routes.mjs";
 import { createCanvasActions } from "./actions/canvas-actions.mjs";
+import { createActivityTurn, finishActivityTurn } from "./protocols/activity-protocol.mjs";
 import {
     clearProjectEndpointPrompt,
     createPlaygroundCommands,
@@ -838,7 +842,11 @@ async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
                 body: "Local agent exited before it became ready.",
             };
         }
-        latest = await checkReadiness(endpoint, { timeoutMs: 1000, expectedAgentNames: readinessAgentNames(agent) });
+        latest = await checkReadiness(endpoint, {
+            timeoutMs: 1000,
+            expectedAgentNames: readinessAgentNames(agent),
+            requiredProtocols: [],
+        });
         if (latest.ok) return latest;
         await sleep(300);
     }
@@ -1536,7 +1544,19 @@ function responseTurn(state, input, { stream = false } = {}) {
         input,
         createdAt: new Date().toISOString(),
         target: state.target,
-        request: { endpoint: activeEndpoint(state), path: "/responses", body: { input, ...(stream ? { stream: true } : {}) } },
+        protocol: "responses",
+        request: { endpoint: activeProtocolEndpoint(state, "responses") || activeEndpoint(state), path: "/responses", body: { input, ...(stream ? { stream: true } : {}) } },
+        response: pendingResponse(),
+    };
+}
+
+function invocationTurn(state, input) {
+    return {
+        input,
+        createdAt: new Date().toISOString(),
+        target: state.target,
+        protocol: "invocations",
+        request: { endpoint: activeProtocolEndpoint(state, "invocations"), path: "/invocations", body: { message: input } },
         response: pendingResponse(),
     };
 }
@@ -1555,13 +1575,40 @@ function completedResponseResult(state, turn) {
 }
 
 async function completeResponseTurn(state, turn, activityId = null) {
-    turn.response = await callAgent(activeEndpoint(state), "/responses", { input: turn.input });
+    turn.response = await callAgent(turn.request.endpoint, "", { input: turn.input });
     const displayText = responseDisplayText(turn.response);
     updateActivity(state, activityId, {
         status: turn.response.ok ? "completed" : "failed",
         summary: turn.response.ok
             ? `Response completed (${turn.response.status}).`
             : `Response failed (${turn.response.status || "error"}).`,
+        details: { displayText, status: turn.response.status, durationMs: turn.response.durationMs },
+    });
+    return completedResponseResult(state, turn);
+}
+
+async function completeActivityTurn(state, turn, activityId = null) {
+    const result = await callAgent(turn.request.endpoint, "", turn.request.body);
+    finishActivityTurn(turn, result);
+    const displayText = responseDisplayText(turn.response);
+    updateActivity(state, activityId, {
+        status: turn.response.ok ? "completed" : "failed",
+        summary: turn.response.ok
+            ? `Activity turn acknowledged (${turn.response.status}).`
+            : `Activity turn failed (${turn.response.status || "error"}).`,
+        details: { displayText, status: turn.response.status, durationMs: turn.response.durationMs, events: turn.events },
+    });
+    return completedResponseResult(state, turn);
+}
+
+async function completeInvocationTurn(state, turn, activityId = null) {
+    turn.response = await callAgent(turn.request.endpoint, "", turn.request.body);
+    const displayText = responseDisplayText(turn.response);
+    updateActivity(state, activityId, {
+        status: turn.response.ok ? "completed" : "failed",
+        summary: turn.response.ok
+            ? `Invocation completed (${turn.response.status}).`
+            : `Invocation failed (${turn.response.status || "error"}).`,
         details: { displayText, status: turn.response.status, durationMs: turn.response.durationMs },
     });
     return completedResponseResult(state, turn);
@@ -1576,6 +1623,7 @@ async function startServer(ctx, copilotSession) {
     const hosted = emptyHostedContext(selected);
     const state = {
         target: "local",
+        activeProtocol: "responses",
         agents,
         selectedAgentId,
         localEndpoints: { [selectedAgentId]: normalizeEndpoint(ctx.input?.endpoint) },
@@ -1623,12 +1671,19 @@ async function startServer(ctx, copilotSession) {
         reconcileSelectedAgentFromReadiness,
         reconcileLocalReadinessAfterHealth,
         localStartupStillPending,
+        setActiveProtocol,
+        protocolState,
         commandStartLocal,
         stopLocalAgent,
+        createActivityTurn,
+        completeActivityTurn,
+        invocationTurn,
+        completeInvocationTurn,
         responseTurn,
         completeResponseTurn,
         commandCancelOperation,
         streamAzdLifecycle,
+        broadcastSnapshot,
     });
     const server = createServer((req, res) => {
         void handleRequest(req, res, state);
@@ -1636,6 +1691,8 @@ async function startServer(ctx, copilotSession) {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
+    state.connectorBaseUrl = `http://127.0.0.1:${port}/connector`;
+    state.activeProtocol = protocolState(state).activeProtocol;
     return { server, state, url: `http://127.0.0.1:${port}/` };
 }
 
@@ -1680,6 +1737,12 @@ copilotSession = await joinSession({
                 reconcileSelectedAgentFromReadiness,
                 reconcileLocalReadinessAfterHealth,
                 localStartupStillPending,
+                setActiveProtocol,
+                protocolState,
+                createActivityTurn,
+                completeActivityTurn,
+                invocationTurn,
+                completeInvocationTurn,
                 responseTurn,
                 completeResponseTurn,
                 completedResponseResult,

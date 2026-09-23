@@ -727,6 +727,38 @@ export const rendererStyles = `
       font-size: 12px;
       font-weight: 500;
     }
+    .protocol-toggle {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: center;
+      min-width: 0;
+    }
+    .protocol-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 28px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border-color: var(--cp-border);
+      background: var(--cp-surface-soft);
+      font-size: 12px;
+    }
+    .protocol-tab.active {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+    }
+    .protocol-tab.unsupported,
+    .protocol-tab.unknown {
+      opacity: 0.6;
+    }
+    .protocol-state {
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
     .muted { color: var(--cp-text-muted); }
     .health {
       display: inline-flex;
@@ -970,10 +1002,18 @@ export const rendererStyles = `
       border: 1px solid var(--cp-border);
       background: var(--cp-surface);
     }
-    .turn {
+    .turn,
+    responses-turn,
+    activity-turn,
+    invocation-turn {
       display: grid;
       gap: 5px;
       margin-bottom: 7px;
+    }
+    responses-turn,
+    activity-turn,
+    invocation-turn {
+      contain: layout style;
     }
     .bubble {
       border-radius: 11px;
@@ -992,6 +1032,128 @@ export const rendererStyles = `
       width: min(calc(100% - 48px), 1120px);
       max-width: calc(100% - 48px);
       background: var(--cp-accent-soft);
+    }
+    .activity-turn,
+    activity-turn {
+      gap: 4px;
+    }
+    .teams-thread {
+      display: grid;
+      gap: 8px;
+    }
+    .teams-row {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 8px;
+      align-items: end;
+    }
+    .teams-row.outgoing {
+      grid-template-columns: minmax(0, 1fr) 32px;
+      justify-items: end;
+    }
+    .teams-stack {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      width: 100%;
+    }
+    .teams-row.outgoing .teams-stack {
+      justify-items: end;
+    }
+    .avatar {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 800;
+      box-shadow: var(--cp-shadow);
+    }
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+    }
+    .agent-avatar {
+      align-self: start;
+      background: color-mix(in srgb, var(--cp-accent) 18%, var(--cp-surface));
+      color: var(--cp-accent);
+    }
+    invocation-turn .invocation-result {
+      border-left: 3px solid var(--cp-accent);
+    }
+    .bubble.activity-event {
+      background: transparent;
+      box-shadow: none;
+    }
+    .bubble.deleted {
+      opacity: 0.72;
+      background: var(--cp-surface-soft);
+    }
+    .teams-message {
+      border-bottom-left-radius: 4px;
+    }
+    .teams-row.outgoing .bubble.user {
+      border-bottom-right-radius: 4px;
+    }
+    .typing-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0 0 0 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      padding: 4px 9px;
+      color: var(--cp-text-muted);
+      background: var(--cp-surface);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .teams-typing {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+    }
+    .teams-typing .avatar {
+      display: none;
+    }
+    .typing-dots {
+      display: inline-flex;
+      gap: 3px;
+    }
+    .typing-dots span {
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.45;
+      animation: tokenPulse 1.1s ease-in-out infinite;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+    .reaction-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 0 9px 6px;
+      margin-top: -2px;
+    }
+    .reaction {
+      display: inline-grid;
+      place-items: center;
+      min-width: 24px;
+      min-height: 22px;
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface);
+      font-size: 13px;
+      box-shadow: var(--cp-shadow);
     }
     .bubble-head {
       display: flex;

@@ -41,6 +41,45 @@ test("empty transcript state fills the available transcript space", () => {
     assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
 });
 
+test("renderer uses protocol composite web components", () => {
+    assert.match(rendererClientScript, /\["responses-turn", "responses"\]/);
+    assert.match(rendererClientScript, /\["activity-turn", "activity"\]/);
+    assert.match(rendererClientScript, /\["invocation-turn", "invocations"\]/);
+    assert.match(rendererClientScript, /customElements\.define\(tagName/);
+    assert.match(rendererClientScript, /function renderResponsesTurn/);
+    assert.match(rendererClientScript, /function renderActivityTurn/);
+    assert.match(rendererClientScript, /function renderInvocationTurn/);
+    assert.match(rendererClientScript, /function activityMessageItems/);
+    assert.match(rendererClientScript, /setAttribute\("role", "article"\)/);
+    assert.match(rendererClientScript, /Invoking\.\.\./);
+    assert.match(rendererClientScript, /<responses-turn>/);
+    assert.match(rendererClientScript, /<activity-turn>/);
+    assert.match(rendererClientScript, /<invocation-turn>/);
+    assert.match(rendererStyles, /responses-turn,\s*\n\s*activity-turn,\s*\n\s*invocation-turn\s*{/);
+    assert.match(rendererStyles, /contain:\s*layout style;/);
+});
+
+test("activity composite uses Teams-like grouped chat affordances", () => {
+    assert.match(rendererClientScript, /<div class="teams-thread">/);
+    assert.match(rendererClientScript, /<div class="teams-row outgoing">/);
+    assert.match(rendererClientScript, /<div class="teams-row incoming">/);
+    assert.match(rendererClientScript, /teams-message/);
+    assert.match(rendererClientScript, /This message was deleted\./);
+    assert.match(rendererClientScript, /item\.edited \? "Edited"/);
+    assert.match(rendererStyles, /\.teams-thread\s*{[^}]*display:\s*grid;/);
+    assert.match(rendererStyles, /\.teams-row\s*{[^}]*grid-template-columns:\s*28px minmax\(0, 1fr\);/);
+    assert.match(rendererStyles, /\.teams-row\.outgoing\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 32px;/);
+    assert.match(rendererStyles, /\.avatar\s*{[^}]*border-radius:\s*999px;/);
+    assert.match(rendererStyles, /\.teams-message\s*{[^}]*border-bottom-left-radius:\s*4px;/);
+    assert.match(rendererStyles, /\.typing-dots span\s*{[^}]*animation:\s*tokenPulse/);
+});
+
+test("protocol composite elements are registered before initial render", () => {
+    const registrationCall = rendererClientScript.lastIndexOf("defineProtocolTurnElements();");
+    assert.ok(registrationCall < rendererClientScript.indexOf("connectStateEvents();"));
+    assert.ok(registrationCall < rendererClientScript.indexOf("load().catch"));
+});
+
 test("activity details render as a compact terminal log disclosure", () => {
     assert.match(rendererStyles, /\.activity-log\s*{[^}]*background:\s*transparent;/);
     assert.match(rendererStyles, /\.activity-head\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/);
@@ -312,6 +351,12 @@ test("renderer script defines activity rendering at top level", () => {
 test("renderer subscribes to canvas action state updates", () => {
     assert.match(rendererClientScript, /new EventSource\("\/api\/events"\)/);
     assert.match(rendererClientScript, /addEventListener\("snapshot"/);
+});
+
+test("renderer wires protocol toggle once outside the send loop", () => {
+    const matches = rendererClientScript.match(/protocolToggle\.addEventListener\("click"/g) || [];
+    assert.equal(matches.length, 1);
+    assert.ok(rendererClientScript.indexOf('protocolToggle.addEventListener("click"') > rendererClientScript.indexOf('sendButton.addEventListener("click"'));
 });
 
 test("renderer wires operation cancellation through shared route", () => {

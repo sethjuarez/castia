@@ -5,6 +5,7 @@ import {
     checkReadiness,
     configureAgentClient,
     parseReadinessResponse,
+    protocolUrl,
     requestHeadersForEndpoint,
     readinessText,
     responseText,
@@ -17,6 +18,16 @@ test("responsesUrl normalizes Foundry hosted Responses endpoints", () => {
         "https://acct.services.ai.azure.com/api/projects/proj/agents/minimal-agent/endpoint/protocols/openai/responses?api-version=v1",
     );
     assert.equal(responsesUrl("http://127.0.0.1:8088"), "http://127.0.0.1:8088/responses");
+});
+
+test("protocolUrl keeps full protocol endpoints and appends local protocol routes", () => {
+    assert.equal(
+        protocolUrl("https://acct.services.ai.azure.com/api/projects/proj/agents/a/versions/1/endpoint/protocols/activity", "/activity/messages"),
+        "https://acct.services.ai.azure.com/api/projects/proj/agents/a/versions/1/endpoint/protocols/activity",
+    );
+    assert.equal(protocolUrl("http://127.0.0.1:8088/responses", "/responses"), "http://127.0.0.1:8088/responses");
+    assert.equal(protocolUrl("http://127.0.0.1:8088", "/activity/messages"), "http://127.0.0.1:8088/activity/messages");
+    assert.equal(protocolUrl("http://127.0.0.1:8088", "/invocations"), "http://127.0.0.1:8088/invocations");
 });
 
 test("requestHeadersForEndpoint adds Azure auth only for hosted endpoints", async () => {

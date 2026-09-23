@@ -82,7 +82,8 @@ export function renderHtml() {
               <span class="meta-pill" id="avgLatency">0ms avg</span>
             </div>
           </div>
-          <div class="health"><span id="statusDot" class="dot"></span><span id="statusText">Not checked yet.</span></div>
+            <div id="protocolToggle" class="protocol-toggle" role="tablist" aria-label="Protocol"></div>
+            <div class="health"><span id="statusDot" class="dot"></span><span id="statusText">Not checked yet.</span></div>
         </div>
         <section id="foundryStatus" class="foundry-status" hidden>
           <div class="foundry-status-head">
@@ -114,7 +115,7 @@ export function renderHtml() {
         <details id="activityLog" class="activity-log" aria-live="polite" hidden>
           <summary class="activity-head">
             <div>
-              <div class="activity-title">activity</div>
+              <div class="activity-title">operation log</div>
               <div id="activitySummary" class="activity-summary">No canvas actions yet.</div>
             </div>
             <span id="activityCount" class="badge">0</span>

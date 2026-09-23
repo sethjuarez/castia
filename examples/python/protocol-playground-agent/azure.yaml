@@ -1,0 +1,24 @@
+name: protocol-playground-agent
+services:
+  protocol-playground-agent:
+    project: .
+    host: azure.ai.agent
+    language: python
+    kind: hosted
+    name: protocol-playground-agent
+    description: A deterministic Castia agent for exercising Responses, Activity, and Invocations.
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint: main.py
+      dependencyResolution: remote_build
+    protocols:
+      - protocol: activity
+        version: 2.0.0
+      - protocol: responses
+        version: 2.0.0
+      - protocol: invocations
+        version: 2.0.0
+    container:
+      resources:
+        cpu: '0.5'
+        memory: 1Gi

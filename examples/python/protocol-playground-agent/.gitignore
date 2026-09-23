@@ -1,0 +1,7 @@
+.env
+.azure
+.venv
+__pycache__
+*.pyc
+appPackage.zip
+TEAMS_APP_SETUP.md
