@@ -41,6 +41,29 @@ test("empty transcript state fills the available transcript space", () => {
     assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
 });
 
+test("renderer uses protocol composite web components", () => {
+    assert.match(rendererClientScript, /\["responses-turn", "responses"\]/);
+    assert.match(rendererClientScript, /\["activity-turn", "activity"\]/);
+    assert.match(rendererClientScript, /\["invocation-turn", "invocations"\]/);
+    assert.match(rendererClientScript, /customElements\.define\(tagName/);
+    assert.match(rendererClientScript, /function renderResponsesTurn/);
+    assert.match(rendererClientScript, /function renderActivityTurn/);
+    assert.match(rendererClientScript, /function renderInvocationTurn/);
+    assert.match(rendererClientScript, /setAttribute\("role", "article"\)/);
+    assert.match(rendererClientScript, /Invoking\.\.\./);
+    assert.match(rendererClientScript, /<responses-turn>/);
+    assert.match(rendererClientScript, /<activity-turn>/);
+    assert.match(rendererClientScript, /<invocation-turn>/);
+    assert.match(rendererStyles, /responses-turn,\s*\n\s*activity-turn,\s*\n\s*invocation-turn\s*{/);
+    assert.match(rendererStyles, /contain:\s*layout style;/);
+});
+
+test("protocol composite elements are registered before initial render", () => {
+    const registrationCall = rendererClientScript.lastIndexOf("defineProtocolTurnElements();");
+    assert.ok(registrationCall < rendererClientScript.indexOf("connectStateEvents();"));
+    assert.ok(registrationCall < rendererClientScript.indexOf("load().catch"));
+});
+
 test("activity details render as a compact terminal log disclosure", () => {
     assert.match(rendererStyles, /\.activity-log\s*{[^}]*background:\s*transparent;/);
     assert.match(rendererStyles, /\.activity-head\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/);

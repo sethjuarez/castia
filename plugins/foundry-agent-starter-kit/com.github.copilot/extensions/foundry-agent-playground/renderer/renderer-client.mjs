@@ -746,6 +746,102 @@ export const rendererClientScript = `
       deployLog.scrollTop = deployLog.scrollHeight;
     }
 
+    function defineProtocolTurnElements() {
+      const definitions = [
+        ["responses-turn", "responses"],
+        ["activity-turn", "activity"],
+        ["invocation-turn", "invocations"],
+      ];
+      for (const [tagName, protocol] of definitions) {
+        if (customElements.get(tagName)) continue;
+        customElements.define(tagName, class extends HTMLElement {
+          connectedCallback() {
+            this.classList.add("turn", "protocol-turn", protocol + "-turn");
+            this.dataset.protocol = protocol;
+            if (!this.hasAttribute("role")) this.setAttribute("role", "article");
+          }
+        });
+      }
+    }
+
+    function turnTargetLabel(turn, protocolLabel) {
+      const base = turn.target === "hosted" ? "Foundry" : "Local";
+      return protocolLabel ? base + " · " + protocolLabel : base;
+    }
+
+    function renderUserBubble(turn, { target, input, reactions = [] } = {}) {
+      return '<section class="bubble user">' +
+        '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target || turnTargetLabel(turn)) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
+        '<div class="bubble-body">' + renderMarkdown(input ?? turn.input ?? "") + '</div>' +
+        renderReactionRow(reactions) +
+        '</section>';
+    }
+
+    function renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, label = "Details", copyableAnswer = "") {
+      return '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>' + escapeHtml(label) + '</span></button>' +
+        (copyableAnswer ? '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '">Copy answer</button>' : label === "Details" ? '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" disabled>Copy answer</button>' : "") +
+        '</div>' +
+        '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="' + escapeHtml(label) + '" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>';
+    }
+
+    function renderResponsesTurn(turn, index) {
+      const detailsKey = responseDetailsKey(turn, index);
+      const detailsId = responseDetailsPanelId(detailsKey);
+      const detailsOpen = expandedResponseDetails.has(detailsKey);
+      const ok = turn.response?.ok;
+      const streaming = turn.response?.streaming;
+      const display = responseDisplayState(turn.response);
+      const answer = display.answer;
+      const hasAnswer = display.hasAnswer;
+      const copyableAnswer = copyableAnswerText(turn.response);
+      const waitingForFirstToken = display.waitingForFirstToken;
+      const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
+      const body = waitingForFirstToken
+        ? '<div class="first-token" role="status" aria-live="polite"><span>Thinking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
+        : hasAnswer
+        ? renderMarkdown(answer)
+        : '<div class="no-answer">No answer text returned. Open Details for the raw response.</div>';
+      return '<responses-turn>' +
+        renderUserBubble(turn, { target: turnTargetLabel(turn, "Responses") }) +
+        '<section class="bubble agent">' +
+        '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
+        '<div class="bubble-body">' + body + '</div>' +
+        renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Details", copyableAnswer) +
+        '</section>' +
+        '</responses-turn>';
+    }
+
+    function renderInvocationTurn(turn, index) {
+      const detailsKey = responseDetailsKey(turn, index);
+      const detailsId = responseDetailsPanelId(detailsKey);
+      const detailsOpen = expandedResponseDetails.has(detailsKey);
+      const ok = turn.response?.ok;
+      const display = responseDisplayState(turn.response);
+      const streaming = turn.response?.streaming;
+      const waitingForFirstToken = display.waitingForFirstToken;
+      const answer = waitingForFirstToken
+        ? '<div class="first-token" role="status" aria-live="polite"><span>Invoking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
+        : display.hasAnswer
+        ? renderMarkdown(display.answer)
+        : '<div class="no-answer">No invocation output returned. Open Details for the raw result.</div>';
+      const copyableAnswer = copyableAnswerText(turn.response);
+      return '<invocation-turn>' +
+        renderUserBubble(turn, { target: turnTargetLabel(turn, "Invocations") }) +
+        '<section class="bubble agent invocation-result">' +
+        '<div class="bubble-head"><span class="speaker agent">Invocation result</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(String(streaming ? "waiting" : turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
+        '<div class="bubble-body">' + answer + '</div>' +
+        renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Invocation details", copyableAnswer) +
+        '</section>' +
+        '</invocation-turn>';
+    }
+
+    function renderProtocolTurn(turn, index) {
+      const protocol = turn.protocol || "responses";
+      if (protocol === "activity") return renderActivityTurn(turn, index);
+      if (protocol === "invocations") return renderInvocationTurn(turn, index);
+      return renderResponsesTurn(turn, index);
+    }
+
     function renderMessages(messages) {
       transcript.classList.toggle("empty-state", !messages.length);
       if (!messages.length) {
@@ -765,41 +861,7 @@ export const rendererClientScript = `
         if (panel?.dataset?.detailsKey) responseDetailsScroll.set(panel.dataset.detailsKey, pre.scrollTop);
       });
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
-      transcript.innerHTML = messages.map((turn, index) => {
-        if ((turn.protocol || "responses") === "activity") {
-          return renderActivityTurn(turn, index);
-        }
-        const detailsKey = responseDetailsKey(turn, index);
-        const detailsId = responseDetailsPanelId(detailsKey);
-        const detailsOpen = expandedResponseDetails.has(detailsKey);
-        const ok = turn.response?.ok;
-        const streaming = turn.response?.streaming;
-        const display = responseDisplayState(turn.response);
-        const answer = display.answer;
-        const hasAnswer = display.hasAnswer;
-        const copyableAnswer = copyableAnswerText(turn.response);
-        const waitingForFirstToken = display.waitingForFirstToken;
-        const activeLabel = turn.response?.delivery?.upstreamStreaming ? "streaming" : "waiting";
-        const body = waitingForFirstToken
-          ? '<div class="first-token" role="status" aria-live="polite"><span>Thinking...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>'
-          : hasAnswer
-          ? renderMarkdown(answer)
-          : '<div class="no-answer">No answer text returned. Open Details for the raw response.</div>';
-        const target = turn.target === "hosted" ? "Foundry" : "Local";
-        return '<article class="turn">' +
-          '<section class="bubble user">' +
-          '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
-          '<div class="bubble-body">' + renderMarkdown(turn.input) + '</div>' +
-          '</section>' +
-          '<section class="bubble agent">' +
-          '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ' + (streaming ? "" : ok ? "ok" : "fail") + '">' + escapeHtml(streaming ? activeLabel : String(turn.response?.status ?? "error")) + ' · ' + escapeHtml(String(turn.response?.durationMs ?? 0)) + 'ms</span></div>' +
-          '<div class="bubble-body">' + body + '</div>' +
-          '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Details</span></button>' +
-          '<button type="button" class="copy-answer" data-details-key="' + escapeHtml(detailsKey) + '" ' + (copyableAnswer ? "" : "disabled") + '>Copy answer</button></div>' +
-          '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Response details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
-          '</section>' +
-          '</article>';
-      }).join("");
+      transcript.innerHTML = messages.map((turn, index) => renderProtocolTurn(turn, index)).join("");
       const latestAnswer = latestVisibleAnswerText(messages);
       copyLatestAnswerButton.hidden = !latestAnswer;
       copyLatestAnswerButton.disabled = !latestAnswer;
@@ -872,16 +934,11 @@ export const rendererClientScript = `
           renderReactionRow(reactions) +
           '</section>';
       }).join("");
-      return '<article class="turn activity-turn">' +
-        '<section class="bubble user">' +
-        '<div class="bubble-head"><span class="speaker user">You</span><span>' + escapeHtml(target) + ' · ' + escapeHtml(formatTime(turn.createdAt)) + '</span></div>' +
-        '<div class="bubble-body">' + renderMarkdown(inbound?.text || turn.input || "") + '</div>' +
-        renderReactionRow(inboundReactions) +
-        '</section>' +
+      return '<activity-turn>' +
+        renderUserBubble(turn, { target, input: inbound?.text || turn.input || "", reactions: inboundReactions }) +
         (bubbles || '<section class="bubble agent"><div class="first-token" role="status" aria-live="polite"><span>Waiting for connector events...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></section>') +
-        '<div class="details-row"><button type="button" class="details-toggle" data-details-key="' + escapeHtml(detailsKey) + '" aria-expanded="' + String(detailsOpen) + '" aria-controls="' + escapeHtml(detailsId) + '"><span class="details-toggle-icon" aria-hidden="true"></span><span>Activity details</span></button></div>' +
-        '<div id="' + escapeHtml(detailsId) + '" class="details-panel" data-details-key="' + escapeHtml(detailsKey) + '" role="region" aria-label="Activity details" ' + (detailsOpen ? "" : "hidden") + '><pre>' + escapeHtml(JSON.stringify(turn, null, 2)) + '</pre></div>' +
-        '</article>';
+        renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Activity details") +
+        '</activity-turn>';
     }
 
     transcript.addEventListener("scroll", (event) => {
@@ -1658,6 +1715,7 @@ export const rendererClientScript = `
       void cancelOperationFromCanvas();
     });
 
+    defineProtocolTurnElements();
     connectStateEvents();
     load().catch((error) => setStatus("fail", error.message));
 `;

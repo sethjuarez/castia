@@ -1002,10 +1002,18 @@ export const rendererStyles = `
       border: 1px solid var(--cp-border);
       background: var(--cp-surface);
     }
-    .turn {
+    .turn,
+    responses-turn,
+    activity-turn,
+    invocation-turn {
       display: grid;
       gap: 5px;
       margin-bottom: 7px;
+    }
+    responses-turn,
+    activity-turn,
+    invocation-turn {
+      contain: layout style;
     }
     .bubble {
       border-radius: 11px;
@@ -1025,8 +1033,12 @@ export const rendererStyles = `
       max-width: calc(100% - 48px);
       background: var(--cp-accent-soft);
     }
-    .activity-turn {
+    .activity-turn,
+    activity-turn {
       gap: 4px;
+    }
+    invocation-turn .invocation-result {
+      border-left: 3px solid var(--cp-accent);
     }
     .bubble.activity-event {
       background: transparent;
