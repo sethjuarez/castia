@@ -1,6 +1,17 @@
 import { rendererStyles } from "./renderer-styles.mjs";
 
-export function renderHtml() {
+const icons = {
+    play: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+    send: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>',
+    settings: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/><path d="M4 12h2m12 0h2M12 4v2m0 12v2m-5.7-2.3 1.4-1.4m8.6-8.6 1.4-1.4m0 11.4-1.4-1.4M7.7 7.7 6.3 6.3"/></svg>',
+    refresh: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.2-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.2 4.9L20 16"/><path d="M20 20v-4h-4"/></svg>',
+    upload: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>',
+    trash: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
+    stop: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></svg>',
+};
+
+export function renderHtml({ pluginVersion = "" } = {}) {
+    const versionLabel = pluginVersion ? `v${escapeHtml(String(pluginVersion))}` : "";
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -62,10 +73,11 @@ export function renderHtml() {
             </button>
             <div id="agentMenu" class="agent-menu" role="listbox" hidden></div>
           </div>
-          <button id="primaryGuideAction" class="primary" type="button">Start local</button>
+          <button id="primaryGuideAction" class="primary icon-button" type="button" aria-label="Start local" title="Start local">${icons.play}</button>
           <button id="stopLocalAction" class="secondary danger" type="button" hidden>Stop local</button>
           <button id="testHostedAction" class="secondary" type="button" hidden>Test hosted</button>
           <button id="advancedToggle" class="secondary" type="button" hidden>Refresh .env</button>
+          <button class="secondary danger" id="cancelOperationButton" type="button" hidden>Cancel operation</button>
         </div>
       </div>
     </section>
@@ -112,9 +124,10 @@ export function renderHtml() {
           </div>
         </section>
         <details id="activityLog" class="activity-log" aria-live="polite" hidden>
-          <summary class="activity-head">
+          <summary class="activity-head" aria-label="Toggle operation log">
+            <span class="activity-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h12"/><path d="M4 17h8"/></svg></span>
             <div>
-              <div class="activity-title">operation log</div>
+              <div class="activity-title">log</div>
               <div id="activitySummary" class="activity-summary">No canvas actions yet.</div>
             </div>
             <span id="activityCount" class="badge">0</span>
@@ -164,12 +177,10 @@ export function renderHtml() {
     <section id="composer" class="composer">
       <textarea id="prompt" placeholder="Ask the agent something... Enter sends, Shift+Enter adds a line." required></textarea>
       <div class="composer-actions">
-        <button id="clear" type="button">Clear transcript</button>
+        <div class="plugin-version" aria-label="Foundry Agent Starter Kit plugin version">${versionLabel}</div>
         <div class="right-actions">
-          <button class="primary" id="send" type="button">Send</button>
-          <button class="primary" id="provisionButton" type="button" hidden>Prepare deploy</button>
-          <button class="primary" id="deployButton" type="button" hidden>Deploy changes</button>
-          <button class="secondary danger" id="cancelOperationButton" type="button" hidden>Cancel operation</button>
+          <button id="clear" class="icon-button" type="button" aria-label="Clear" title="Clear">${icons.trash}</button>
+          <button class="primary icon-button" id="send" type="button" aria-label="Send" title="Send">${icons.send}</button>
         </div>
       </div>
     </section>
@@ -190,4 +201,12 @@ export function renderHtml() {
   <script src="/assets/playground-client.js"></script>
 </body>
 </html>`;
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
 }

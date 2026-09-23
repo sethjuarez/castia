@@ -177,6 +177,25 @@ export function normalizeHostedResponsesEndpoint(endpoint) {
     }
 }
 
+export function normalizeHostedProtocolEndpoint(endpoint) {
+    if (!endpoint) return null;
+    try {
+        const url = new URL(endpoint);
+        if (/\/versions\/[^/]+\/endpoint\/protocols\/invocations$/i.test(url.pathname)) {
+            url.pathname = url.pathname.replace(
+                /(\/agents\/[^/]+)\/versions\/[^/]+\/endpoint\/protocols\/invocations$/i,
+                "$1/endpoint/protocols/invocations",
+            );
+        }
+        if (url.pathname.includes("/endpoint/protocols/") && !url.searchParams.has("api-version")) {
+            url.searchParams.set("api-version", FOUNDRY_API_VERSION);
+        }
+        return url.toString();
+    } catch {
+        return String(endpoint).replace(/\/+$/, "");
+    }
+}
+
 function endpointFieldForProtocol(protocol) {
     const normalized = String(protocol || "").toLowerCase();
     if (normalized === "responses" || normalized === "openai") return "responsesEndpoint";
@@ -208,7 +227,8 @@ function collectEndpointUrls(value, options = {}, parentKey = "", depth = 0, out
     if (typeof value === "string") {
         const protocol = protocolFromKey(parentKey) || protocolFromUrl(value);
         if (protocol && !output[protocol] && /^https?:\/\//i.test(value) && isFoundryProtocolEndpoint(value, options)) {
-            output[protocol] = protocol === "responsesEndpoint" ? normalizeHostedResponsesEndpoint(value) : value.replace(/\/+$/, "");
+            output[protocol] =
+                protocol === "responsesEndpoint" ? normalizeHostedResponsesEndpoint(value) : normalizeHostedProtocolEndpoint(value);
         }
         return output;
     }
@@ -257,10 +277,10 @@ function constructProtocolEndpoint(projectEndpoint, agentName, version, protocol
         return normalizeHostedResponsesEndpoint(`${base}/agents/${encodedAgent}/endpoint/protocols/openai/responses`);
     }
     if (normalized === "activity") {
-        return `${base}/agents/${encodedAgent}/versions/${encodedVersion}/endpoint/protocols/activity`;
+        return normalizeHostedProtocolEndpoint(`${base}/agents/${encodedAgent}/versions/${encodedVersion}/endpoint/protocols/activity`);
     }
     if (normalized === "invocations" || normalized === "invocation") {
-        return `${base}/agents/${encodedAgent}/versions/${encodedVersion}/endpoint/protocols/invocations`;
+        return normalizeHostedProtocolEndpoint(`${base}/agents/${encodedAgent}/endpoint/protocols/invocations`);
     }
     return null;
 }
@@ -389,8 +409,8 @@ export function hostedContextFromAzd({ agent, currentHosted, foundryConnection, 
         agentId: values[`${prefix}_ID`] || baseHosted.agentId,
         version: values[`${prefix}_VERSION`] || baseHosted.version,
         responsesEndpoint: normalizeHostedResponsesEndpoint(values[`${prefix}_RESPONSES_ENDPOINT`] || baseHosted.responsesEndpoint),
-        activityEndpoint: values[`${prefix}_ACTIVITY_ENDPOINT`] || baseHosted.activityEndpoint,
-        invocationsEndpoint: values[`${prefix}_INVOCATIONS_ENDPOINT`] || baseHosted.invocationsEndpoint,
+        activityEndpoint: normalizeHostedProtocolEndpoint(values[`${prefix}_ACTIVITY_ENDPOINT`] || baseHosted.activityEndpoint),
+        invocationsEndpoint: normalizeHostedProtocolEndpoint(values[`${prefix}_INVOCATIONS_ENDPOINT`] || baseHosted.invocationsEndpoint),
         projectEndpoint,
         modelDeployment,
         lastRefresh: now.toISOString(),

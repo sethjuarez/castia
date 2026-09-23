@@ -6,7 +6,7 @@ export function renderMermaidBlock(value) {
 
 export function renderMermaidExpandButton(disabled = false) {
     return '<div class="mermaid-toolbar">' +
-        '<button type="button" class="mermaid-expand-button" aria-label="Expand diagram"' + (disabled ? " disabled" : "") + '>Expand diagram</button>' +
+        '<button type="button" class="mermaid-expand-button" aria-label="Expand diagram" title="Expand diagram"' + (disabled ? " disabled" : "") + '>⤢</button>' +
         '</div>';
 }
 

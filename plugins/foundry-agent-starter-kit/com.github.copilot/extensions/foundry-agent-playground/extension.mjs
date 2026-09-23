@@ -1719,6 +1719,7 @@ copilotSession = await joinSession({
                 instanceState,
                 commandSelectAgent,
                 commandStartLocal,
+                stopLocalAgent,
                 commandCancelOperation,
                 commandBootstrapLocalEnv,
                 setLocalEndpoint,

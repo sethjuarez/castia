@@ -50,7 +50,77 @@ test("mermaid diagrams inherit theme-safe colors in light and dark modes", () =>
     assert.match(rendererStyles, /\.mermaid-edge\s*{[\s\S]*stroke:\s*var\(--cp-text-muted\);/);
     assert.match(rendererStyles, /\.mermaid-diagram marker path\s*{[\s\S]*fill:\s*var\(--cp-text-muted\);/);
     assert.match(rendererStyles, /\.mermaid-lightbox\s*{[\s\S]*width:\s*min\(90vw, 1120px\);/);
-    assert.match(rendererStyles, /\.mermaid-lightbox\s*{[\s\S]*max-height:\s*80vh;/);
+    assert.match(rendererStyles, /\.mermaid-lightbox\s*{[\s\S]*height:\s*min\(82vh, 860px\);/);
+});
+
+test("composer keeps version visible and groups clear beside send", () => {
+    assert.match(rendererStyles, /\.composer-actions\s*{[^}]*justify-content:\s*space-between;/);
+    assert.match(rendererStyles, /\.composer-actions\s*{[^}]*align-items:\s*center;/);
+    assert.match(rendererStyles, /\.plugin-version\s*{[^}]*font-family:\s*var\(--font-mono/);
+    assert.match(rendererStyles, /\.right-actions\s*{[^}]*display:\s*flex;/);
+    assert.match(rendererStyles, /\.icon-button\s*{[^}]*inline-size:\s*36px;/);
+    assert.match(rendererStyles, /\.icon-button\s*{[^}]*border-color:\s*var\(--cp-border\);/);
+    assert.match(rendererStyles, /\.icon-button\s*{[^}]*background:\s*var\(--cp-surface\);/);
+    assert.match(rendererStyles, /\.icon-button:hover\s*{[^}]*background:\s*var\(--cp-surface-soft\);/);
+    assert.match(rendererStyles, /\.icon-button\.primary\s*{[^}]*background:\s*var\(--cp-accent\);/);
+    assert.match(rendererStyles, /\.icon-button\.danger\s*{[^}]*background:\s*var\(--cp-danger\);/);
+    assert.match(rendererStyles, /\.icon-button svg\s*{[^}]*stroke:\s*currentColor;/);
+    assert.match(rendererClientScript, /const iconSvg = \{/);
+    assert.match(rendererClientScript, /function setIconButton\(button, icon, label\)/);
+    assert.match(rendererClientScript, /setIconButton\(sendButton, "send", "Send"\);/);
+    assert.match(rendererClientScript, /trash: '<svg aria-hidden="true"/);
+    assert.match(rendererClientScript, /setIconButton\(clearButton, "trash", activeView === "deploy" \? "Clear deploy log" : "Clear"\);/);
+    assert.doesNotMatch(rendererClientScript, /clearButton\.textContent = "Clear";/);
+});
+
+test("transcript spacing uses padding and Mermaid toolbar overlays the card", () => {
+    assert.match(rendererStyles, /\.content\s*{[^}]*background:\s*var\(--cp-surface\);/);
+    assert.match(rendererClientScript, /panelMeta\.hidden = !state\.stats\.total;/);
+    assert.match(rendererStyles, /\.panel\s*{[^}]*grid-template-rows:\s*auto auto auto minmax\(0, 1fr\);/);
+    assert.match(rendererStyles, /\.activity-log\s*{[^}]*position:\s*absolute;/);
+    assert.match(rendererStyles, /\.activity-log\s*{[^}]*right:\s*12px;/);
+    assert.match(rendererStyles, /\.activity-log\s*{[^}]*bottom:\s*12px;/);
+    assert.match(rendererStyles, /\.activity-log:not\(\[open\]\) \.activity-head\s*{[^}]*width:\s*36px;/);
+    assert.match(rendererStyles, /\.activity-log:not\(\[open\]\) \.activity-head\s*{[^}]*height:\s*36px;/);
+    assert.match(rendererStyles, /\.activity-log:not\(\[open\]\) \.activity-head > div,[\s\S]*?\.activity-log:not\(\[open\]\) \.activity-head \.badge\s*{[^}]*display:\s*none;/);
+    assert.match(rendererStyles, /\.activity-log\[open\]\s*{[^}]*left:\s*12px;/);
+    assert.match(rendererStyles, /\.activity-log\[open\]\s*{[^}]*right:\s*12px;/);
+    assert.match(rendererStyles, /\.activity-log\[open\]\s*{[^}]*max-height:\s*min\(520px, 72vh\);/);
+    assert.match(rendererStyles, /\.activity-log\[open\]\s*{[^}]*box-shadow:\s*var\(--cp-shadow\);/);
+    assert.match(rendererStyles, /\.activity-log\[open\] \.activity-head\s*{[^}]*min-height:\s*44px;/);
+    assert.match(rendererStyles, /\.activity-log\[open\] \.activity-icon\s*{[^}]*min-height:\s*34px;/);
+    assert.match(rendererStyles, /\.activity-log\[open\] \.activity-icon::after\s*{[^}]*content:\s*"Minimize";/);
+    assert.match(rendererStyles, /\.activity-log:not\(\[open\]\) \.activity-summary\s*{[^}]*display:\s*none;/);
+    assert.match(rendererStyles, /\.activity-log:not\(\[open\]\) \.activity-head\s*{[^}]*opacity:\s*0\.86;/);
+    assert.match(rendererStyles, /\.activity-icon svg\s*{[^}]*stroke:\s*currentColor;/);
+    assert.match(rendererStyles, /\.panel-header\s*{[^}]*padding:\s*4px 4px 6px;/);
+    assert.match(rendererStyles, /\.protocol-tab\s*{[^}]*min-height:\s*26px;/);
+    assert.match(rendererStyles, /\.foundry-status\s*{[^}]*padding:\s*4px 6px;/);
+    assert.match(rendererStyles, /\.foundry-status-item\s*{[^}]*padding:\s*5px 6px;/);
+    assert.match(rendererStyles, /\.activity-head\s*{[^}]*min-height:\s*24px;/);
+    assert.match(rendererStyles, /\.transcript\s*{[^}]*grid-row:\s*4;/);
+    assert.match(rendererStyles, /\.transcript\s*{[^}]*padding:\s*6px 10px 32px;/);
+    assert.match(rendererStyles, /#statusText\s*{[^}]*text-overflow:\s*ellipsis;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.panel-header\s*{[^}]*display:\s*flex;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.panel-header\s*{[^}]*flex-wrap:\s*wrap;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.panel-header\s*{[^}]*padding:\s*4px 10px 6px;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.activity-log\[open\]\s*{[^}]*gap:\s*3px;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.activity-log\[open\] \.activity-icon\s*{[^}]*min-height:\s*32px;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.activity-log:not\(\[open\]\) \.activity-items\s*{[^}]*max-height:\s*56px;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.activity-log\[open\] \.activity-items\s*{[^}]*max-height:\s*min\(440px, 58vh\);/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.foundry-status-grid\s*{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.activity-items\s*{[^}]*max-height:\s*56px;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.transcript\s*{[^}]*padding:\s*6px 10px 28px;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.bubble\.user,\s*\n\s*\.bubble\.agent\s*{[^}]*width:\s*calc\(100% - 28px\);/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.bubble\.user\s*{[^}]*margin-left:\s*auto;/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.bubble\.agent\s*{[^}]*margin-right:\s*auto;/);
+    assert.match(rendererStyles, /\.bubble-body \.mermaid-diagram\s*{[^}]*padding:\s*10px;/);
+    assert.match(rendererStyles, /\.mermaid-toolbar\s*{[^}]*position:\s*absolute;/);
+    assert.match(rendererStyles, /\.mermaid-toolbar\s*{[^}]*top:\s*6px;/);
+    assert.match(rendererStyles, /\.mermaid-toolbar\s*{[^}]*right:\s*6px;/);
+    assert.match(rendererStyles, /\.mermaid-toolbar\s*{[^}]*margin:\s*0;/);
+    assert.match(rendererStyles, /\.mermaid-expand-button\s*{[^}]*width:\s*28px;/);
+    assert.match(rendererStyles, /\.mermaid-expand-button\s*{[^}]*height:\s*28px;/);
 });
 
 test("empty transcript state fills the available transcript space", () => {
@@ -58,6 +128,7 @@ test("empty transcript state fills the available transcript space", () => {
     assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*display:\s*flex;/);
     assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*height:\s*100%;/);
     assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*overflow:\s*auto;/);
+    assert.match(rendererStyles, /\.transcript\.empty-state\s*{[^}]*padding:\s*6px 10px 28px;/);
     assert.match(rendererStyles, /\.empty\s*{[^}]*gap:\s*6px;/);
     assert.match(rendererStyles, /\.empty\s*{[^}]*min-height:\s*100%;/);
 });
@@ -101,16 +172,17 @@ test("protocol composite elements are registered before initial render", () => {
     assert.ok(registrationCall < rendererClientScript.indexOf("load().catch"));
 });
 
-test("activity details render as a compact terminal log disclosure", () => {
+test("activity details render as an expandable bottom-sheet log", () => {
     assert.match(rendererStyles, /\.activity-log\s*{[^}]*background:\s*transparent;/);
     assert.match(rendererStyles, /\.activity-head\s*{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/);
     assert.match(rendererStyles, /\.activity-head\s*{[^}]*border-radius:\s*6px;/);
     assert.match(rendererStyles, /\.activity-head\s*{[^}]*font-family:\s*var\(--font-mono/);
     assert.match(rendererStyles, /\.activity-head::before\s*{[^}]*content:\s*"▸";/);
-    assert.match(rendererStyles, /\.activity-log\[open\]\s+\.activity-head::before\s*{[^}]*content:\s*"▾";/);
+    assert.match(rendererStyles, /\.activity-log\[open\] \.activity-head::before\s*{[^}]*display:\s*none;/);
     assert.match(rendererStyles, /\.activity-head > div\s*{[^}]*display:\s*flex;/);
     assert.match(rendererStyles, /\.activity-items\s*{[^}]*border-top:\s*1px solid var\(--cp-border\);/);
-    assert.match(rendererStyles, /\.activity-log\[open\]\s+\.activity-head\s*{[^}]*background:\s*transparent;/);
+    assert.match(rendererStyles, /\.activity-log\[open\] \.activity-head\s*{[^}]*background:\s*var\(--cp-surface-soft\);/);
+    assert.match(rendererStyles, /\.activity-log\[open\] \.activity-icon::after\s*{[^}]*content:\s*"Minimize";/);
 });
 
 test("header guidance and diagnostics use compact hoverable details", () => {
@@ -120,7 +192,14 @@ test("header guidance and diagnostics use compact hoverable details", () => {
     assert.match(rendererStyles, /\.action-state-chip\s*{[^}]*display:\s*inline-flex;/);
     assert.match(rendererClientScript, /guideTitle\.textContent = !connected \? "Connect Foundry project" : "Deploy";/);
     assert.match(rendererClientScript, /guideTitle\.textContent = !connected \? "Connect Foundry project" : "Foundry Agent";/);
-    assert.match(rendererClientScript, /deployButton\.textContent = "Deploy";/);
+    assert.match(rendererClientScript, /setIconButton\(primaryGuideAction,[\s\S]*"upload"[\s\S]*"Deploy"/);
+    assert.match(rendererClientScript, /localRunning \? "stop" : "play"/);
+    assert.match(rendererClientScript, /localRunning \? "Stop local" : "Start local"/);
+    assert.match(rendererClientScript, /primaryGuideAction\.classList\.toggle\("danger"[\s\S]*localRunning/);
+    assert.match(rendererClientScript, /if \(activeView === "chat" && latestState\?\.target !== "hosted" && latestState\?\.localRun\?\.running\)[\s\S]*stopLocalFromCanvas/);
+    assert.match(rendererClientScript, /button:\s*primaryGuideAction/);
+    assert.doesNotMatch(rendererClientScript, /document\.getElementById\("deployButton"\)/);
+    assert.doesNotMatch(rendererClientScript, /document\.getElementById\("provisionButton"\)/);
     assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(12rem, 0\.8fr\);/);
     assert.match(rendererStyles, /@media \(max-width: 520px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*1fr;/);
     assert.match(rendererStyles, /\.action-detail-trigger:hover \.action-copy/);
@@ -423,6 +502,8 @@ test("valid Mermaid fenced blocks render as inline diagrams", () => {
     assert.match(html, /class="mermaid-diagram"/);
     assert.match(html, /class="mermaid-expand-button"/);
     assert.match(html, /aria-label="Expand diagram"/);
+    assert.match(html, /title="Expand diagram"/);
+    assert.match(html, />⤢<\/button>/);
     assert.match(html, /<svg role="img"/);
     assert.match(html, /Invoice evidence/);
     assert.match(html, /review/);
@@ -446,7 +527,7 @@ test("vendored Mermaid path emits a safe browser placeholder when runtime is ava
         assert.equal(rendered.ok, true);
         assert.match(rendered.html, /class="mermaid-diagram mermaid-vendor-diagram"/);
         assert.match(rendered.html, /data-mermaid-state="pending"/);
-        assert.match(rendered.html, /class="mermaid-expand-button" aria-label="Expand diagram" disabled/);
+        assert.match(rendered.html, /class="mermaid-expand-button" aria-label="Expand diagram" title="Expand diagram" disabled>⤢<\/button>/);
         assert.match(rendered.html, /sequenceDiagram/);
     } finally {
         if (previousRuntime === undefined) delete globalThis.__castiaMermaid;
@@ -689,7 +770,14 @@ test("renderer script removes Mermaid render artifacts after failed browser rend
 test("renderer script wires panel-local Mermaid diagram expansion", () => {
     assert.match(rendererClientScript, /function openMermaidDiagramLightbox/);
     assert.match(rendererClientScript, /role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram"/);
+    assert.match(rendererClientScript, /Drag to pan · Ctrl\+wheel to zoom · Space\+drag to move/);
     assert.match(rendererClientScript, /aria-label="Close expanded diagram"/);
+    assert.match(rendererClientScript, /aria-label="Zoom in"/);
+    assert.match(rendererClientScript, /aria-label="Zoom out"/);
+    assert.match(rendererClientScript, /function zoomMermaidLightbox/);
+    assert.match(rendererClientScript, /function fitMermaidLightboxToViewport/);
+    assert.match(rendererClientScript, /event\.ctrlKey \|\| event\.metaKey/);
+    assert.match(rendererClientScript, /event\.code === "Space"/);
     assert.match(rendererClientScript, /trigger\?\.isConnected\) trigger\.focus\(\)/);
     assert.match(rendererClientScript, /event\.key === "Escape" && activeMermaidLightbox/);
     assert.match(rendererClientScript, /contains\("mermaid-lightbox-backdrop"\)/);

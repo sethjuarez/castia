@@ -10,6 +10,7 @@ test("canvas action factory exposes the expected action contract", () => {
         "set_target",
         "set_protocol",
         "start_local",
+        "stop_local",
         "configure_project_endpoint",
         "health_check",
         "send_response",
@@ -83,4 +84,31 @@ test("configure_project_endpoint action submits prompt and starts local mode", a
         startLocal: { ok: true, state: { step: "started" } },
         state: { step: "started" },
     });
+});
+
+test("stop_local action stops local agent and returns updated state", async () => {
+    let stopped = false;
+    let broadcasted = false;
+    const state = { activity: [] };
+    const actions = createCanvasActions({
+        instanceState: () => state,
+        stopLocalAgent: async () => {
+            stopped = true;
+            state.localRun = { running: false };
+        },
+        snapshotState: (value) => ({ ...value, snapshotted: true }),
+        broadcastSnapshot: () => {
+            broadcasted = true;
+        },
+    });
+    const stopLocal = actions.find((action) => action.name === "stop_local");
+
+    const result = await stopLocal.handler({});
+
+    assert.equal(stopped, true);
+    assert.equal(broadcasted, true);
+    assert.equal(state.activity.at(-1).kind, "stop_local");
+    assert.equal(state.activity.at(-1).status, "completed");
+    assert.deepEqual(result.localRun, { running: false });
+    assert.equal(result.snapshotted, true);
 });

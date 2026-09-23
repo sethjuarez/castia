@@ -395,6 +395,7 @@ export const rendererClientScript = `
     const stopLocalAction = document.getElementById("stopLocalAction");
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
+    const panelMeta = document.querySelector(".panel-meta");
     const turnCount = document.getElementById("turnCount");
     const passCount = document.getElementById("passCount");
     const failCount = document.getElementById("failCount");
@@ -407,8 +408,6 @@ export const rendererClientScript = `
     const transcript = document.getElementById("transcript");
     const promptInput = document.getElementById("prompt");
     const sendButton = document.getElementById("send");
-    const provisionButton = document.getElementById("provisionButton");
-    const deployButton = document.getElementById("deployButton");
     const cancelOperationButton = document.getElementById("cancelOperationButton");
     const clearButton = document.getElementById("clear");
     const projectEndpointDialog = document.getElementById("projectEndpointDialog");
@@ -427,10 +426,25 @@ export const rendererClientScript = `
     let deployRefreshTimer = null;
     const expandedResponseDetails = new Set();
     const responseDetailsScroll = new Map();
+    const iconSvg = {
+      play: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+      send: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>',
+      settings: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/><path d="M4 12h2m12 0h2M12 4v2m0 12v2m-5.7-2.3 1.4-1.4m8.6-8.6 1.4-1.4m0 11.4-1.4-1.4M7.7 7.7 6.3 6.3"/></svg>',
+      refresh: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.2-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.2 4.9L20 16"/><path d="M20 20v-4h-4"/></svg>',
+      upload: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>',
+      trash: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
+      stop: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></svg>',
+    };
 
     function setStatus(kind, text) {
       statusDot.className = "dot " + (kind || "");
       statusText.textContent = text;
+    }
+
+    function setIconButton(button, icon, label) {
+      button.innerHTML = iconSvg[icon] || "";
+      button.title = label;
+      button.setAttribute("aria-label", label);
     }
 
     function clearHostedWaitTimer() {
@@ -448,6 +462,7 @@ export const rendererClientScript = `
     function renderSnapshot(state) {
       latestState = state;
       renderAgentPicker(state);
+      panelMeta.hidden = !state.stats.total;
       turnCount.textContent = state.stats.total + " turns";
       passCount.textContent = state.stats.completed + " pass";
       failCount.textContent = state.stats.failed + " fail";
@@ -712,14 +727,14 @@ export const rendererClientScript = `
           : foundryOk
           ? "Current version: " + (state.hosted.version || "ready") + ". Deploy changes when local updates are ready."
           : "Deploy the selected agent, then use the same transcript against the hosted target.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
+        setIconButton(primaryGuideAction, !connected ? "refresh" : needsProvision ? "settings" : "upload", !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : "Deploy");
         setActiveStep("foundry");
       } else if (activeView === "teams") {
         primaryGuideAction.hidden = true;
         testHostedAction.hidden = true;
         guideTitle.textContent = "Teams handoff";
         guideCopy.textContent = "Informational only: publish in Foundry, approve in Microsoft 365, hire in Teams, then manually run the same smoke prompt.";
-        primaryGuideAction.textContent = "";
+        setIconButton(primaryGuideAction, "", "No primary action");
         setActiveStep("teams");
       } else if (showingFoundryContext) {
         const needsProvision = Boolean(state.deployment?.needsProvision);
@@ -733,10 +748,10 @@ export const rendererClientScript = `
           : foundryOk
           ? "Hosted " + (state.hosted?.version ? "v" + state.hosted.version : "agent") + " ready. Send a prompt below."
           : "No hosted release found. Deploy the first version when local is ready.";
-        primaryGuideAction.textContent = !connected ? "Refresh .env" : needsProvision ? "Prepare" : "Deploy";
+        setIconButton(primaryGuideAction, !connected ? "refresh" : needsProvision ? "settings" : "upload", !connected ? "Refresh .env" : needsProvision ? "Prepare deploy" : "Deploy");
         setActiveStep("foundry");
       } else {
-        primaryGuideAction.hidden = state.target !== "hosted" && localRunning;
+        primaryGuideAction.hidden = false;
         testHostedAction.hidden = true;
         guideTitle.textContent = state.target === "hosted" && !connected ? "Connect Foundry project" : state.target === "hosted" ? "Foundry Agent" : "Local agent";
         guideCopy.textContent = state.target === "hosted" && !connected
@@ -746,9 +761,14 @@ export const rendererClientScript = `
           : localRunning
           ? (localStartupText(state.localRun) || "Local agent is running.")
           : "Start the local agent. If Foundry values are missing, this opens the project endpoint dialog.";
-        primaryGuideAction.textContent = state.target === "hosted" && !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : "Start local";
+        setIconButton(
+          primaryGuideAction,
+          state.target === "hosted" && !connected ? "refresh" : state.target === "hosted" ? "upload" : localRunning ? "stop" : "play",
+          state.target === "hosted" && !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : localRunning ? "Stop local" : "Start local",
+        );
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
       }
+      primaryGuideAction.classList.toggle("danger", activeView === "chat" && state.target !== "hosted" && localRunning);
       advancedToggle.hidden = true;
       advancedToggle.textContent = "Refresh .env";
       const guideDetail = guideCopy.textContent || "";
@@ -799,13 +819,10 @@ export const rendererClientScript = `
       deployView.hidden = activeView !== "deploy";
       teamsView.hidden = activeView !== "teams";
       sendButton.hidden = activeView !== "chat";
+      setIconButton(sendButton, "send", "Send");
       sendButton.disabled = !gate.canSend;
-      provisionButton.hidden = true;
-      deployButton.hidden = true;
       cancelOperationButton.hidden = !(activeView === "deploy" && deploymentRunning && cancellableOperation);
       cancelOperationButton.disabled = !cancellableOperation || latestState?.operations?.active?.status === "cancel_requested";
-      provisionButton.disabled = deploymentRunning;
-      deployButton.disabled = deploymentRunning;
       promptInput.hidden = activeView !== "chat";
       promptInput.disabled = gate.inputDisabled;
       promptInput.placeholder = gate.inputDisabled
@@ -813,16 +830,11 @@ export const rendererClientScript = `
         : (latestState?.activeProtocol === "activity"
           ? "Send a Teams Activity message... Enter sends, Shift+Enter adds a line."
           : "Ask the agent something... Enter sends, Shift+Enter adds a line.");
-      stopLocalAction.hidden = !(activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running);
+      stopLocalAction.hidden = true;
       stopLocalAction.disabled = false;
-      if (activeView === "deploy") {
-        provisionButton.hidden = !latestState?.deployment?.needsProvision;
-        deployButton.hidden = Boolean(latestState?.deployment?.needsProvision);
-        deployButton.textContent = "Deploy";
-      }
       primaryGuideAction.disabled = deploymentRunning && activeView !== "teams" && (activeView === "deploy" || foundryPanelOpen || latestState?.target === "hosted");
       clearButton.hidden = activeView === "teams";
-      clearButton.textContent = activeView === "deploy" ? "Clear deploy log" : "Clear transcript";
+      setIconButton(clearButton, "trash", activeView === "deploy" ? "Clear deploy log" : "Clear");
     }
 
     function renderProtocolToggle(state) {
@@ -1018,16 +1030,141 @@ export const rendererClientScript = `
       overlay.className = "mermaid-lightbox-backdrop";
       overlay.setAttribute("role", "presentation");
       overlay.innerHTML = '<div class="mermaid-lightbox" role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram">' +
-        '<div class="mermaid-lightbox-head"><strong>Mermaid diagram</strong><button type="button" class="mermaid-lightbox-close" aria-label="Close expanded diagram">Close</button></div>' +
-        '<div class="mermaid-lightbox-body"></div>' +
+        '<div class="mermaid-lightbox-head">' +
+          '<div><strong>Mermaid diagram</strong><div class="mermaid-lightbox-help">Drag to pan · Ctrl+wheel to zoom · Space+drag to move</div></div>' +
+          '<div class="mermaid-lightbox-controls" aria-label="Diagram zoom controls">' +
+            '<button type="button" class="mermaid-zoom-out" aria-label="Zoom out">−</button>' +
+            '<button type="button" class="mermaid-zoom-in" aria-label="Zoom in">+</button>' +
+            '<button type="button" class="mermaid-zoom-fit" aria-label="Fit diagram">Fit</button>' +
+            '<button type="button" class="mermaid-zoom-reset" aria-label="Reset diagram zoom">100%</button>' +
+            '<button type="button" class="mermaid-lightbox-close" aria-label="Close expanded diagram">Close</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="mermaid-lightbox-body" tabindex="0" aria-label="Expanded Mermaid diagram viewport"><div class="mermaid-lightbox-canvas"></div></div>' +
         '</div>';
       const clone = svg.cloneNode(true);
       clone.removeAttribute("width");
       clone.removeAttribute("height");
-      overlay.querySelector(".mermaid-lightbox-body").appendChild(clone);
+      const viewport = overlay.querySelector(".mermaid-lightbox-body");
+      const canvas = overlay.querySelector(".mermaid-lightbox-canvas");
+      const box = svg.viewBox?.baseVal;
+      const baseWidth = Math.max(320, Math.round(box?.width || svg.getBoundingClientRect().width || 960));
+      const baseHeight = Math.max(180, Math.round(box?.height || svg.getBoundingClientRect().height || 540));
+      clone.style.width = baseWidth + "px";
+      clone.style.height = baseHeight + "px";
+      canvas.appendChild(clone);
       document.body.appendChild(overlay);
-      activeMermaidLightbox = { overlay, trigger };
+      activeMermaidLightbox = {
+        overlay,
+        trigger,
+        viewport,
+        canvas,
+        scale: 1,
+        x: 0,
+        y: 0,
+        baseWidth,
+        baseHeight,
+        panning: null,
+        spaceDown: false,
+      };
+      wireMermaidLightboxViewport(activeMermaidLightbox);
+      fitMermaidLightboxToViewport(activeMermaidLightbox);
       overlay.querySelector(".mermaid-lightbox-close")?.focus();
+    }
+
+    function wireMermaidLightboxViewport(state) {
+      const { overlay, viewport } = state;
+      overlay.querySelector(".mermaid-zoom-in")?.addEventListener("click", () => zoomMermaidLightbox(1.2));
+      overlay.querySelector(".mermaid-zoom-out")?.addEventListener("click", () => zoomMermaidLightbox(1 / 1.2));
+      overlay.querySelector(".mermaid-zoom-fit")?.addEventListener("click", () => fitMermaidLightboxToViewport(state));
+      overlay.querySelector(".mermaid-zoom-reset")?.addEventListener("click", () => resetMermaidLightboxZoom(state));
+      viewport.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0 && event.button !== 1) return;
+        event.preventDefault();
+        state.panning = { pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY, startX: state.x, startY: state.y };
+        try { viewport.setPointerCapture?.(event.pointerId); } catch {}
+        viewport.classList.add("is-panning");
+      });
+      viewport.addEventListener("pointermove", (event) => {
+        if (!state.panning || state.panning.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        state.x = state.panning.startX + event.clientX - state.panning.startClientX;
+        state.y = state.panning.startY + event.clientY - state.panning.startClientY;
+        clampMermaidLightboxPan(state);
+        applyMermaidLightboxTransform(state);
+      });
+      const endPan = (event) => {
+        if (!state.panning || state.panning.pointerId !== event.pointerId) return;
+        state.panning = null;
+        viewport.classList.remove("is-panning");
+        try { viewport.releasePointerCapture?.(event.pointerId); } catch {}
+      };
+      viewport.addEventListener("pointerup", endPan);
+      viewport.addEventListener("pointercancel", endPan);
+      viewport.addEventListener("wheel", (event) => {
+        if (!(event.ctrlKey || event.metaKey)) return;
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+        zoomMermaidLightbox(factor, event.clientX, event.clientY);
+      }, { passive: false });
+    }
+
+    function applyMermaidLightboxTransform(state = activeMermaidLightbox) {
+      if (!state) return;
+      state.canvas.style.transform = "translate(" + state.x + "px, " + state.y + "px) scale(" + state.scale + ")";
+      state.overlay.querySelector(".mermaid-zoom-reset").textContent = Math.round(state.scale * 100) + "%";
+    }
+
+    function clampMermaidLightboxPan(state) {
+      const width = state.baseWidth * state.scale;
+      const height = state.baseHeight * state.scale;
+      const viewportWidth = state.viewport.clientWidth;
+      const viewportHeight = state.viewport.clientHeight;
+      const gutter = 48;
+      if (width <= viewportWidth) {
+        state.x = (viewportWidth - width) / 2;
+      } else {
+        state.x = Math.min(gutter, Math.max(viewportWidth - width - gutter, state.x));
+      }
+      if (height <= viewportHeight) {
+        state.y = (viewportHeight - height) / 2;
+      } else {
+        state.y = Math.min(gutter, Math.max(viewportHeight - height - gutter, state.y));
+      }
+    }
+
+    function zoomMermaidLightbox(factor, clientX, clientY) {
+      const state = activeMermaidLightbox;
+      if (!state) return;
+      const previous = state.scale;
+      const next = Math.min(4, Math.max(0.25, previous * factor));
+      const rect = state.viewport.getBoundingClientRect();
+      const originX = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2;
+      const originY = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+      state.x = originX - ((originX - state.x) / previous) * next;
+      state.y = originY - ((originY - state.y) / previous) * next;
+      state.scale = next;
+      clampMermaidLightboxPan(state);
+      applyMermaidLightboxTransform(state);
+    }
+
+    function fitMermaidLightboxToViewport(state = activeMermaidLightbox) {
+      if (!state) return;
+      const scaleX = (state.viewport.clientWidth - 32) / state.baseWidth;
+      const scaleY = (state.viewport.clientHeight - 32) / state.baseHeight;
+      state.scale = Math.min(3, Math.max(0.25, Math.min(scaleX, scaleY)));
+      state.x = (state.viewport.clientWidth - state.baseWidth * state.scale) / 2;
+      state.y = (state.viewport.clientHeight - state.baseHeight * state.scale) / 2;
+      applyMermaidLightboxTransform(state);
+    }
+
+    function resetMermaidLightboxZoom(state = activeMermaidLightbox) {
+      if (!state) return;
+      state.scale = 1;
+      state.x = (state.viewport.clientWidth - state.baseWidth) / 2;
+      state.y = (state.viewport.clientHeight - state.baseHeight) / 2;
+      clampMermaidLightboxPan(state);
+      applyMermaidLightboxTransform(state);
     }
 
     function closeMermaidDiagramLightbox() {
@@ -1183,7 +1320,16 @@ export const rendererClientScript = `
       if (event.key === "Escape" && activeMermaidLightbox) {
         event.preventDefault();
         closeMermaidDiagramLightbox();
+      } else if (event.code === "Space" && activeMermaidLightbox && !event.repeat && !event.target?.closest?.("button, input, textarea, select")) {
+        activeMermaidLightbox.spaceDown = true;
+        activeMermaidLightbox.viewport.classList.add("space-pan");
       }
+    });
+
+    document.addEventListener("keyup", (event) => {
+      if (event.code !== "Space" || !activeMermaidLightbox) return;
+      activeMermaidLightbox.spaceDown = false;
+      activeMermaidLightbox.viewport.classList.remove("space-pan");
     });
 
     function answerTextForDetailsKey(detailsKey) {
@@ -1582,6 +1728,10 @@ export const rendererClientScript = `
     });
 
     primaryGuideAction.addEventListener("click", () => {
+      if (activeView === "chat" && latestState?.target !== "hosted" && latestState?.localRun?.running) {
+        void stopLocalFromCanvas();
+        return;
+      }
       if (!(latestState?.foundryConnection?.projectEndpoint && latestState?.foundryConnection?.modelDeployment)) {
         if (latestState?.target === "hosted" || foundryPanelOpen) {
           void refreshConfigFromDisk();
@@ -1706,7 +1856,7 @@ export const rendererClientScript = `
     async function runProvision() {
       await streamCommand({
         path: "/api/provision/stream",
-        button: provisionButton,
+        button: primaryGuideAction,
         confirmText: "Prepare this repo for hosted deployment into the connected Foundry project?",
         runningText: "Preparing deploy...",
         successText: "Deploy prep complete.",
@@ -1717,21 +1867,13 @@ export const rendererClientScript = `
     async function runDeploy() {
       await streamCommand({
         path: "/api/deploy/stream",
-        button: deployButton,
+        button: primaryGuideAction,
         confirmText: "Deploy changes to Foundry and create a new hosted agent version?",
         runningText: "Deploying to Foundry...",
         successText: "Deploy complete.",
         failureText: "Deploy failed.",
       });
     }
-
-    provisionButton.addEventListener("click", () => {
-      void runProvision();
-    });
-
-    deployButton.addEventListener("click", () => {
-      void runDeploy();
-    });
 
     cancelOperationButton.addEventListener("click", () => {
       void cancelOperationFromCanvas();
