@@ -21,10 +21,12 @@ import {
     hasRawHtmlMermaidLabel,
     hasUnsafeSvgCss,
     initializeVendoredMermaidRuntime,
+    isUnsafeMermaidHtmlTag,
     mermaidSourceHash,
     mermaidSourceSupport,
     removeMermaidRenderArtifacts,
     renderVendoredMermaidBlock,
+    sanitizeMermaidLabelHtml,
     sanitizeMermaidSvg,
     sanitizeSvgElement,
 } from "./diagrams/mermaid-vendor-renderer.mjs";
@@ -52,10 +54,12 @@ export {
     hasRawHtmlMermaidLabel,
     hasUnsafeSvgCss,
     initializeVendoredMermaidRuntime,
+    isUnsafeMermaidHtmlTag,
     mermaidSourceHash,
     sanitizeMermaidSvg,
     sanitizeSvgElement,
     removeMermaidRenderArtifacts,
+    sanitizeMermaidLabelHtml,
     mermaidShapeLabel,
     wrapMermaidLabel,
     renderJsonDocument,
@@ -328,6 +332,8 @@ export const rendererClientScript = `
     ${renderVendoredMermaidBlock.toString()}
     ${renderMermaidExpandButton.toString()}
     ${mermaidSourceSupport.toString()}
+    ${sanitizeMermaidLabelHtml.toString()}
+    ${isUnsafeMermaidHtmlTag.toString()}
     ${hasRawHtmlMermaidLabel.toString()}
     ${hydrateVendoredMermaidDiagrams.toString()}
     ${initializeVendoredMermaidRuntime.toString()}
