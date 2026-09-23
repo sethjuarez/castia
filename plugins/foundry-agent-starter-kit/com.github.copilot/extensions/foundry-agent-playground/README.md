@@ -45,10 +45,11 @@ The UI includes these parts.
   vendors Mermaid for selected safe families (`flowchart`/`graph`,
   `sequenceDiagram`, `stateDiagram`, `classDiagram`, and `erDiagram`) and
   sanitizes returned SVG before insertion. Mermaid init/config directives, raw
-  HTML labels, interactive callbacks/links, and scriptable URLs are disabled.
-  Unsupported, oversized, unsafe, or failed diagrams fall back to escaped source
-  text with a clear error, and simple flowcharts can still use the existing safe
-  flowchart renderer. Rendered diagrams include an **Expand diagram** control
+  HTML labels other than simple `<br>` line breaks, interactive callbacks/links,
+  and scriptable URLs are disabled. Unsupported, oversized, unsafe, or failed
+  diagrams fall back to escaped source text with a clear error, and simple
+  flowcharts can still use the existing safe flowchart renderer. Rendered
+  diagrams include an **Expand diagram** control
   that opens a panel-local lightbox inside the canvas iframe. The overlay fits
   the SVG to the playground panel, supports scrolling, and closes with Escape,
   the close button, or the backdrop. It does not try to escape the iframe into
