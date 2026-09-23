@@ -59,11 +59,13 @@ export function createRequestHandler({
     completeInvocationTurn,
     broadcastSnapshot = () => {},
 }) {
+    let pluginVersion;
     async function handleRequest(req, res, state) {
         try {
             const url = new URL(req.url || "/", "http://127.0.0.1");
             if (req.method === "GET" && url.pathname === "/") {
-                sendHtml(res, renderHtml());
+                pluginVersion ??= await readPluginVersion(extensionRoot);
+                sendHtml(res, renderHtml({ pluginVersion }));
                 return;
             }
             if (req.method === "GET" && url.pathname === "/favicon.ico") {
@@ -488,4 +490,10 @@ export function createRequestHandler({
     }
 
     return handleRequest;
+}
+
+async function readPluginVersion(extensionRoot) {
+    if (!extensionRoot) return "";
+    const manifest = JSON.parse(await readFile(join(extensionRoot, "..", "..", "..", "plugin.json"), "utf8"));
+    return typeof manifest.version === "string" ? manifest.version : "";
 }

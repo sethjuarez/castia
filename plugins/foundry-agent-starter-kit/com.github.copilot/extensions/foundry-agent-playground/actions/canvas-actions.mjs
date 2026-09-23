@@ -25,6 +25,7 @@ export function createCanvasActions({
     commandStartLocal,
     commandCancelOperation,
     commandBootstrapLocalEnv,
+    stopLocalAgent,
     setLocalEndpoint,
     readinessAgentNames,
     reconcileSelectedAgentFromReadiness,
@@ -149,6 +150,23 @@ export function createCanvasActions({
                 const result = await commandStartLocal(state, { actor: "Copilot" });
                 broadcastSnapshot(state);
                 return result;
+            },
+        },
+        {
+            name: "stop_local",
+            description: "Stop the selected local agent and clear local readiness state.",
+            handler: async (ctx) => {
+                const state = instanceState(ctx);
+                await stopLocalAgent(state);
+                addActivity(state, {
+                    actor: "Copilot",
+                    kind: "stop_local",
+                    status: "completed",
+                    summary: "Stopped local agent.",
+                    details: { target: "local" },
+                });
+                broadcastSnapshot(state);
+                return snapshotState(state);
             },
         },
         {

@@ -69,7 +69,7 @@ test("remote Foundry discovery populates hosted context when azd env has no AGEN
                 active_version: "7",
                 agent_endpoints: {
                     responses: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
-                    activity: `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/activity`,
+                    activity: `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/activity?api-version=v1`,
                 },
             },
         },
@@ -81,7 +81,7 @@ test("remote Foundry discovery populates hosted context when azd env has no AGEN
                 version: "7",
                 status: "active",
                 endpoints: {
-                    invocations: `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/invocations`,
+                    invocations: `${projectEndpoint}/agents/contract-expert/endpoint/protocols/invocations?api-version=v1`,
                 },
             },
         },
@@ -101,8 +101,8 @@ test("remote Foundry discovery populates hosted context when azd env has no AGEN
     assert.equal(result.hosted.agentId, "agent-123");
     assert.equal(result.hosted.version, "7");
     assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
-    assert.equal(result.hosted.activityEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/activity`);
-    assert.equal(result.hosted.invocationsEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/invocations`);
+    assert.equal(result.hosted.activityEndpoint, `${projectEndpoint}/agents/contract-expert/versions/7/endpoint/protocols/activity?api-version=v1`);
+    assert.equal(result.hosted.invocationsEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/invocations?api-version=v1`);
     assert.equal(result.hosted.lastRefreshSource, "foundry");
     assert.equal(result.hosted.lastRemoteDiscoveryStatus, "found");
 });
@@ -194,8 +194,8 @@ test("switching Foundry projects clears cached deployment endpoints from the pre
             agentId: "old-agent",
             version: "6",
             responsesEndpoint: `${oldProjectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`,
-            activityEndpoint: `${oldProjectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/activity`,
-            invocationsEndpoint: `${oldProjectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/invocations`,
+            activityEndpoint: `${oldProjectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/activity?api-version=v1`,
+            invocationsEndpoint: `${oldProjectEndpoint}/agents/contract-expert/endpoint/protocols/invocations?api-version=v1`,
             projectEndpoint: oldProjectEndpoint,
             status: "active",
             lastRefreshSource: "foundry",
@@ -471,8 +471,8 @@ test("remote Foundry discovery advances from version n to n plus 1 after deploym
 
     assert.equal(result.hosted.version, "6");
     assert.equal(result.hosted.responsesEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/openai/responses?api-version=v1`);
-    assert.equal(result.hosted.activityEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/activity`);
-    assert.equal(result.hosted.invocationsEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/invocations`);
+    assert.equal(result.hosted.activityEndpoint, `${projectEndpoint}/agents/contract-expert/versions/6/endpoint/protocols/activity?api-version=v1`);
+    assert.equal(result.hosted.invocationsEndpoint, `${projectEndpoint}/agents/contract-expert/endpoint/protocols/invocations?api-version=v1`);
     assert.equal(result.hosted.lastRefreshSource, "foundry");
 });
 
