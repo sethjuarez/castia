@@ -22,6 +22,7 @@ import {
     initializeVendoredMermaidRuntime,
     mermaidSourceHash,
     mermaidSourceSupport,
+    removeMermaidRenderArtifacts,
     renderVendoredMermaidBlock,
     sanitizeMermaidSvg,
     sanitizeSvgElement,
@@ -52,6 +53,7 @@ export {
     mermaidSourceHash,
     sanitizeMermaidSvg,
     sanitizeSvgElement,
+    removeMermaidRenderArtifacts,
     mermaidShapeLabel,
     wrapMermaidLabel,
     renderJsonDocument,
@@ -305,12 +307,12 @@ export const rendererClientScript = `
     const textFromResponsesOutput = ${textFromResponsesOutput.toString()};
     const MERMAID_MAX_SOURCE_CHARS = 6000;
     const MERMAID_MAX_LINES = 240;
-    const MERMAID_SUPPORTED_FAMILIES = ["flowchart", "graph", "sequencediagram", "statediagram", "classdiagram", "erdiagram"];
+    const MERMAID_SUPPORTED_FAMILIES = ["flowchart", "graph", "sequencediagram", "statediagram", "statediagram-v2", "classdiagram", "erdiagram"];
     const codeBlockRenderers = [
       {
         id: "mermaid",
         canRender: ({ language }) => String(language || "").split(/\\s+/)[0] === "mermaid",
-        render: ({ value }) => renderMermaidBlock(value),
+        render: ({ value, complete }) => renderMermaidBlock(value, { complete }),
       },
       {
         id: "json",
@@ -327,6 +329,7 @@ export const rendererClientScript = `
     ${hydrateVendoredMermaidDiagrams.toString()}
     ${initializeVendoredMermaidRuntime.toString()}
     ${mermaidSourceHash.toString()}
+    ${removeMermaidRenderArtifacts.toString()}
     ${sanitizeMermaidSvg.toString()}
     ${sanitizeSvgElement.toString()}
     ${hasUnsafeSvgCss.toString()}

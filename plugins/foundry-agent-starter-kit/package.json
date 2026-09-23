@@ -7,9 +7,7 @@
     "test": "node --test com.github.copilot/extensions/foundry-agent-playground/tests/*.test.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
-  },
-  "dependencies": {
+    "esbuild": "^0.28.2",
     "mermaid": "^11.17.2"
   }
 }
