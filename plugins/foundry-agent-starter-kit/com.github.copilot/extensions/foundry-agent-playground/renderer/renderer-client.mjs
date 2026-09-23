@@ -40,6 +40,35 @@ export function localReadinessState(state) {
     return { ready: false, reason: "Start local before chatting." };
 }
 
+export function localStartupText(localRun) {
+    const failure = localRun?.failure;
+    if (failure) {
+        return failure.suggestion || failure.rootCause || "Local startup failed.";
+    }
+    const phase = localRun?.readiness?.phase;
+    if (phase === "dependency_sync") {
+        return "Syncing Python dependencies with uv; first run can take a minute.";
+    }
+    if (phase === "polling_readiness") {
+        return "Polling /readiness until the local agent is usable.";
+    }
+    if (localRun?.running) return "Starting local agent.";
+    return "";
+}
+
+export function localFailureDetail(localRun) {
+    const failure = localRun?.failure;
+    if (!failure) return "";
+    return [
+        failure.rootCause,
+        failure.suggestion,
+        failure.command ? "Command: " + failure.command : "",
+        failure.cwd ? "cwd: " + failure.cwd : "",
+        Number.isFinite(failure.exitCode) ? "exit code: " + failure.exitCode : "",
+        failure.stderrTail ? "stderr: " + failure.stderrTail : "",
+    ].filter(Boolean).join(" · ");
+}
+
 export function isStartupReadinessPending(state) {
     return Boolean(
         state?.localRun?.running &&
@@ -134,15 +163,7 @@ export function responseDisplayState(response) {
     return { answer, hasAnswer, waitingForFirstToken };
 }
 
-export function latestVisibleAnswerText(messages = []) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const answer = copyableAnswerText(messages[index]?.response);
-        if (answer) return answer;
-    }
-    return "";
-}
-
-function copyableAnswerText(response) {
+export function copyableAnswerText(response) {
     if (!response?.ok || response?.streaming || responseDisplayState(response).waitingForFirstToken) return "";
     const body = response.body;
     if (typeof body === "string") {
@@ -204,22 +225,337 @@ function textFromResponsesOutput(output) {
     return parts.join("").trim();
 }
 
+export function renderMarkdown(value) {
+    const jsonDocument = renderJsonDocument(value);
+    if (jsonDocument) return '<div class="md">' + jsonDocument + "</div>";
+    const blocks = [];
+    let inFence = false;
+    let fence = [];
+    let fenceLanguage = "";
+    let list = null;
+    let paragraph = [];
+
+    function flushParagraph() {
+        if (!paragraph.length) return;
+        blocks.push("<p>" + renderInline(paragraph.join(" ")) + "</p>");
+        paragraph = [];
+    }
+
+    function flushList() {
+        if (!list) return;
+        blocks.push("<" + list.type + ">" + list.items.map((item) => "<li>" + renderInline(item) + "</li>").join("") + "</" + list.type + ">");
+        list = null;
+    }
+
+    const lines = String(value || "").split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+        const rawLine = lines[index];
+        const line = rawLine.replace(/\s+$/, "");
+        if (line.trim().startsWith(String.fromCharCode(96, 96, 96))) {
+            if (inFence) {
+                blocks.push(renderCodeBlock(fence.join("\n"), fenceLanguage));
+                fence = [];
+                fenceLanguage = "";
+                inFence = false;
+            } else {
+                flushParagraph();
+                flushList();
+                fenceLanguage = line.trim().slice(3).trim().toLowerCase();
+                inFence = true;
+            }
+            continue;
+        }
+        if (inFence) {
+            fence.push(rawLine);
+            continue;
+        }
+        if (!line.trim()) {
+            flushParagraph();
+            flushList();
+            continue;
+        }
+        const heading = line.match(/^\s*(#{1,3})\s+(.+)$/);
+        if (heading) {
+            flushParagraph();
+            flushList();
+            blocks.push("<h" + heading[1].length + ">" + renderInline(heading[2]) + "</h" + heading[1].length + ">");
+            continue;
+        }
+        const table = renderTable(lines, index);
+        if (table) {
+            flushParagraph();
+            flushList();
+            blocks.push(table.html);
+            index = table.nextIndex - 1;
+            continue;
+        }
+        const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (unordered || ordered) {
+            flushParagraph();
+            const type = unordered ? "ul" : "ol";
+            if (!list || list.type !== type) flushList();
+            list ||= { type, items: [] };
+            list.items.push((unordered || ordered)[1]);
+            continue;
+        }
+        flushList();
+        paragraph.push(line.trim());
+    }
+    if (inFence) blocks.push(renderCodeBlock(fence.join("\n"), fenceLanguage));
+    flushParagraph();
+    flushList();
+    return '<div class="md">' + (blocks.join("") || "<p></p>") + "</div>";
+}
+
+export function renderCodeBlock(value, language) {
+    if (String(language || "").split(/\s+/)[0] === "mermaid") {
+        return renderMermaidBlock(value);
+    }
+    const json = renderJsonDocument(value, language);
+    if (json) return json;
+    return "<pre><code>" + escapeHtml(value) + "</code></pre>";
+}
+
+export function renderMermaidBlock(value) {
+    const parsed = parseMermaidFlowchart(value);
+    if (!parsed.ok) {
+        return '<figure class="mermaid-fallback">' +
+            '<figcaption>Mermaid diagram could not be rendered: ' + escapeHtml(parsed.error) + '</figcaption>' +
+            '<pre><code>' + escapeHtml(value) + '</code></pre>' +
+            '</figure>';
+    }
+    const { nodes, edges, direction } = parsed;
+    const horizontal = ["LR", "RL"].includes(direction);
+    const width = horizontal ? Math.max(360, nodes.length * 190 + 48) : 420;
+    const height = horizontal ? 180 : Math.max(180, nodes.length * 112 + 48);
+    const positions = new Map();
+    nodes.forEach((node, index) => {
+        const order = direction === "RL" || direction === "BT" ? nodes.length - index - 1 : index;
+        positions.set(node.id, horizontal
+            ? { x: 24 + order * 190, y: 54 }
+            : { x: 70, y: 24 + order * 112 });
+    });
+    const edgeSvg = edges.map((edge) => {
+        const from = positions.get(edge.from);
+        const to = positions.get(edge.to);
+        if (!from || !to) return "";
+        const x1 = horizontal ? from.x + 150 : from.x + 75;
+        const y1 = horizontal ? from.y + 30 : from.y + 60;
+        const x2 = horizontal ? to.x : to.x + 75;
+        const y2 = horizontal ? to.y + 30 : to.y;
+        const label = edge.label
+            ? '<text class="mermaid-edge-label" x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 8) + '">' + escapeHtml(edge.label) + '</text>'
+            : "";
+        return '<path class="mermaid-edge" d="M ' + x1 + " " + y1 + " L " + x2 + " " + y2 + '" marker-end="url(#mermaid-arrow)" />' + label;
+    }).join("");
+    const nodeSvg = nodes.map((node) => {
+        const position = positions.get(node.id);
+        const label = wrapMermaidLabel(node.label || node.id);
+        const lines = label.map((line, index) =>
+            '<tspan x="75" dy="' + (index === 0 ? 0 : 15) + '">' + escapeHtml(line) + '</tspan>'
+        ).join("");
+        return '<g class="mermaid-node" transform="translate(' + position.x + " " + position.y + ')">' +
+            '<rect width="150" height="60" rx="12" />' +
+            '<text x="75" y="' + (label.length > 1 ? 24 : 34) + '">' + lines + '</text>' +
+            '</g>';
+    }).join("");
+    return '<figure class="mermaid-diagram" aria-label="Mermaid diagram">' +
+        '<svg role="img" viewBox="0 0 ' + width + " " + height + '" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><marker id="mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>' +
+        edgeSvg + nodeSvg +
+        '</svg>' +
+        '</figure>';
+}
+
+export function parseMermaidFlowchart(value) {
+    const lines = String(value || "").split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("%%"));
+    const header = lines.shift() || "";
+    const headerMatch = header.match(/^(flowchart|graph)\s+(TD|TB|BT|LR|RL)?$/i);
+    if (!headerMatch) return { ok: false, error: "only flowchart/graph diagrams are supported" };
+    const direction = (headerMatch[2] || "TD").toUpperCase();
+    const nodeMap = new Map();
+    const edges = [];
+    const addNode = (id, label = "") => {
+        const nextLabel = label || id;
+        if (!nodeMap.has(id)) nodeMap.set(id, { id, label: nextLabel });
+        else if (nextLabel && nodeMap.get(id).label === id) nodeMap.get(id).label = nextLabel;
+    };
+    for (const line of lines) {
+        const edge = parseMermaidEdge(line);
+        if (edge) {
+            addNode(edge.from, edge.fromLabel);
+            addNode(edge.to, edge.toLabel);
+            edges.push(edge);
+            continue;
+        }
+        const node = parseMermaidNode(line);
+        if (node) {
+            addNode(node.id, node.label);
+            continue;
+        }
+        return { ok: false, error: "unsupported Mermaid syntax near: " + line.slice(0, 80) };
+    }
+    if (!nodeMap.size) return { ok: false, error: "diagram has no nodes" };
+    if (nodeMap.size > 30 || edges.length > 50) return { ok: false, error: "diagram is too large for inline rendering" };
+    return { ok: true, direction, nodes: [...nodeMap.values()], edges };
+}
+
+function parseMermaidEdge(line) {
+    const edgePattern = /^\s*([A-Za-z][\w-]*)(\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\}))?\s*--(?:\|([^|]+)\|)?>(?:\s*)([A-Za-z][\w-]*)(\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\}))?\s*;?\s*$/;
+    const match = line.match(edgePattern);
+    if (!match) return null;
+    return {
+        from: match[1],
+        fromLabel: mermaidShapeLabel(match[2]) || match[1],
+        label: String(match[3] || "").trim(),
+        to: match[4],
+        toLabel: mermaidShapeLabel(match[5]) || match[4],
+    };
+}
+
+function parseMermaidNode(line) {
+    const match = line.match(/^\s*([A-Za-z][\w-]*)(\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\}))\s*;?\s*$/);
+    return match ? { id: match[1], label: mermaidShapeLabel(match[2]) || match[1] } : null;
+}
+
+function mermaidShapeLabel(shape = "") {
+    return String(shape || "")
+        .trim()
+        .replace(/^[\s[({"']+|[\s\])}"']+$/g, "")
+        .replace(/\\"/g, '"')
+        .trim();
+}
+
+function wrapMermaidLabel(value) {
+    const words = String(value || "").split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = "";
+    for (const word of words) {
+        if ((current + " " + word).trim().length > 22 && current) {
+            lines.push(current);
+            current = word;
+        } else {
+            current = (current + " " + word).trim();
+        }
+    }
+    if (current) lines.push(current);
+    return lines.slice(0, 3);
+}
+
+export function renderJsonDocument(value, language = "") {
+    const text = String(value || "").trim();
+    if (!text || (!["json", "jsonc"].includes(language) && !/^[\[{]/.test(text))) return null;
+    try {
+        const parsed = JSON.parse(text);
+        return '<pre class="json-pre"><code>' + highlightJson(JSON.stringify(parsed, null, 2)) + "</code></pre>";
+    } catch {
+        return null;
+    }
+}
+
+export function highlightJson(value) {
+    const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+    let output = "";
+    let lastIndex = 0;
+    String(value || "").replace(tokenPattern, (match, stringToken, keySuffix, literal, offset) => {
+        output += escapeHtml(value.slice(lastIndex, offset));
+        if (stringToken) {
+            const className = keySuffix ? "json-key" : "json-string";
+            output += '<span class="' + className + '">' + escapeHtml(stringToken) + "</span>" + escapeHtml(keySuffix || "");
+        } else if (literal) {
+            output += '<span class="json-literal">' + escapeHtml(match) + "</span>";
+        } else {
+            output += '<span class="json-number">' + escapeHtml(match) + "</span>";
+        }
+        lastIndex = offset + match.length;
+        return match;
+    });
+    return output + escapeHtml(value.slice(lastIndex));
+}
+
+export function renderTable(lines, start) {
+    if (!String(lines[start] || "").includes("|") || !isTableSeparator(lines[start + 1] || "")) return null;
+    const header = splitTableRow(lines[start]);
+    const separator = splitTableRow(lines[start + 1]);
+    if (!header.length || separator.length < header.length) return null;
+    const alignments = separator.map((cell) =>
+        cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : cell.startsWith(":") ? "left" : ""
+    );
+    const rows = [];
+    let index = start + 2;
+    while (index < lines.length && String(lines[index] || "").trim() && String(lines[index] || "").includes("|")) {
+        if (String(lines[index]).trim().startsWith(String.fromCharCode(96, 96, 96))) break;
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+    }
+    const cellAttr = (column) => alignments[column] ? ' style="text-align:' + alignments[column] + '"' : "";
+    const head = "<thead><tr>" + header.map((cell, column) => "<th" + cellAttr(column) + ">" + renderInline(cell) + "</th>").join("") + "</tr></thead>";
+    const body = "<tbody>" + rows.map((row) => "<tr>" + header.map((_, column) => "<td" + cellAttr(column) + ">" + renderInline(row[column] || "") + "</td>").join("") + "</tr>").join("") + "</tbody>";
+    return { html: '<div class="table-scroll"><table>' + head + body + "</table></div>", nextIndex: index };
+}
+
+export function splitTableRow(line) {
+    return String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+export function isTableSeparator(line) {
+    return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(line || ""));
+}
+
+export function renderInline(value) {
+    const tick = String.fromCharCode(96);
+    const inlineCode = new RegExp(tick + "([^" + tick + "]+)" + tick, "g");
+    return escapeHtml(value)
+        .replace(inlineCode, "<code>$1</code>")
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+export function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
 export const rendererClientScript = `
     const isStartupReadinessPending = ${isStartupReadinessPending.toString()};
     const localReadinessState = ${localReadinessState.toString()};
+    const localStartupText = ${localStartupText.toString()};
+    const localFailureDetail = ${localFailureDetail.toString()};
     const responseDetailsKey = ${responseDetailsKey.toString()};
     const responseDetailsPanelId = ${responseDetailsPanelId.toString()};
     const composerGate = ${composerGate.toString()};
     const shouldOpenProjectEndpointDialog = ${shouldOpenProjectEndpointDialog.toString()};
     const responseText = ${responseText.toString()};
     const responseDisplayState = ${responseDisplayState.toString()};
-    const latestVisibleAnswerText = ${latestVisibleAnswerText.toString()};
     const copyableAnswerText = ${copyableAnswerText.toString()};
     const parseResponseEnvelopeString = ${parseResponseEnvelopeString.toString()};
     const isResponseEnvelope = ${isResponseEnvelope.toString()};
     const textOrEmpty = ${textOrEmpty.toString()};
     const textFromResponseBody = ${textFromResponseBody.toString()};
     const textFromResponsesOutput = ${textFromResponsesOutput.toString()};
+    ${renderMarkdown.toString()}
+    ${renderCodeBlock.toString()}
+    ${renderMermaidBlock.toString()}
+    ${parseMermaidFlowchart.toString()}
+    ${parseMermaidEdge.toString()}
+    ${parseMermaidNode.toString()}
+    ${mermaidShapeLabel.toString()}
+    ${wrapMermaidLabel.toString()}
+    ${renderJsonDocument.toString()}
+    ${highlightJson.toString()}
+    ${renderTable.toString()}
+    ${splitTableRow.toString()}
+    ${isTableSeparator.toString()}
+    ${renderInline.toString()}
+    ${escapeHtml.toString()}
     const agentPickerButton = document.getElementById("agentPickerButton");
     const agentPickerLabel = document.getElementById("agentPickerLabel");
     const agentMenu = document.getElementById("agentMenu");
@@ -269,7 +605,6 @@ export const rendererClientScript = `
     const activityCount = document.getElementById("activityCount");
     const activityItems = document.getElementById("activityItems");
     const transcript = document.getElementById("transcript");
-    const copyLatestAnswerButton = document.getElementById("copyLatestAnswer");
     const promptInput = document.getElementById("prompt");
     const sendButton = document.getElementById("send");
     const provisionButton = document.getElementById("provisionButton");
@@ -323,9 +658,9 @@ export const rendererClientScript = `
         const detail = !state.lastHealth.ok && state.lastHealth.body ? " · " + String(state.lastHealth.body).slice(0, 160) : "";
         setStatus(state.lastHealth.ok ? "ok" : "fail", "Readiness " + state.lastHealth.status + " in " + state.lastHealth.durationMs + "ms" + detail);
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.running) {
-        setStatus("", "Local agent is running; waiting for readiness.");
+        setStatus("", localStartupText(state.localRun) || "Local agent is running; waiting for readiness.");
       } else if (activeView === "chat" && state.target !== "hosted" && state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
-        setStatus(state.localRun.exitCode === 0 ? "" : "fail", state.localRun.exitCode === 0 ? "Local agent stopped." : "Local agent exited with code " + state.localRun.exitCode + ".");
+        setStatus(state.localRun.exitCode === 0 ? "" : "fail", state.localRun.exitCode === 0 ? "Local agent stopped." : localStartupText(state.localRun) || "Local agent exited with code " + state.localRun.exitCode + ".");
       }
       renderFoundryStatus(state);
       renderDeploy(state);
@@ -358,14 +693,14 @@ export const rendererClientScript = `
         return { kind: "warn", label: "Hosted missing", detail: "Discover or deploy a hosted Responses endpoint before chatting." };
       }
       if (state.localRun?.running && state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
-      if (state.localRun?.running) return { kind: "warn", label: "Starting", detail: "Local agent is running; waiting for readiness." };
+      if (state.localRun?.running) return { kind: "warn", label: state.localRun?.readiness?.phase === "dependency_sync" ? "Installing" : "Starting", detail: localStartupText(state.localRun) || "Local agent is running; waiting for readiness." };
       if (state.lastHealth?.ok) return { kind: "ok", label: "Local ready", detail: state.lastHealth.body || "Local readiness passed." };
       if (state.lastHealth && !state.lastHealth.ok) return { kind: "fail", label: "Needs attention", detail: state.lastHealth.body || "Readiness check failed." };
       if (state.localRun?.exitCode !== null && state.localRun?.exitCode !== undefined) {
         return {
           kind: state.localRun.exitCode === 0 ? "" : "fail",
           label: state.localRun.exitCode === 0 ? "Stopped" : "Start failed",
-          detail: state.localRun.exitCode === 0 ? "Local agent stopped." : "Local agent exited with code " + state.localRun.exitCode + ".",
+          detail: state.localRun.exitCode === 0 ? "Local agent stopped." : localFailureDetail(state.localRun) || "Local agent exited with code " + state.localRun.exitCode + ".",
         };
       }
       return { kind: "", label: "Not checked", detail: "Start local or run a readiness check." };
@@ -445,7 +780,7 @@ export const rendererClientScript = `
       const event = events.at(-1);
       const kind = event.kind || "";
       localTicker.className = "local-ticker " + kind;
-      localTicker.setAttribute("data-detail", events.map((entry) => entry.text).filter(Boolean).join(" · "));
+      localTicker.setAttribute("data-detail", [events.map((entry) => entry.text).filter(Boolean).join(" · "), localFailureDetail(state.localRun)].filter(Boolean).join(" · "));
       localTicker.setAttribute("tabindex", "0");
       localTicker.innerHTML = '<span class="ticker-mark" aria-hidden="true"></span>' +
         '<span class="ticker-text">' + escapeHtml(event.text) + '</span>';
@@ -609,7 +944,7 @@ export const rendererClientScript = `
           : state.target === "hosted"
           ? "Current version: " + (state.hosted?.version || "ready") + ". Send a prompt here, or switch to deploy."
           : localRunning
-          ? "Local agent is running."
+          ? (localStartupText(state.localRun) || "Local agent is running.")
           : "Start the local agent. If Foundry values are missing, this opens the project endpoint dialog.";
         primaryGuideAction.textContent = state.target === "hosted" && !connected ? "Refresh .env" : state.target === "hosted" ? "Deploy" : "Start local";
         setActiveStep(state.target === "hosted" ? "foundry" : "local");
@@ -852,8 +1187,6 @@ export const rendererClientScript = `
           ? 'Send an invocation payload to test <code>POST /invocations</code>.'
           : 'Send a prompt to test <code>POST /responses</code>.';
         transcript.innerHTML = '<div class="empty">' + copy + '</div>';
-        copyLatestAnswerButton.hidden = true;
-        copyLatestAnswerButton.disabled = true;
         return;
       }
       transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
@@ -862,10 +1195,6 @@ export const rendererClientScript = `
       });
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => renderProtocolTurn(turn, index)).join("");
-      const latestAnswer = latestVisibleAnswerText(messages);
-      copyLatestAnswerButton.hidden = !latestAnswer;
-      copyLatestAnswerButton.disabled = !latestAnswer;
-      copyLatestAnswerButton.textContent = "Copy latest answer";
       const restoreDetailsScroll = () => transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
         const panel = pre.closest(".details-panel[data-details-key]");
         const top = panel?.dataset?.detailsKey ? responseDetailsScroll.get(panel.dataset.detailsKey) : undefined;
@@ -982,7 +1311,7 @@ export const rendererClientScript = `
         event.preventDefault();
         event.stopPropagation();
         const bubble = copy.closest(".bubble.agent");
-        const text = bubble?.querySelector(".bubble-body")?.innerText?.trim() || answerTextForDetailsKey(copy.dataset.detailsKey);
+        const text = answerTextForDetailsKey(copy.dataset.detailsKey) || bubble?.querySelector(".bubble-body")?.innerText?.trim();
         if (!text) return;
         navigator.clipboard.writeText(text).then(() => {
           copy.textContent = "Copied";
@@ -1003,25 +1332,6 @@ export const rendererClientScript = `
       if (expandedResponseDetails.has(key)) expandedResponseDetails.delete(key);
       else expandedResponseDetails.add(key);
       renderMessages(latestState?.visibleMessages || []);
-    });
-
-    copyLatestAnswerButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const text = latestVisibleAnswerText(latestState?.visibleMessages || []);
-      if (!text) {
-        copyLatestAnswerButton.hidden = true;
-        copyLatestAnswerButton.disabled = true;
-        return;
-      }
-      navigator.clipboard.writeText(text).then(() => {
-        copyLatestAnswerButton.textContent = "Copied";
-        window.setTimeout(() => {
-          copyLatestAnswerButton.textContent = "Copy latest answer";
-        }, 1200);
-      }).catch((error) => {
-        setStatus("fail", error.message || "Copy failed.");
-      });
     });
 
     function answerTextForDetailsKey(detailsKey) {
@@ -1131,165 +1441,6 @@ export const rendererClientScript = `
       }
     }
 
-    function renderMarkdown(value) {
-      const jsonDocument = renderJsonDocument(value);
-      if (jsonDocument) return '<div class="md">' + jsonDocument + "</div>";
-      const blocks = [];
-      let inFence = false;
-      let fence = [];
-      let fenceLanguage = "";
-      let list = null;
-      let paragraph = [];
-
-      function flushParagraph() {
-        if (!paragraph.length) return;
-        blocks.push("<p>" + renderInline(paragraph.join(" ")) + "</p>");
-        paragraph = [];
-      }
-
-      function flushList() {
-        if (!list) return;
-        blocks.push("<" + list.type + ">" + list.items.map((item) => "<li>" + renderInline(item) + "</li>").join("") + "</" + list.type + ">");
-        list = null;
-      }
-
-      const lines = String(value || "").split(/\\r?\\n/);
-      for (let index = 0; index < lines.length; index += 1) {
-        const rawLine = lines[index];
-        const line = rawLine.replace(/\\s+$/, "");
-        if (line.trim().startsWith(String.fromCharCode(96, 96, 96))) {
-          if (inFence) {
-            blocks.push(renderCodeBlock(fence.join("\\n"), fenceLanguage));
-            fence = [];
-            fenceLanguage = "";
-            inFence = false;
-          } else {
-            flushParagraph();
-            flushList();
-            fenceLanguage = line.trim().slice(3).trim().toLowerCase();
-            inFence = true;
-          }
-          continue;
-        }
-        if (inFence) {
-          fence.push(rawLine);
-          continue;
-        }
-        if (!line.trim()) {
-          flushParagraph();
-          flushList();
-          continue;
-        }
-        const heading = line.match(/^\\s*(#{1,3})\\s+(.+)$/);
-        if (heading) {
-          flushParagraph();
-          flushList();
-          blocks.push("<h" + heading[1].length + ">" + renderInline(heading[2]) + "</h" + heading[1].length + ">");
-          continue;
-        }
-        const table = renderTable(lines, index);
-        if (table) {
-          flushParagraph();
-          flushList();
-          blocks.push(table.html);
-          index = table.nextIndex - 1;
-          continue;
-        }
-        const unordered = line.match(/^\\s*[-*]\\s+(.+)$/);
-        const ordered = line.match(/^\\s*\\d+[.)]\\s+(.+)$/);
-        if (unordered || ordered) {
-          flushParagraph();
-          const type = unordered ? "ul" : "ol";
-          if (!list || list.type !== type) flushList();
-          list ||= { type, items: [] };
-          list.items.push((unordered || ordered)[1]);
-          continue;
-        }
-        flushList();
-        paragraph.push(line.trim());
-      }
-      if (inFence) blocks.push(renderCodeBlock(fence.join("\\n"), fenceLanguage));
-      flushParagraph();
-      flushList();
-      return '<div class="md">' + (blocks.join("") || "<p></p>") + "</div>";
-    }
-
-    function renderCodeBlock(value, language) {
-      const json = renderJsonDocument(value, language);
-      if (json) return json;
-      return "<pre><code>" + escapeHtml(value) + "</code></pre>";
-    }
-
-    function renderJsonDocument(value, language = "") {
-      const text = String(value || "").trim();
-      if (!text || (!["json", "jsonc"].includes(language) && !/^[\\[{]/.test(text))) return null;
-      try {
-        const parsed = JSON.parse(text);
-        return '<pre class="json-pre"><code>' + highlightJson(JSON.stringify(parsed, null, 2)) + "</code></pre>";
-      } catch {
-        return null;
-      }
-    }
-
-    function highlightJson(value) {
-      const tokenPattern = /("(?:\\\\.|[^"\\\\])*")(\\s*:)?|\\b(true|false|null)\\b|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?/g;
-      let output = "";
-      let lastIndex = 0;
-      String(value || "").replace(tokenPattern, (match, stringToken, keySuffix, literal, offset) => {
-        output += escapeHtml(value.slice(lastIndex, offset));
-        if (stringToken) {
-          const className = keySuffix ? "json-key" : "json-string";
-          output += '<span class="' + className + '">' + escapeHtml(stringToken) + "</span>" + escapeHtml(keySuffix || "");
-        } else if (literal) {
-          output += '<span class="json-literal">' + escapeHtml(match) + "</span>";
-        } else {
-          output += '<span class="json-number">' + escapeHtml(match) + "</span>";
-        }
-        lastIndex = offset + match.length;
-        return match;
-      });
-      return output + escapeHtml(value.slice(lastIndex));
-    }
-
-    function renderTable(lines, start) {
-      if (!String(lines[start] || "").includes("|") || !isTableSeparator(lines[start + 1] || "")) return null;
-      const header = splitTableRow(lines[start]);
-      const separator = splitTableRow(lines[start + 1]);
-      if (!header.length || separator.length < header.length) return null;
-      const alignments = separator.map((cell) =>
-        cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : cell.startsWith(":") ? "left" : ""
-      );
-      const rows = [];
-      let index = start + 2;
-      while (index < lines.length && String(lines[index] || "").trim() && String(lines[index] || "").includes("|")) {
-        if (String(lines[index]).trim().startsWith(String.fromCharCode(96, 96, 96))) break;
-        rows.push(splitTableRow(lines[index]));
-        index += 1;
-      }
-      const cellAttr = (column) => alignments[column] ? ' style="text-align:' + alignments[column] + '"' : "";
-      const head = "<thead><tr>" + header.map((cell, column) => "<th" + cellAttr(column) + ">" + renderInline(cell) + "</th>").join("") + "</tr></thead>";
-      const body = "<tbody>" + rows.map((row) => "<tr>" + header.map((_, column) => "<td" + cellAttr(column) + ">" + renderInline(row[column] || "") + "</td>").join("") + "</tr>").join("") + "</tbody>";
-      return { html: '<div class="table-scroll"><table>' + head + body + "</table></div>", nextIndex: index };
-    }
-
-    function splitTableRow(line) {
-      return String(line || "").trim().replace(/^\\|/, "").replace(/\\|$/, "").split("|").map((cell) => cell.trim());
-    }
-
-    function isTableSeparator(line) {
-      return /^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$/.test(String(line || ""));
-    }
-
-    function renderInline(value) {
-      const tick = String.fromCharCode(96);
-      const inlineCode = new RegExp(tick + "([^" + tick + "]+)" + tick, "g");
-      return escapeHtml(value)
-        .replace(inlineCode, "<code>$1</code>")
-        .replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-        .replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>")
-        .replace(/\\*([^*]+)\\*/g, "<em>$1</em>");
-    }
-
     function formatTime(value) {
       try {
         return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -1306,15 +1457,6 @@ export const rendererClientScript = `
       } catch {
         return value || "";
       }
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
     }
 
     async function request(path, options = {}) {

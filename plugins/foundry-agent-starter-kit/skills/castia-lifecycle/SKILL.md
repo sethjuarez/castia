@@ -160,7 +160,10 @@ instruction_file: instructions.md
 Replace `model` with the actual deployment name before local or hosted testing.
 Run app entrypoints with `uv run --directory <agent-root> python main.py`, not
 `uv run --project <agent-root> python main.py`; `--project` resolves the uv
-project but does not change the app cwd.
+project but does not change the app cwd. The Foundry Agent Playground canvas
+uses this same command for managed Castia/uv roots (`main.py` plus
+`pyproject.toml`/`uv.lock`) and falls back to bare Python only for unmanaged
+apps.
 Do not commit `.env`, project endpoints, subscription IDs, tenant IDs, resource
 groups, tokens, `.venv`, `__pycache__`, `.azure`, generated app packages, or
 local Teams setup artifacts.

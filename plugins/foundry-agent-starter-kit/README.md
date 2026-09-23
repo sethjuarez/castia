@@ -84,7 +84,9 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
    Responses, Activity, and Invocations when endpoints are available. Activity
    Protocol testing posts Bot Framework Activities and captures local connector
    egress so replies, typing, reactions, updates, and deletes render in the
-   transcript instead of appearing as a bare `200` ack.
+   transcript instead of appearing as a bare `200` ack. Agent answers can include
+   fenced `mermaid` flowchart/graph blocks; the custom canvas renders them inline
+   as diagrams and keeps the original Markdown available for copy/export.
 6. When Copilot drives or validates the Playground, it must focus the same open
    canvas instance and call its canvas actions (`set_target` when needed,
    `health_check`, `set_protocol`, `send_response`, `send_activity`,

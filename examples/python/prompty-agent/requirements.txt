@@ -1,2 +1,2 @@
-castia[optimize,prompty] @ git+https://github.com/sethjuarez/castia.git@sethjuarez/prompty-runtime-harness#subdirectory=packages/python
+castia[optimize,prompty]==0.9.0
 python-dotenv>=1.0.1

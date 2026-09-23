@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CanvasError, createCanvas, joinSession } from "@github/copilot-sdk/extension";
 import {
@@ -67,6 +67,11 @@ import {
     clearProjectEndpointPrompt,
     createPlaygroundCommands,
 } from "./commands/playground-commands.mjs";
+import {
+    localStartCommand,
+    localStartupFailure,
+    stderrTail,
+} from "./domain/local-launcher.mjs";
 
 const EXTENSION_ROOT = dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = join(EXTENSION_ROOT, "assets", "castia-mark.png");
@@ -574,72 +579,6 @@ function runCommand(command, args, { cwd = process.cwd(), onOutput, signal, onCh
 
 configureAgentClient({ runCommand });
 
-async function localStartCommand(agent) {
-    if (await exists(join(agent.root, "main.py"))) {
-        const localVenv = process.platform === "win32"
-            ? join(agent.root, ".venv", "Scripts", "python.exe")
-            : join(agent.root, ".venv", "bin", "python");
-        const workspaceVenv = process.platform === "win32"
-            ? join(process.cwd(), ".venv", "Scripts", "python.exe")
-            : join(process.cwd(), ".venv", "bin", "python");
-        const pythonPath = await discoverPythonPath(agent.root);
-        if (!(await exists(localVenv)) && !(await exists(workspaceVenv)) && pythonPath) {
-            const packageRoot = dirname(pythonPath);
-            const extras = ["deploy", "optimize", "test", ...(await localSdkExtrasForAgent(agent))];
-            return {
-                command: "uv",
-                args: [
-                    "run",
-                    "--project",
-                    packageRoot,
-                    "--with-editable",
-                    packageRoot,
-                    ...extras.flatMap((extra) => ["--extra", extra]),
-                    "python",
-                    "main.py",
-                ],
-                env: {},
-            };
-        }
-        const command = await exists(localVenv) ? localVenv : await exists(workspaceVenv) ? workspaceVenv : "python";
-        return {
-            command,
-            args: ["main.py"],
-            env: pythonPath
-                ? { PYTHONPATH: [pythonPath, process.env.PYTHONPATH].filter(Boolean).join(delimiter) }
-                : {},
-        };
-    }
-    return null;
-}
-
-async function localSdkExtrasForAgent(agent) {
-    const extras = new Set();
-    const pyproject = join(agent.root, "pyproject.toml");
-    if (await exists(pyproject)) {
-        const text = await readFile(pyproject, "utf8");
-        const dependencyExtras = text.matchAll(/castia\[([^\]]+)\]/g);
-        for (const match of dependencyExtras) {
-            for (const extra of match[1].split(",")) {
-                const normalized = extra.trim();
-                if (normalized) extras.add(normalized);
-            }
-        }
-    }
-    return [...extras].filter((extra) => !["deploy", "optimize", "test"].includes(extra)).sort();
-}
-
-async function discoverPythonPath(start) {
-    let current = start;
-    while (true) {
-        const sourceRoot = join(current, "packages", "python", "src");
-        if (await exists(join(sourceRoot, "castia", "__init__.py"))) return sourceRoot;
-        const parent = dirname(current);
-        if (parent === current) return null;
-        current = parent;
-    }
-}
-
 async function startLocalAgent(state) {
     if (state.localRun?.running) return;
     clearTargetHealth(state, "local");
@@ -662,25 +601,43 @@ async function startLocalAgent(state) {
     const port = endpointPort(endpoint);
     clearMessagesForTarget(state, "local");
     const runId = `${agent.id}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
-    const readinessDeadlineAt = new Date(Date.now() + 15000).toISOString();
+    const startupTimeoutMs = Number.isFinite(local.startupTimeoutMs) ? local.startupTimeoutMs : 15000;
+    const readinessDeadlineAt = new Date(Date.now() + startupTimeoutMs).toISOString();
+    const commandText = `${local.command} ${local.args.join(" ")}`;
     state.localRun = {
         running: true,
-        command: `${local.command} ${local.args.join(" ")}`,
+        command: commandText,
+        cwd: local.cwd || agent.root,
         startedAt: new Date().toISOString(),
         completedAt: null,
         exitCode: null,
-        log: [`$ ${local.command} ${local.args.join(" ")}\n`],
+        log: [`$ ${commandText}\n`],
+        stderr: [],
         events: state.localRun?.events || [],
         process: null,
         agentId: agent.id,
         agentName: agent.serviceName,
         endpoint,
         runId,
-        readiness: { status: "starting", deadlineAt: readinessDeadlineAt },
+        readiness: {
+            status: "starting",
+            phase: local.startupPhase || "starting",
+            deadlineAt: readinessDeadlineAt,
+            timeoutMs: startupTimeoutMs,
+        },
+        launcher: {
+            managed: Boolean(local.managed),
+            manager: local.manager || null,
+            managedCommand: commandText,
+        },
+        failure: null,
         requestedEndpoint,
         portWarning,
         identityMismatch: null,
     };
+    if (local.managed) {
+        addLocalEvent(state, "", "Syncing Python dependencies with uv; first run can take a minute.");
+    }
     addLocalEvent(state, "", `Starting local agent on ${endpoint}.`);
     const envValues = localEnvFoundryProjectValues(await readAgentEnv(agent));
     const childEnv = {
@@ -705,16 +662,22 @@ async function startLocalAgent(state) {
         }
     }
     const child = spawn(local.command, local.args, {
-        cwd: agent.root,
+        cwd: local.cwd || agent.root,
         shell: false,
         env: childEnv,
     });
     state.localRun.process = child;
-    const append = (chunk) => {
+    const appendStdout = (chunk) => {
         if (state.localRun?.runId === runId) state.localRun.log.push(chunk.toString());
     };
-    child.stdout.on("data", append);
-    child.stderr.on("data", append);
+    const appendStderr = (chunk) => {
+        if (state.localRun?.runId !== runId) return;
+        const text = chunk.toString();
+        state.localRun.log.push(text);
+        state.localRun.stderr = [...(state.localRun.stderr || []), text].slice(-20);
+    };
+    child.stdout.on("data", appendStdout);
+    child.stderr.on("data", appendStderr);
     child.on("error", (error) => {
         if (state.localRun?.runId !== runId) return;
         state.localRun.running = false;
@@ -723,9 +686,13 @@ async function startLocalAgent(state) {
         state.localRun.readiness = state.localRun.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "failed", completedAt: new Date().toISOString() }
             : state.localRun.readiness;
-        clearTargetHealth(state, "local");
         state.localRun.log.push(`${error.name}: ${error.message}\n`);
-        addLocalEvent(state, "fail", error.message);
+        state.localRun.failure = localStartupFailure({
+            localRun: state.localRun,
+            stderr: stderrTail(state.localRun.stderr),
+            error,
+        });
+        addLocalEvent(state, "fail", state.localRun.failure.suggestion || state.localRun.failure.rootCause);
     });
     child.on("close", (code) => {
         if (state.localRun?.runId !== runId) return;
@@ -735,8 +702,19 @@ async function startLocalAgent(state) {
         state.localRun.readiness = state.localRun.readiness?.status === "starting"
             ? { ...state.localRun.readiness, status: "stopped", completedAt: new Date().toISOString() }
             : state.localRun.readiness;
-        clearTargetHealth(state, "local");
-        addLocalEvent(state, code === 0 ? "" : "fail", code === 0 ? "Local agent stopped." : `Local agent exited with code ${code ?? 0}.`);
+        if ((code ?? 0) !== 0) {
+            state.localRun.failure = localStartupFailure({
+                localRun: state.localRun,
+                stderr: stderrTail(state.localRun.stderr),
+            });
+        }
+        addLocalEvent(
+            state,
+            code === 0 ? "" : "fail",
+            code === 0
+                ? "Local agent stopped."
+                : state.localRun.failure?.suggestion || state.localRun.failure?.rootCause || `Local agent exited with code ${code ?? 0}.`,
+        );
         delete state.localRun.process;
     });
     waitForLocalReadiness(state, { agent, endpoint, runId }).then((health) => {
@@ -831,8 +809,12 @@ function sleep(ms) {
 }
 
 async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
-    const deadline = Date.now() + 15000;
+    const timeoutMs = Number.isFinite(state.localRun?.readiness?.timeoutMs)
+        ? state.localRun.readiness.timeoutMs
+        : 15000;
+    const deadline = Date.now() + timeoutMs;
     let latest = null;
+    let pollingEventAdded = false;
     while (Date.now() < deadline) {
         if (!state.localRun?.running || state.localRun?.runId !== runId) {
             return {
@@ -841,6 +823,13 @@ async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
                 durationMs: 0,
                 body: "Local agent exited before it became ready.",
             };
+        }
+        if (state.localRun.readiness?.phase !== "polling_readiness") {
+            state.localRun.readiness = { ...state.localRun.readiness, phase: "polling_readiness" };
+        }
+        if (!pollingEventAdded) {
+            addLocalEvent(state, "", "Polling /readiness until the local agent is usable.");
+            pollingEventAdded = true;
         }
         latest = await checkReadiness(endpoint, {
             timeoutMs: 1000,
@@ -853,7 +842,7 @@ async function waitForLocalReadiness(state, { agent, endpoint, runId }) {
     return latest || {
         ok: false,
         status: 0,
-        durationMs: 15000,
+        durationMs: timeoutMs,
         body: "Timed out waiting for local readiness.",
     };
 }
