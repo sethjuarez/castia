@@ -188,14 +188,14 @@ export const rendererStyles = `
     }
     .hero {
       display: grid;
-      gap: 6px;
-      padding: 6px 8px;
+      gap: clamp(8px, 1.1vw, 14px);
+      padding: clamp(10px, 1.2vw, 16px);
       background: var(--cp-bg-elevated);
     }
     .journey {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(96px, 0.42fr);
-      gap: 8px;
+      gap: clamp(8px, 1vw, 14px);
     }
     .step {
       display: grid;
@@ -203,8 +203,8 @@ export const rendererStyles = `
       gap: 8px;
       align-items: center;
       min-width: 0;
-      min-height: 34px;
-      padding: 5px 6px;
+      min-height: 46px;
+      padding: 10px 12px;
       border: 1px solid transparent;
       border-radius: 14px;
       background: var(--cp-surface-soft);
@@ -234,8 +234,8 @@ export const rendererStyles = `
     .step-index {
       display: inline-grid;
       place-items: center;
-      width: 20px;
-      height: 20px;
+      width: 28px;
+      height: 28px;
       font-size: 11px;
       border-radius: 999px;
       background: var(--cp-panel-strong);
@@ -315,10 +315,10 @@ export const rendererStyles = `
     .action-card {
       display: grid;
       grid-template-columns: minmax(16rem, 1fr) minmax(22rem, auto);
-      gap: 8px;
+      gap: clamp(10px, 1.2vw, 16px);
       align-items: center;
-      padding: 7px 8px;
-      border-radius: 12px;
+      padding: 12px 16px;
+      border-radius: 16px;
       background: var(--cp-panel-strong);
       box-shadow: var(--cp-shadow);
     }
@@ -682,9 +682,9 @@ export const rendererStyles = `
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: minmax(0, 1fr);
-      gap: 8px;
+      gap: clamp(8px, 1vw, 12px);
       min-height: 0;
-      padding: 4px 8px;
+      padding: 10px 16px;
       overflow: hidden;
     }
     .content.deploy-mode {
@@ -705,7 +705,7 @@ export const rendererStyles = `
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 4px 2px 6px;
+      padding: 6px 4px 10px;
       background: var(--cp-panel-strong);
     }
     .panel-title {
@@ -730,16 +730,16 @@ export const rendererStyles = `
     .protocol-toggle {
       display: inline-flex;
       flex-wrap: wrap;
-      gap: 4px;
-      justify-content: center;
+      gap: 8px;
+      justify-content: flex-start;
       min-width: 0;
     }
     .protocol-tab {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      min-height: 28px;
-      padding: 4px 8px;
+      min-height: 32px;
+      padding: 6px 10px;
       border-radius: 999px;
       border-color: var(--cp-border);
       background: var(--cp-surface-soft);
@@ -832,7 +832,7 @@ export const rendererStyles = `
     }
     .activity-log {
       display: block;
-      margin: 0 0 5px;
+      margin: 0 0 8px;
       padding: 0;
       border: 0;
       background: transparent;
@@ -952,7 +952,7 @@ export const rendererStyles = `
       grid-row: 4;
       height: 100%;
       overflow: auto;
-      padding: 4px 0 42px;
+      padding: 8px 0 48px;
     }
     .transcript.empty-state {
       display: flex;
@@ -1007,8 +1007,8 @@ export const rendererStyles = `
     activity-turn,
     invocation-turn {
       display: grid;
-      gap: 5px;
-      margin-bottom: 7px;
+      gap: 8px;
+      margin-bottom: 12px;
     }
     responses-turn,
     activity-turn,
@@ -1023,14 +1023,14 @@ export const rendererStyles = `
     }
     .bubble.user {
       justify-self: end;
-      width: min(calc(100% - 48px), 1120px);
-      max-width: calc(100% - 48px);
+      width: min(calc(100% - 64px), 1120px);
+      max-width: calc(100% - 64px);
       background: var(--cp-surface-soft);
     }
     .bubble.agent {
       justify-self: start;
-      width: min(calc(100% - 48px), 1120px);
-      max-width: calc(100% - 48px);
+      width: min(calc(100% - 64px), 1120px);
+      max-width: calc(100% - 64px);
       background: var(--cp-accent-soft);
     }
     .activity-turn,
@@ -1160,7 +1160,7 @@ export const rendererStyles = `
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 6px 9px 0;
+      padding: 10px 16px 0;
       color: var(--cp-text-muted);
       font-size: 11px;
       font-weight: 600;
@@ -1177,12 +1177,12 @@ export const rendererStyles = `
       font-weight: 700;
     }
     .bubble-body {
-      padding: 7px 9px;
+      padding: 10px 16px 14px;
       white-space: normal;
     }
     .bubble-body .md {
       display: grid;
-      gap: 6px;
+      gap: 10px;
     }
     .bubble-body p,
     .bubble-body h1,
@@ -1673,8 +1673,8 @@ export const rendererStyles = `
     }
     .composer {
       display: grid;
-      gap: 6px;
-      padding: 7px 8px 8px;
+      gap: 10px;
+      padding: 12px 16px 14px;
       background: var(--cp-bg-elevated);
     }
     .composer-actions {
@@ -1726,21 +1726,21 @@ export const rendererStyles = `
           min-height: 48px;
       }
       .hero {
-          gap: 4px;
-          padding: 5px 6px;
+          gap: 8px;
+          padding: 10px 12px;
       }
       .journey {
         gap: 6px;
       }
       .step {
-        min-height: 38px;
-        gap: 6px;
-        padding: 6px;
+        min-height: 44px;
+        gap: 8px;
+        padding: 8px 10px;
         border-radius: 12px;
       }
       .step-index {
-        width: 20px;
-        height: 20px;
+        width: 24px;
+        height: 24px;
         font-size: 11px;
       }
       .step-title {
@@ -1754,9 +1754,9 @@ export const rendererStyles = `
         grid-template-columns: 1fr;
       }
       .action-card {
-        grid-template-columns: minmax(12rem, 1fr) minmax(16rem, 0.9fr);
-        gap: 6px;
-        padding: 6px;
+        grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.8fr);
+        gap: 8px;
+        padding: 10px 12px;
         border-radius: 12px;
       }
       .action-heading {
@@ -1780,13 +1780,13 @@ export const rendererStyles = `
         min-width: 11rem;
       }
       .content {
-        gap: 6px;
-        padding: 6px 8px;
+        gap: 8px;
+        padding: 10px 14px;
       }
       .panel-header {
         display: grid;
-        gap: 6px;
-        padding: 4px 0 5px;
+        gap: 8px;
+        padding: 4px 0 8px;
       }
       .panel-meta {
         gap: 5px;
@@ -1831,11 +1831,11 @@ export const rendererStyles = `
         display: none;
       }
       .transcript {
-        padding: 2px 0 36px;
+        padding: 6px 0 40px;
       }
       .turn {
-        gap: 4px;
-        margin-bottom: 6px;
+        gap: 8px;
+        margin-bottom: 10px;
       }
       .bubble.user,
       .bubble.agent {
@@ -1846,17 +1846,17 @@ export const rendererStyles = `
         border-radius: 12px;
       }
       .bubble-head {
-        padding: 5px 8px 0;
+        padding: 8px 14px 0;
       }
       .bubble-body {
-        padding: 6px 8px;
+        padding: 9px 14px 12px;
       }
       .details-row {
-        padding: 0 8px 5px;
+        padding: 0 14px 8px;
       }
       .composer {
-        gap: 5px;
-        padding: 6px;
+        gap: 8px;
+        padding: 10px 12px 12px;
       }
       .composer-actions {
         flex-wrap: wrap;
@@ -1872,15 +1872,15 @@ export const rendererStyles = `
         min-height: 40px;
       }
       .hero {
-        gap: 4px;
-        padding-block: 5px;
+        gap: 6px;
+        padding-block: 8px;
       }
       .step {
-        min-height: 30px;
-        padding-block: 4px;
+        min-height: 38px;
+        padding-block: 7px;
       }
       .action-card {
-        padding-block: 6px;
+        padding-block: 9px;
       }
       .foundry-status-grid {
         display: none;
@@ -1895,10 +1895,10 @@ export const rendererStyles = `
         padding-block: 0;
       }
       .content {
-        padding-block: 4px;
+        padding-block: 8px;
       }
       .composer {
-        padding-block: 6px;
+        padding-block: 10px;
       }
     }
     @media (max-width: 520px) {
