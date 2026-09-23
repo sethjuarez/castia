@@ -901,6 +901,37 @@ export const rendererClientScript = `
       return reactions;
     }
 
+    function activityMessageItems(turn) {
+      const items = [];
+      const byId = new Map();
+      for (const event of turn.events || []) {
+        if (!event?.kind?.startsWith?.("outbound.")) continue;
+        if (event.kind === "outbound.typing") {
+          items.push({ type: "typing", event });
+          continue;
+        }
+        if (event.kind === "outbound.reaction.add" || event.kind === "outbound.reaction.remove") continue;
+        const activityId = event.activityId || "event-" + items.length;
+        let item = byId.get(activityId);
+        if (!item) {
+          item = { type: "message", activityId, text: "", edited: false, deleted: false, event };
+          byId.set(activityId, item);
+          items.push(item);
+        }
+        item.event = event;
+        if (event.kind === "outbound.message.update") {
+          item.text = event.text || item.text;
+          item.edited = true;
+          item.deleted = false;
+        } else if (event.kind === "outbound.message.delete") {
+          item.deleted = true;
+        } else {
+          item.text = event.text || "";
+        }
+      }
+      return items;
+    }
+
     function renderReactionRow(reactions) {
       if (!reactions.length) return "";
       return '<div class="reaction-row">' + reactions.map((reaction) =>
@@ -915,28 +946,25 @@ export const rendererClientScript = `
       const target = turn.target === "hosted" ? "Foundry Activity" : "Local Activity";
       const inbound = (turn.events || []).find((event) => event.kind === "inbound.message");
       const inboundReactions = activityReactions(turn, inbound?.activityId);
-      const outbound = (turn.events || []).filter((event) => event.kind && event.kind.startsWith("outbound."));
-      const bubbles = outbound.map((event) => {
-        if (event.kind === "outbound.typing") {
-          return '<section class="bubble agent activity-event"><div class="typing-pill">Agent is typing...</div></section>';
+      const bubbles = activityMessageItems(turn).map((item) => {
+        if (item.type === "typing") {
+          return '<section class="teams-typing" aria-live="polite"><span class="avatar agent-avatar" aria-hidden="true">A</span><div class="typing-pill"><span>Agent is typing</span><span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></section>';
         }
-        if (event.kind === "outbound.reaction.add" || event.kind === "outbound.reaction.remove") {
-          return "";
-        }
-        if (event.kind === "outbound.message.delete") {
-          return '<section class="bubble agent deleted"><div class="bubble-head"><span class="speaker agent">Agent</span><span>deleted</span></div><div class="bubble-body"><em>Message deleted</em></div></section>';
-        }
-        const reactions = activityReactions(turn, event.activityId);
-        const updated = event.kind === "outbound.message.update";
-        return '<section class="bubble agent">' +
-          '<div class="bubble-head"><span class="speaker agent">Agent</span><span class="badge ok">' + escapeHtml(updated ? "updated" : "message") + '</span></div>' +
-          '<div class="bubble-body">' + (event.text ? renderMarkdown(event.text) : '<div class="no-answer">Connector event returned no text.</div>') + '</div>' +
+        const reactions = activityReactions(turn, item.activityId);
+        const meta = item.deleted ? "Deleted" : item.edited ? "Edited" : "Activity";
+        return '<section class="bubble agent teams-message ' + (item.deleted ? "deleted" : "") + '">' +
+          '<div class="bubble-head"><span class="speaker agent">Agent</span><span>' + escapeHtml(meta) + ' · ' + escapeHtml(formatTime(item.event?.at || turn.createdAt)) + '</span></div>' +
+          '<div class="bubble-body">' + (item.deleted ? '<em>This message was deleted.</em>' : item.text ? renderMarkdown(item.text) : '<div class="no-answer">Connector event returned no text.</div>') + '</div>' +
           renderReactionRow(reactions) +
           '</section>';
       }).join("");
       return '<activity-turn>' +
-        renderUserBubble(turn, { target, input: inbound?.text || turn.input || "", reactions: inboundReactions }) +
+        '<div class="teams-thread">' +
+        '<div class="teams-row outgoing"><div class="teams-stack">' + renderUserBubble(turn, { target, input: inbound?.text || turn.input || "", reactions: inboundReactions }) + '</div><span class="avatar user-avatar" aria-hidden="true">You</span></div>' +
+        '<div class="teams-row incoming"><span class="avatar agent-avatar" aria-hidden="true">A</span><div class="teams-stack">' +
         (bubbles || '<section class="bubble agent"><div class="first-token" role="status" aria-live="polite"><span>Waiting for connector events...</span><span class="token-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></section>') +
+        '</div></div>' +
+        '</div>' +
         renderTurnDetails(turn, detailsKey, detailsId, detailsOpen, "Activity details") +
         '</activity-turn>';
     }

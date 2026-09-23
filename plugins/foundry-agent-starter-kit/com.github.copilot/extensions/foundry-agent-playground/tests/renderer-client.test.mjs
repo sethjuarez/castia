@@ -49,6 +49,7 @@ test("renderer uses protocol composite web components", () => {
     assert.match(rendererClientScript, /function renderResponsesTurn/);
     assert.match(rendererClientScript, /function renderActivityTurn/);
     assert.match(rendererClientScript, /function renderInvocationTurn/);
+    assert.match(rendererClientScript, /function activityMessageItems/);
     assert.match(rendererClientScript, /setAttribute\("role", "article"\)/);
     assert.match(rendererClientScript, /Invoking\.\.\./);
     assert.match(rendererClientScript, /<responses-turn>/);
@@ -56,6 +57,21 @@ test("renderer uses protocol composite web components", () => {
     assert.match(rendererClientScript, /<invocation-turn>/);
     assert.match(rendererStyles, /responses-turn,\s*\n\s*activity-turn,\s*\n\s*invocation-turn\s*{/);
     assert.match(rendererStyles, /contain:\s*layout style;/);
+});
+
+test("activity composite uses Teams-like grouped chat affordances", () => {
+    assert.match(rendererClientScript, /<div class="teams-thread">/);
+    assert.match(rendererClientScript, /<div class="teams-row outgoing">/);
+    assert.match(rendererClientScript, /<div class="teams-row incoming">/);
+    assert.match(rendererClientScript, /teams-message/);
+    assert.match(rendererClientScript, /This message was deleted\./);
+    assert.match(rendererClientScript, /item\.edited \? "Edited"/);
+    assert.match(rendererStyles, /\.teams-thread\s*{[^}]*display:\s*grid;/);
+    assert.match(rendererStyles, /\.teams-row\s*{[^}]*grid-template-columns:\s*28px minmax\(0, 1fr\);/);
+    assert.match(rendererStyles, /\.teams-row\.outgoing\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 32px;/);
+    assert.match(rendererStyles, /\.avatar\s*{[^}]*border-radius:\s*999px;/);
+    assert.match(rendererStyles, /\.teams-message\s*{[^}]*border-bottom-left-radius:\s*4px;/);
+    assert.match(rendererStyles, /\.typing-dots span\s*{[^}]*animation:\s*tokenPulse/);
 });
 
 test("protocol composite elements are registered before initial render", () => {

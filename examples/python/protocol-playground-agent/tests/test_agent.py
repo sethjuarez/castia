@@ -57,7 +57,6 @@ def test_protocols(monkeypatch):
                 "PUT",
                 "POST",
                 "DELETE",
-                "DELETE",
                 "POST",
             ]
             assert test.egress[0].url.endswith("/activities/turn-1/reactions/eyes")

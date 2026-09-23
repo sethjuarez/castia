@@ -73,7 +73,6 @@ async def activity_reply(msg: Message, scenario: ProtocolScenario = ScenarioDepe
     disposable = await msg.say("This temporary status will be deleted.")
     if disposable:
         await msg.delete(disposable)
-    await msg.unreact("eyes")
     return "Final Activity Protocol reply."
 
 
