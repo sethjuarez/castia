@@ -48,7 +48,11 @@ The UI includes these parts.
   HTML labels, interactive callbacks/links, and scriptable URLs are disabled.
   Unsupported, oversized, unsafe, or failed diagrams fall back to escaped source
   text with a clear error, and simple flowcharts can still use the existing safe
-  flowchart renderer;
+  flowchart renderer. Rendered diagrams include an **Expand diagram** control
+  that opens a panel-local lightbox inside the canvas iframe. The overlay fits
+  the SVG to the playground panel, supports scrolling, and closes with Escape,
+  the close button, or the backdrop. It does not try to escape the iframe into
+  the parent Copilot app;
 - chat keyboard input. Enter sends, Shift+Enter adds a newline;
 - a refresh affordance for values the agent has already bootstrapped into `.env`.
 

@@ -47,6 +47,8 @@ test("mermaid diagrams inherit theme-safe colors in light and dark modes", () =>
     assert.match(rendererStyles, /\.mermaid-node text,[\s\S]*fill:\s*var\(--cp-text\);/);
     assert.match(rendererStyles, /\.mermaid-edge\s*{[\s\S]*stroke:\s*var\(--cp-text-muted\);/);
     assert.match(rendererStyles, /\.mermaid-diagram marker path\s*{[\s\S]*fill:\s*var\(--cp-text-muted\);/);
+    assert.match(rendererStyles, /\.mermaid-lightbox\s*{[\s\S]*width:\s*min\(90vw, 1120px\);/);
+    assert.match(rendererStyles, /\.mermaid-lightbox\s*{[\s\S]*max-height:\s*80vh;/);
 });
 
 test("empty transcript state fills the available transcript space", () => {
@@ -417,6 +419,8 @@ test("valid Mermaid fenced blocks render as inline diagrams", () => {
 
     assert.match(html, /<p>Before<\/p>/);
     assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /class="mermaid-expand-button"/);
+    assert.match(html, /aria-label="Expand diagram"/);
     assert.match(html, /<svg role="img"/);
     assert.match(html, /Invoice evidence/);
     assert.match(html, /review/);
@@ -440,6 +444,7 @@ test("vendored Mermaid path emits a safe browser placeholder when runtime is ava
         assert.equal(rendered.ok, true);
         assert.match(rendered.html, /class="mermaid-diagram mermaid-vendor-diagram"/);
         assert.match(rendered.html, /data-mermaid-state="pending"/);
+        assert.match(rendered.html, /class="mermaid-expand-button" aria-label="Expand diagram" disabled/);
         assert.match(rendered.html, /sequenceDiagram/);
     } finally {
         if (previousRuntime === undefined) delete globalThis.__castiaMermaid;
@@ -481,6 +486,7 @@ test("unsafe Mermaid blocks fall back to escaped source instead of a diagram", (
     assert.match(html, /A\[&lt;b&gt;raw&lt;\/b&gt;\] --&gt; B/);
     assert.doesNotMatch(html, /<b>raw<\/b>/);
     assert.doesNotMatch(html, /class="mermaid-diagram"/);
+    assert.doesNotMatch(html, /mermaid-expand-button/);
 });
 
 test("unterminated Mermaid fences do not hydrate while streaming", () => {
@@ -614,6 +620,16 @@ test("renderer script removes Mermaid render artifacts after failed browser rend
     assert.match(rendererClientScript, /function removeMermaidRenderArtifacts/);
     assert.match(rendererClientScript, /getElementById\("d" \+ renderId\)\?\.remove\(\)/);
     assert.match(rendererClientScript, /removeMermaidRenderArtifacts\(renderId\)/);
+});
+
+test("renderer script wires panel-local Mermaid diagram expansion", () => {
+    assert.match(rendererClientScript, /function openMermaidDiagramLightbox/);
+    assert.match(rendererClientScript, /role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram"/);
+    assert.match(rendererClientScript, /aria-label="Close expanded diagram"/);
+    assert.match(rendererClientScript, /trigger\?\.isConnected\) trigger\.focus\(\)/);
+    assert.match(rendererClientScript, /event\.key === "Escape" && activeMermaidLightbox/);
+    assert.match(rendererClientScript, /contains\("mermaid-lightbox-backdrop"\)/);
+    assert.match(rendererClientScript, /closest\("\.mermaid-expand-button"\)/);
 });
 
 test("renderer client script remains syntactically valid after function assembly", () => {

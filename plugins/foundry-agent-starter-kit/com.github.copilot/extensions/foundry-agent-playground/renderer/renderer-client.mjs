@@ -10,6 +10,7 @@ import {
     parseMermaidFlowchart,
     parseMermaidEdges,
     parseMermaidNode,
+    renderMermaidExpandButton,
     renderMermaidFallbackSource,
     renderSafeMermaidFlowchartBlock,
     mermaidShapeLabel,
@@ -42,6 +43,7 @@ export {
     parseMermaidFlowchart,
     parseMermaidEdges,
     parseMermaidNode,
+    renderMermaidExpandButton,
     renderMermaidFallbackSource,
     renderSafeMermaidFlowchartBlock,
     renderVendoredMermaidBlock,
@@ -324,6 +326,7 @@ export const rendererClientScript = `
     ${renderCodeBlock.toString()}
     ${renderMermaidBlock.toString()}
     ${renderVendoredMermaidBlock.toString()}
+    ${renderMermaidExpandButton.toString()}
     ${mermaidSourceSupport.toString()}
     ${hasRawHtmlMermaidLabel.toString()}
     ${hydrateVendoredMermaidDiagrams.toString()}
@@ -997,6 +1000,38 @@ export const rendererClientScript = `
       requestAnimationFrame(restoreDetailsScroll);
     }
 
+    let activeMermaidLightbox = null;
+
+    function openMermaidDiagramLightbox(trigger) {
+      const diagram = trigger?.closest?.(".mermaid-diagram");
+      if (!diagram) return;
+      const svg = diagram.querySelector("svg");
+      if (!svg) return;
+      closeMermaidDiagramLightbox();
+      const overlay = document.createElement("div");
+      overlay.className = "mermaid-lightbox-backdrop";
+      overlay.setAttribute("role", "presentation");
+      overlay.innerHTML = '<div class="mermaid-lightbox" role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram">' +
+        '<div class="mermaid-lightbox-head"><strong>Mermaid diagram</strong><button type="button" class="mermaid-lightbox-close" aria-label="Close expanded diagram">Close</button></div>' +
+        '<div class="mermaid-lightbox-body"></div>' +
+        '</div>';
+      const clone = svg.cloneNode(true);
+      clone.removeAttribute("width");
+      clone.removeAttribute("height");
+      overlay.querySelector(".mermaid-lightbox-body").appendChild(clone);
+      document.body.appendChild(overlay);
+      activeMermaidLightbox = { overlay, trigger };
+      overlay.querySelector(".mermaid-lightbox-close")?.focus();
+    }
+
+    function closeMermaidDiagramLightbox() {
+      if (!activeMermaidLightbox) return;
+      const { overlay, trigger } = activeMermaidLightbox;
+      activeMermaidLightbox = null;
+      overlay.remove();
+      if (trigger?.isConnected) trigger.focus();
+    }
+
     function renderReaction(value) {
       const normalized = String(value || "like").toLowerCase();
       return {
@@ -1098,6 +1133,13 @@ export const rendererClientScript = `
     }, true);
 
     transcript.addEventListener("click", (event) => {
+      const expand = event.target.closest(".mermaid-expand-button");
+      if (expand) {
+        event.preventDefault();
+        event.stopPropagation();
+        openMermaidDiagramLightbox(expand);
+        return;
+      }
       const copy = event.target.closest(".copy-answer");
       if (copy) {
         event.preventDefault();
@@ -1124,6 +1166,18 @@ export const rendererClientScript = `
       if (expandedResponseDetails.has(key)) expandedResponseDetails.delete(key);
       else expandedResponseDetails.add(key);
       renderMessages(latestState?.visibleMessages || []);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (event.target?.classList?.contains("mermaid-lightbox-backdrop")) closeMermaidDiagramLightbox();
+      if (event.target?.closest?.(".mermaid-lightbox-close")) closeMermaidDiagramLightbox();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && activeMermaidLightbox) {
+        event.preventDefault();
+        closeMermaidDiagramLightbox();
+      }
     });
 
     function answerTextForDetailsKey(detailsKey) {

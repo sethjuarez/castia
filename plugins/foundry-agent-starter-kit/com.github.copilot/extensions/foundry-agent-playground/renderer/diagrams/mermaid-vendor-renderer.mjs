@@ -1,5 +1,5 @@
 import { escapeHtml } from "../shared/html.mjs";
-import { renderMermaidFallbackSource, renderSafeMermaidFlowchartBlock } from "./mermaid-safe-flowchart.mjs";
+import { renderMermaidExpandButton, renderMermaidFallbackSource, renderSafeMermaidFlowchartBlock } from "./mermaid-safe-flowchart.mjs";
 
 export const MERMAID_MAX_SOURCE_CHARS = 6000;
 export const MERMAID_MAX_LINES = 240;
@@ -15,6 +15,7 @@ export function renderVendoredMermaidBlock(value) {
     return {
         ok: true,
         html: '<figure class="mermaid-diagram mermaid-vendor-diagram" data-mermaid-state="pending">' +
+            renderMermaidExpandButton(true) +
             '<div class="mermaid-vendor-target" role="img" aria-label="Mermaid diagram">Rendering Mermaid diagram...</div>' +
             '<pre class="mermaid-source" hidden>' + escapeHtml(source) + '</pre>' +
             '</figure>',
@@ -120,6 +121,7 @@ export async function hydrateVendoredMermaidDiagrams(root = document) {
         if (cached) {
             target.innerHTML = cached;
             figure.dataset.mermaidState = "rendered";
+            figure.querySelector(".mermaid-expand-button")?.removeAttribute("disabled");
             continue;
         }
         figure.dataset.mermaidState = "rendering";
@@ -134,6 +136,7 @@ export async function hydrateVendoredMermaidDiagrams(root = document) {
             if (globalThis.__castiaMermaidHydrationPass !== pass || !figure.isConnected) continue;
             target.innerHTML = svg;
             figure.dataset.mermaidState = "rendered";
+            figure.querySelector(".mermaid-expand-button")?.removeAttribute("disabled");
         } catch (error) {
             inFlight.delete(hash);
             removeMermaidRenderArtifacts(renderId);
