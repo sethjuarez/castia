@@ -79,12 +79,16 @@ Implemented now:
 - First-in-wins operation tracking for deploy/provision lifecycle commands.
 - Phase-aware cancellation requests: stop before irreversible remote phases, wait-for-settle after remote registration begins.
 - Deterministic diagnostic bridge actions for activity, operations, diagnostics, Foundry state, and next actions.
-- Principled module folders for shared command handlers, canvas actions, protocol clients, domain helpers, renderer files, HTTP route handlers, state helpers, and tests while preserving the SDK entrypoint at the extension root.
+- Principled module folders for shared command handlers, canvas actions, protocol clients, domain helpers, HTTP route handlers, state helpers, and tests while preserving the SDK entrypoint at the extension root.
+- Renderer boundaries for Markdown, JSON, Mermaid-style diagrams, and shared HTML escaping. The browser client still receives a single generated script, but code-block rendering now routes through a small registry so future vendored Markdown or Mermaid work can stay localized.
+- Committed browser asset generation for the canvas client. `npm run build` writes `renderer/dist/playground-client.js`, the iframe loads that asset, and CI verifies the generated file is fresh so plugin install/update receives a self-contained payload.
 
 Still intentionally future/optional:
 
 - A full renderer migration to Svelte + TypeScript.
 - Further route/domain decomposition inside the extracted HTTP route handler.
+- Optional vendored Markdown or Mermaid renderers behind the existing renderer registry, with sanitization and fallback kept inside each renderer module.
+- A real bundler/minifier such as esbuild once vendored browser dependencies are introduced; keep generated assets committed under the plugin root because that directory is the marketplace install payload.
 - XState for lifecycle-heavy state machines.
 
 ## Possible future architecture

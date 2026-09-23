@@ -24,8 +24,17 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install Foundry Agent Starter Kit tooling
+        working-directory: plugins/foundry-agent-starter-kit
+        run: npm ci
+
+      - name: Build committed playground assets
+        working-directory: plugins/foundry-agent-starter-kit
+        run: npm run build
+
       - name: Run Foundry Agent Playground tests
-        run: node --test plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/tests/*.test.mjs
+        working-directory: plugins/foundry-agent-starter-kit
+        run: npm test
 
       - name: Check Foundry Agent Playground extension syntax
         run: |
@@ -35,3 +44,7 @@ jobs:
           for file in "${files[@]}"; do
             node --check "$file"
           done
+          node --check plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/renderer/dist/playground-client.js
+
+      - name: Verify committed playground assets are fresh
+        run: git diff --exit-code -- plugins/foundry-agent-starter-kit/com.github.copilot/extensions/foundry-agent-playground/renderer/dist/playground-client.js

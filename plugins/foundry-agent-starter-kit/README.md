@@ -60,6 +60,27 @@ plugins\foundry-agent-starter-kit\com.github.copilot\extensions\foundry-agent-pl
 Open it as **Foundry Agent Playground** after installing the extension through
 Copilot App's extension sharing/install flow.
 
+## Build
+
+The plugin directory is the installed product payload referenced by the Castia
+marketplace. Browser assets that the canvas serves must be committed under this
+directory so `copilot plugin install` and `copilot plugin update` receive a
+self-contained plugin.
+
+After changing renderer source, rebuild the committed browser asset:
+
+```powershell
+Push-Location plugins\foundry-agent-starter-kit
+npm ci
+npm run build
+npm test
+Pop-Location
+```
+
+CI runs the same build, checks the generated
+`com.github.copilot\extensions\foundry-agent-playground\renderer\dist\playground-client.js`
+asset is fresh, and fails if the committed plugin payload is stale.
+
 ## Manual repo setup
 
 Use this only when you want the prompts and skills committed to a scenario repo
@@ -85,8 +106,9 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
    Protocol testing posts Bot Framework Activities and captures local connector
    egress so replies, typing, reactions, updates, and deletes render in the
    transcript instead of appearing as a bare `200` ack. Agent answers can include
-   fenced `mermaid` flowchart/graph blocks; the custom canvas renders them inline
-   as diagrams and keeps the original Markdown available for copy/export.
+   fenced `mermaid` flowchart/graph blocks; the custom canvas renders simple
+   nodes, common labels, subgraph grouping, and solid or dotted edges inline as
+   diagrams and keeps the original Markdown available for copy/export.
 6. When Copilot drives or validates the Playground, it must focus the same open
    canvas instance and call its canvas actions (`set_target` when needed,
    `health_check`, `set_protocol`, `send_response`, `send_activity`,

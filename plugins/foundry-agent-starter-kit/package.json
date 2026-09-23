@@ -1,0 +1,12 @@
+{
+  "name": "foundry-agent-starter-kit-plugin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-renderer.mjs",
+    "test": "node --test com.github.copilot/extensions/foundry-agent-playground/tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

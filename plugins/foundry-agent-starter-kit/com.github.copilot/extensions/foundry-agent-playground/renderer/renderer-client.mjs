@@ -1,3 +1,40 @@
+import {
+    renderCodeBlock,
+    renderInline,
+    renderMarkdown,
+    renderTable,
+    splitTableRow,
+    isTableSeparator,
+} from "./markdown/markdown-renderer.mjs";
+import {
+    renderMermaidBlock,
+    parseMermaidFlowchart,
+    parseMermaidEdges,
+    parseMermaidNode,
+    mermaidShapeLabel,
+    wrapMermaidLabel,
+} from "./diagrams/mermaid-safe-flowchart.mjs";
+import { renderJsonDocument, highlightJson } from "./json/json-renderer.mjs";
+import { escapeHtml } from "./shared/html.mjs";
+
+export {
+    renderCodeBlock,
+    renderInline,
+    renderMarkdown,
+    renderTable,
+    splitTableRow,
+    isTableSeparator,
+    renderMermaidBlock,
+    parseMermaidFlowchart,
+    parseMermaidEdges,
+    parseMermaidNode,
+    mermaidShapeLabel,
+    wrapMermaidLabel,
+    renderJsonDocument,
+    highlightJson,
+    escapeHtml,
+};
+
 export function localReadinessState(state) {
     if (state?.target === "hosted") {
         return { ready: true, reason: null };
@@ -225,305 +262,6 @@ function textFromResponsesOutput(output) {
     return parts.join("").trim();
 }
 
-export function renderMarkdown(value) {
-    const jsonDocument = renderJsonDocument(value);
-    if (jsonDocument) return '<div class="md">' + jsonDocument + "</div>";
-    const blocks = [];
-    let inFence = false;
-    let fence = [];
-    let fenceLanguage = "";
-    let list = null;
-    let paragraph = [];
-
-    function flushParagraph() {
-        if (!paragraph.length) return;
-        blocks.push("<p>" + renderInline(paragraph.join(" ")) + "</p>");
-        paragraph = [];
-    }
-
-    function flushList() {
-        if (!list) return;
-        blocks.push("<" + list.type + ">" + list.items.map((item) => "<li>" + renderInline(item) + "</li>").join("") + "</" + list.type + ">");
-        list = null;
-    }
-
-    const lines = String(value || "").split(/\r?\n/);
-    for (let index = 0; index < lines.length; index += 1) {
-        const rawLine = lines[index];
-        const line = rawLine.replace(/\s+$/, "");
-        if (line.trim().startsWith(String.fromCharCode(96, 96, 96))) {
-            if (inFence) {
-                blocks.push(renderCodeBlock(fence.join("\n"), fenceLanguage));
-                fence = [];
-                fenceLanguage = "";
-                inFence = false;
-            } else {
-                flushParagraph();
-                flushList();
-                fenceLanguage = line.trim().slice(3).trim().toLowerCase();
-                inFence = true;
-            }
-            continue;
-        }
-        if (inFence) {
-            fence.push(rawLine);
-            continue;
-        }
-        if (!line.trim()) {
-            flushParagraph();
-            flushList();
-            continue;
-        }
-        const heading = line.match(/^\s*(#{1,3})\s+(.+)$/);
-        if (heading) {
-            flushParagraph();
-            flushList();
-            blocks.push("<h" + heading[1].length + ">" + renderInline(heading[2]) + "</h" + heading[1].length + ">");
-            continue;
-        }
-        const table = renderTable(lines, index);
-        if (table) {
-            flushParagraph();
-            flushList();
-            blocks.push(table.html);
-            index = table.nextIndex - 1;
-            continue;
-        }
-        const unordered = line.match(/^\s*[-*]\s+(.+)$/);
-        const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-        if (unordered || ordered) {
-            flushParagraph();
-            const type = unordered ? "ul" : "ol";
-            if (!list || list.type !== type) flushList();
-            list ||= { type, items: [] };
-            list.items.push((unordered || ordered)[1]);
-            continue;
-        }
-        flushList();
-        paragraph.push(line.trim());
-    }
-    if (inFence) blocks.push(renderCodeBlock(fence.join("\n"), fenceLanguage));
-    flushParagraph();
-    flushList();
-    return '<div class="md">' + (blocks.join("") || "<p></p>") + "</div>";
-}
-
-export function renderCodeBlock(value, language) {
-    if (String(language || "").split(/\s+/)[0] === "mermaid") {
-        return renderMermaidBlock(value);
-    }
-    const json = renderJsonDocument(value, language);
-    if (json) return json;
-    return "<pre><code>" + escapeHtml(value) + "</code></pre>";
-}
-
-export function renderMermaidBlock(value) {
-    const parsed = parseMermaidFlowchart(value);
-    if (!parsed.ok) {
-        return '<figure class="mermaid-fallback">' +
-            '<figcaption>Mermaid diagram could not be rendered: ' + escapeHtml(parsed.error) + '</figcaption>' +
-            '<pre><code>' + escapeHtml(value) + '</code></pre>' +
-            '</figure>';
-    }
-    const { nodes, edges, direction } = parsed;
-    const horizontal = ["LR", "RL"].includes(direction);
-    const width = horizontal ? Math.max(360, nodes.length * 190 + 48) : 420;
-    const height = horizontal ? 180 : Math.max(180, nodes.length * 112 + 48);
-    const positions = new Map();
-    nodes.forEach((node, index) => {
-        const order = direction === "RL" || direction === "BT" ? nodes.length - index - 1 : index;
-        positions.set(node.id, horizontal
-            ? { x: 24 + order * 190, y: 54 }
-            : { x: 70, y: 24 + order * 112 });
-    });
-    const edgeSvg = edges.map((edge) => {
-        const from = positions.get(edge.from);
-        const to = positions.get(edge.to);
-        if (!from || !to) return "";
-        const x1 = horizontal ? from.x + 150 : from.x + 75;
-        const y1 = horizontal ? from.y + 30 : from.y + 60;
-        const x2 = horizontal ? to.x : to.x + 75;
-        const y2 = horizontal ? to.y + 30 : to.y;
-        const label = edge.label
-            ? '<text class="mermaid-edge-label" x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 8) + '">' + escapeHtml(edge.label) + '</text>'
-            : "";
-        return '<path class="mermaid-edge" d="M ' + x1 + " " + y1 + " L " + x2 + " " + y2 + '" marker-end="url(#mermaid-arrow)" />' + label;
-    }).join("");
-    const nodeSvg = nodes.map((node) => {
-        const position = positions.get(node.id);
-        const label = wrapMermaidLabel(node.label || node.id);
-        const lines = label.map((line, index) =>
-            '<tspan x="75" dy="' + (index === 0 ? 0 : 15) + '">' + escapeHtml(line) + '</tspan>'
-        ).join("");
-        return '<g class="mermaid-node" transform="translate(' + position.x + " " + position.y + ')">' +
-            '<rect width="150" height="60" rx="12" />' +
-            '<text x="75" y="' + (label.length > 1 ? 24 : 34) + '">' + lines + '</text>' +
-            '</g>';
-    }).join("");
-    return '<figure class="mermaid-diagram" aria-label="Mermaid diagram">' +
-        '<svg role="img" viewBox="0 0 ' + width + " " + height + '" xmlns="http://www.w3.org/2000/svg">' +
-        '<defs><marker id="mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>' +
-        edgeSvg + nodeSvg +
-        '</svg>' +
-        '</figure>';
-}
-
-export function parseMermaidFlowchart(value) {
-    const lines = String(value || "").split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line && !line.startsWith("%%"));
-    const header = lines.shift() || "";
-    const headerMatch = header.match(/^(flowchart|graph)\s+(TD|TB|BT|LR|RL)?$/i);
-    if (!headerMatch) return { ok: false, error: "only flowchart/graph diagrams are supported" };
-    const direction = (headerMatch[2] || "TD").toUpperCase();
-    const nodeMap = new Map();
-    const edges = [];
-    const addNode = (id, label = "") => {
-        const nextLabel = label || id;
-        if (!nodeMap.has(id)) nodeMap.set(id, { id, label: nextLabel });
-        else if (nextLabel && nodeMap.get(id).label === id) nodeMap.get(id).label = nextLabel;
-    };
-    for (const line of lines) {
-        const edge = parseMermaidEdge(line);
-        if (edge) {
-            addNode(edge.from, edge.fromLabel);
-            addNode(edge.to, edge.toLabel);
-            edges.push(edge);
-            continue;
-        }
-        const node = parseMermaidNode(line);
-        if (node) {
-            addNode(node.id, node.label);
-            continue;
-        }
-        return { ok: false, error: "unsupported Mermaid syntax near: " + line.slice(0, 80) };
-    }
-    if (!nodeMap.size) return { ok: false, error: "diagram has no nodes" };
-    if (nodeMap.size > 30 || edges.length > 50) return { ok: false, error: "diagram is too large for inline rendering" };
-    return { ok: true, direction, nodes: [...nodeMap.values()], edges };
-}
-
-function parseMermaidEdge(line) {
-    const edgePattern = /^\s*([A-Za-z][\w-]*)(\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\}))?\s*--(?:\|([^|]+)\|)?>(?:\s*)([A-Za-z][\w-]*)(\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\}))?\s*;?\s*$/;
-    const match = line.match(edgePattern);
-    if (!match) return null;
-    return {
-        from: match[1],
-        fromLabel: mermaidShapeLabel(match[2]) || match[1],
-        label: String(match[3] || "").trim(),
-        to: match[4],
-        toLabel: mermaidShapeLabel(match[5]) || match[4],
-    };
-}
-
-function parseMermaidNode(line) {
-    const match = line.match(/^\s*([A-Za-z][\w-]*)(\s*(?:\[[^\]]+\]|\([^)]+\)|\{[^}]+\}))\s*;?\s*$/);
-    return match ? { id: match[1], label: mermaidShapeLabel(match[2]) || match[1] } : null;
-}
-
-function mermaidShapeLabel(shape = "") {
-    return String(shape || "")
-        .trim()
-        .replace(/^[\s[({"']+|[\s\])}"']+$/g, "")
-        .replace(/\\"/g, '"')
-        .trim();
-}
-
-function wrapMermaidLabel(value) {
-    const words = String(value || "").split(/\s+/).filter(Boolean);
-    const lines = [];
-    let current = "";
-    for (const word of words) {
-        if ((current + " " + word).trim().length > 22 && current) {
-            lines.push(current);
-            current = word;
-        } else {
-            current = (current + " " + word).trim();
-        }
-    }
-    if (current) lines.push(current);
-    return lines.slice(0, 3);
-}
-
-export function renderJsonDocument(value, language = "") {
-    const text = String(value || "").trim();
-    if (!text || (!["json", "jsonc"].includes(language) && !/^[\[{]/.test(text))) return null;
-    try {
-        const parsed = JSON.parse(text);
-        return '<pre class="json-pre"><code>' + highlightJson(JSON.stringify(parsed, null, 2)) + "</code></pre>";
-    } catch {
-        return null;
-    }
-}
-
-export function highlightJson(value) {
-    const tokenPattern = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
-    let output = "";
-    let lastIndex = 0;
-    String(value || "").replace(tokenPattern, (match, stringToken, keySuffix, literal, offset) => {
-        output += escapeHtml(value.slice(lastIndex, offset));
-        if (stringToken) {
-            const className = keySuffix ? "json-key" : "json-string";
-            output += '<span class="' + className + '">' + escapeHtml(stringToken) + "</span>" + escapeHtml(keySuffix || "");
-        } else if (literal) {
-            output += '<span class="json-literal">' + escapeHtml(match) + "</span>";
-        } else {
-            output += '<span class="json-number">' + escapeHtml(match) + "</span>";
-        }
-        lastIndex = offset + match.length;
-        return match;
-    });
-    return output + escapeHtml(value.slice(lastIndex));
-}
-
-export function renderTable(lines, start) {
-    if (!String(lines[start] || "").includes("|") || !isTableSeparator(lines[start + 1] || "")) return null;
-    const header = splitTableRow(lines[start]);
-    const separator = splitTableRow(lines[start + 1]);
-    if (!header.length || separator.length < header.length) return null;
-    const alignments = separator.map((cell) =>
-        cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : cell.startsWith(":") ? "left" : ""
-    );
-    const rows = [];
-    let index = start + 2;
-    while (index < lines.length && String(lines[index] || "").trim() && String(lines[index] || "").includes("|")) {
-        if (String(lines[index]).trim().startsWith(String.fromCharCode(96, 96, 96))) break;
-        rows.push(splitTableRow(lines[index]));
-        index += 1;
-    }
-    const cellAttr = (column) => alignments[column] ? ' style="text-align:' + alignments[column] + '"' : "";
-    const head = "<thead><tr>" + header.map((cell, column) => "<th" + cellAttr(column) + ">" + renderInline(cell) + "</th>").join("") + "</tr></thead>";
-    const body = "<tbody>" + rows.map((row) => "<tr>" + header.map((_, column) => "<td" + cellAttr(column) + ">" + renderInline(row[column] || "") + "</td>").join("") + "</tr>").join("") + "</tbody>";
-    return { html: '<div class="table-scroll"><table>' + head + body + "</table></div>", nextIndex: index };
-}
-
-export function splitTableRow(line) {
-    return String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
-}
-
-export function isTableSeparator(line) {
-    return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(String(line || ""));
-}
-
-export function renderInline(value) {
-    const tick = String.fromCharCode(96);
-    const inlineCode = new RegExp(tick + "([^" + tick + "]+)" + tick, "g");
-    return escapeHtml(value)
-        .replace(inlineCode, "<code>$1</code>")
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-        .replace(/\*([^*]+)\*/g, "<em>$1</em>");
-}
-
-export function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
 export const rendererClientScript = `
     const isStartupReadinessPending = ${isStartupReadinessPending.toString()};
     const localReadinessState = ${localReadinessState.toString()};
@@ -541,11 +279,23 @@ export const rendererClientScript = `
     const textOrEmpty = ${textOrEmpty.toString()};
     const textFromResponseBody = ${textFromResponseBody.toString()};
     const textFromResponsesOutput = ${textFromResponsesOutput.toString()};
+    const codeBlockRenderers = [
+      {
+        id: "mermaid",
+        canRender: ({ language }) => String(language || "").split(/\\s+/)[0] === "mermaid",
+        render: ({ value }) => renderMermaidBlock(value),
+      },
+      {
+        id: "json",
+        canRender: ({ value, language }) => Boolean(renderJsonDocument(value, language)),
+        render: ({ value, language }) => renderJsonDocument(value, language),
+      },
+    ];
     ${renderMarkdown.toString()}
     ${renderCodeBlock.toString()}
     ${renderMermaidBlock.toString()}
     ${parseMermaidFlowchart.toString()}
-    ${parseMermaidEdge.toString()}
+    ${parseMermaidEdges.toString()}
     ${parseMermaidNode.toString()}
     ${mermaidShapeLabel.toString()}
     ${wrapMermaidLabel.toString()}

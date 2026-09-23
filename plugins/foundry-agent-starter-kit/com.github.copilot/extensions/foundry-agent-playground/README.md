@@ -43,7 +43,10 @@ The UI includes these parts.
 - inline rendering for fenced `mermaid` flowchart/graph diagrams in agent
   answers, while preserving the original Markdown fences for copy/export and
   falling back to source text with a clear error when a diagram cannot be
-  rendered;
+  rendered. The safe subset supports simple nodes plus solid `-->`, labeled
+  solid `-->|label|` and `-- label -->`, chained solid `A --> B --> C`,
+  dotted `-.->`, labeled dotted `-. "label" .->`, and transparent
+  `subgraph` grouping edges;
 - chat keyboard input. Enter sends, Shift+Enter adds a newline;
 - a refresh affordance for values the agent has already bootstrapped into `.env`.
 
