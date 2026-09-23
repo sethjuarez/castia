@@ -81,6 +81,7 @@ Implemented now:
 - Deterministic diagnostic bridge actions for activity, operations, diagnostics, Foundry state, and next actions.
 - Principled module folders for shared command handlers, canvas actions, protocol clients, domain helpers, HTTP route handlers, state helpers, and tests while preserving the SDK entrypoint at the extension root.
 - Renderer boundaries for Markdown, JSON, Mermaid diagrams, and shared HTML escaping. The browser client still receives a single generated script, but code-block rendering now routes through a small registry. Mermaid is vendored into that generated browser asset for selected safe diagram families, with source preflight, SVG sanitization, and the existing safe flowchart renderer retained as fallback.
+- Panel-local expansion for rendered Mermaid diagrams. Each successful diagram receives an accessible `Expand diagram` control, and the browser client clones the sanitized/rendered SVG into an iframe-local dialog/lightbox with close button, Escape, backdrop click, focus handoff, and focus return. The canvas intentionally does not attempt full-app overlays across the host iframe boundary.
 - Committed browser asset generation for the canvas client. `npm run build` writes `renderer/dist/playground-client.js`, the iframe loads that asset, and CI verifies the generated file is fresh so plugin install/update receives a self-contained payload.
 
 Still intentionally future/optional:

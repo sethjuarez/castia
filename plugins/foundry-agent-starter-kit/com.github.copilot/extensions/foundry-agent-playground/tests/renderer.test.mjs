@@ -25,6 +25,8 @@ test("built browser asset includes pending and answer-copy chat affordances", as
     assert.match(script, /Thinking\.\.\./);
     assert.match(script, /Copy answer/);
     assert.match(script, /copy-answer/);
+    assert.match(script, /Expand diagram/);
+    assert.match(script, /mermaid-lightbox/);
     assert.doesNotMatch(script, /copyLatestAnswer/);
     assert.doesNotMatch(script, /transcript-copy-latest/);
 });

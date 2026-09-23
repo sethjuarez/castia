@@ -4,6 +4,12 @@ export function renderMermaidBlock(value) {
     return renderSafeMermaidFlowchartBlock(value);
 }
 
+export function renderMermaidExpandButton(disabled = false) {
+    return '<div class="mermaid-toolbar">' +
+        '<button type="button" class="mermaid-expand-button" aria-label="Expand diagram"' + (disabled ? " disabled" : "") + '>Expand diagram</button>' +
+        '</div>';
+}
+
 export function renderSafeMermaidFlowchartBlock(value) {
     const parsed = parseMermaidFlowchart(value);
     if (!parsed.ok) {
@@ -46,6 +52,7 @@ export function renderSafeMermaidFlowchartBlock(value) {
             '</g>';
     }).join("");
     return '<figure class="mermaid-diagram" aria-label="Mermaid diagram">' +
+        renderMermaidExpandButton() +
         '<svg role="img" viewBox="0 0 ' + width + " " + height + '" xmlns="http://www.w3.org/2000/svg">' +
         '<defs><marker id="mermaid-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>' +
         edgeSvg + nodeSvg +

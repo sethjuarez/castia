@@ -1246,7 +1246,35 @@ export const rendererStyles = `
       background: var(--cp-surface);
     }
     .bubble-body .mermaid-diagram {
+      position: relative;
       padding: 10px;
+    }
+    .mermaid-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 8px;
+    }
+    .mermaid-expand-button,
+    .mermaid-lightbox-close {
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .mermaid-expand-button:hover,
+    .mermaid-lightbox-close:hover {
+      border-color: var(--cp-accent);
+      color: var(--cp-accent);
+    }
+    .mermaid-expand-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
     }
     .bubble-body .mermaid-diagram svg {
       display: block;
@@ -1277,6 +1305,48 @@ export const rendererStyles = `
     }
     .mermaid-diagram marker path {
       fill: var(--cp-text-muted);
+    }
+    .mermaid-lightbox-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.5);
+    }
+    .mermaid-lightbox {
+      width: min(90vw, 1120px);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-panel);
+      color: var(--cp-text);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25);
+    }
+    .mermaid-lightbox-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .mermaid-lightbox-body {
+      overflow: auto;
+      padding: 16px;
+      background: var(--cp-surface);
+    }
+    .mermaid-lightbox-body svg {
+      display: block;
+      min-width: 640px;
+      width: 100%;
+      height: auto;
+      max-height: none;
     }
     .mermaid-fallback figcaption {
       padding: 8px;
