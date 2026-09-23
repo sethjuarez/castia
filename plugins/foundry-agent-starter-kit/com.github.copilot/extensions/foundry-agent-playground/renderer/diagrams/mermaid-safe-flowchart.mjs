@@ -147,21 +147,24 @@ export function mermaidShapeLabel(shape = "") {
         .trim()
         .replace(/^[\s[({"']+|[\s\])}"']+$/g, "")
         .replace(/\\"/g, '"')
+        .replace(/<br\s*\/?>/gi, "\n")
         .trim();
 }
 
 export function wrapMermaidLabel(value) {
-    const words = String(value || "").split(/\s+/).filter(Boolean);
     const lines = [];
-    let current = "";
-    for (const word of words) {
-        if ((current + " " + word).trim().length > 22 && current) {
-            lines.push(current);
-            current = word;
-        } else {
-            current = (current + " " + word).trim();
+    for (const segment of String(value || "").split(/\r?\n/)) {
+        const words = segment.split(/\s+/).filter(Boolean);
+        let current = "";
+        for (const word of words) {
+            if ((current + " " + word).trim().length > 22 && current) {
+                lines.push(current);
+                current = word;
+            } else {
+                current = (current + " " + word).trim();
+            }
         }
+        if (current) lines.push(current);
     }
-    if (current) lines.push(current);
     return lines.slice(0, 3);
 }

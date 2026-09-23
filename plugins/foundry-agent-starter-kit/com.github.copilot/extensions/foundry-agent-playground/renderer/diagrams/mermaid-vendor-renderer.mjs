@@ -57,14 +57,15 @@ export function mermaidSourceSupport(value) {
 }
 
 export function hasRawHtmlMermaidLabel(value) {
+    const source = String(value || "").replace(/<br\s*\/?>/gi, "\n");
     const htmlTags = [
-        "a", "abbr", "article", "aside", "b", "blockquote", "br", "button", "code", "div",
+        "a", "abbr", "article", "aside", "b", "blockquote", "button", "code", "div",
         "em", "foreignObject", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "iframe",
         "img", "input", "label", "li", "link", "math", "object", "ol", "p", "pre", "script",
         "section", "select", "small", "span", "strong", "style", "sub", "sup", "svg", "table",
         "tbody", "td", "textarea", "th", "thead", "tr", "u", "ul", "video",
     ].join("|");
-    return new RegExp("</?(" + htmlTags + ")(?:\\s|/?>)", "i").test(String(value || ""));
+    return new RegExp("</?(" + htmlTags + ")(?:\\s|/?>)", "i").test(source);
 }
 
 export function initializeVendoredMermaidRuntime() {

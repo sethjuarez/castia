@@ -6,6 +6,7 @@ import {
     localFailureDetail,
     localReadinessState,
     localStartupText,
+    hasRawHtmlMermaidLabel,
     hasUnsafeSvgCss,
     mermaidSourceSupport,
     rendererClientScript,
@@ -453,6 +454,10 @@ test("vendored Mermaid path emits a safe browser placeholder when runtime is ava
 });
 
 test("vendored Mermaid contract rejects risky source before browser rendering", () => {
+    assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[First<br/>Second] --> B"), {
+        ok: true,
+        family: "flowchart",
+    });
     assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[<b>raw</b>] --> B"), {
         ok: false,
         reason: "unsafe",
@@ -468,6 +473,13 @@ test("vendored Mermaid contract rejects risky source before browser rendering", 
         reason: "unsupported",
         error: "only flowchart, sequence, state, class, and ER Mermaid diagrams are supported",
     });
+});
+
+test("Mermaid preflight permits simple line-break labels but blocks other raw HTML", () => {
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[First<br>Second] --> B"), false);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[First<br/>Second] --> B"), false);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[First<br />Second] --> B"), false);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[<b>raw</b>] --> B"), true);
 });
 
 test("vendored Mermaid sanitizer allows static CSS but rejects URL-capable CSS", () => {
@@ -536,6 +548,21 @@ test("Mermaid plain solid edge labels render with escaped labels", () => {
     assert.match(html, /class="mermaid-diagram"/);
     assert.match(html, /needs &lt;review&gt;/);
     assert.doesNotMatch(html, /needs <review>/);
+});
+
+test("Mermaid safe flowchart renderer turns br labels into SVG line breaks", () => {
+    const html = renderMermaidBlock([
+        "flowchart LR",
+        'A["Invoice<br/>Evidence"] --> B["Human<br>Review"]',
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /Invoice/);
+    assert.match(html, /Evidence/);
+    assert.match(html, /Human/);
+    assert.match(html, /Review/);
+    assert.doesNotMatch(html, /&lt;br/);
+    assert.equal((html.match(/<tspan /g) || []).length, 4);
 });
 
 test("Mermaid chained solid edges render as bounded individual edges", () => {
