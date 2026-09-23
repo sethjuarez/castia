@@ -106,9 +106,14 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
    Protocol testing posts Bot Framework Activities and captures local connector
    egress so replies, typing, reactions, updates, and deletes render in the
    transcript instead of appearing as a bare `200` ack. Agent answers can include
-   fenced `mermaid` flowchart/graph blocks; the custom canvas renders simple
-   nodes, common labels, subgraph grouping, and solid or dotted edges inline as
-   diagrams and keeps the original Markdown available for copy/export.
+   fenced `mermaid` blocks. The committed browser asset bundles Mermaid for
+   selected safe diagram families (`flowchart`/`graph`, `sequenceDiagram`,
+   `stateDiagram`, `classDiagram`, and `erDiagram`) and sanitizes the returned
+   SVG before insertion. Mermaid init/config directives, raw HTML labels,
+   interactive callbacks/links, and scriptable URLs are disabled. Unsupported,
+   oversized, or failed diagrams fall back to the existing escaped source view
+   or the safe flowchart renderer, so the original Markdown remains available
+   for copy/export.
 6. When Copilot drives or validates the Playground, it must focus the same open
    canvas instance and call its canvas actions (`set_target` when needed,
    `health_check`, `set_protocol`, `send_response`, `send_activity`,

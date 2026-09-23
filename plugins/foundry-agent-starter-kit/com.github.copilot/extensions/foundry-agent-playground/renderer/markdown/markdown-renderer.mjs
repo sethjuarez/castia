@@ -1,4 +1,4 @@
-import { renderMermaidBlock } from "../diagrams/mermaid-safe-flowchart.mjs";
+import { renderMermaidBlock } from "../diagrams/mermaid-renderer.mjs";
 import { renderJsonDocument } from "../json/json-renderer.mjs";
 import { escapeHtml } from "../shared/html.mjs";
 
@@ -6,7 +6,7 @@ export const codeBlockRenderers = [
     {
         id: "mermaid",
         canRender: ({ language }) => String(language || "").split(/\s+/)[0] === "mermaid",
-        render: ({ value }) => renderMermaidBlock(value),
+        render: ({ value, complete }) => renderMermaidBlock(value, { complete }),
     },
     {
         id: "json",
@@ -92,15 +92,15 @@ export function renderMarkdown(value) {
         flushList();
         paragraph.push(line.trim());
     }
-    if (inFence) blocks.push(renderCodeBlock(fence.join("\n"), fenceLanguage));
+    if (inFence) blocks.push(renderCodeBlock(fence.join("\n"), fenceLanguage, { complete: false }));
     flushParagraph();
     flushList();
     return '<div class="md">' + (blocks.join("") || "<p></p>") + "</div>";
 }
 
-export function renderCodeBlock(value, language) {
+export function renderCodeBlock(value, language, options = {}) {
     for (const renderer of codeBlockRenderers) {
-        if (renderer.canRender({ value, language })) return renderer.render({ value, language });
+        if (renderer.canRender({ value, language })) return renderer.render({ value, language, ...options });
     }
     return "<pre><code>" + escapeHtml(value) + "</code></pre>";
 }

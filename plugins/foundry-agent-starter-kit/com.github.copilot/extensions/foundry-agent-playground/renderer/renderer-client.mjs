@@ -7,13 +7,27 @@ import {
     isTableSeparator,
 } from "./markdown/markdown-renderer.mjs";
 import {
-    renderMermaidBlock,
     parseMermaidFlowchart,
     parseMermaidEdges,
     parseMermaidNode,
+    renderMermaidFallbackSource,
+    renderSafeMermaidFlowchartBlock,
     mermaidShapeLabel,
     wrapMermaidLabel,
 } from "./diagrams/mermaid-safe-flowchart.mjs";
+import {
+    hydrateVendoredMermaidDiagrams,
+    hasRawHtmlMermaidLabel,
+    hasUnsafeSvgCss,
+    initializeVendoredMermaidRuntime,
+    mermaidSourceHash,
+    mermaidSourceSupport,
+    removeMermaidRenderArtifacts,
+    renderVendoredMermaidBlock,
+    sanitizeMermaidSvg,
+    sanitizeSvgElement,
+} from "./diagrams/mermaid-vendor-renderer.mjs";
+import { renderMermaidBlock } from "./diagrams/mermaid-renderer.mjs";
 import { renderJsonDocument, highlightJson } from "./json/json-renderer.mjs";
 import { escapeHtml } from "./shared/html.mjs";
 
@@ -28,6 +42,18 @@ export {
     parseMermaidFlowchart,
     parseMermaidEdges,
     parseMermaidNode,
+    renderMermaidFallbackSource,
+    renderSafeMermaidFlowchartBlock,
+    renderVendoredMermaidBlock,
+    mermaidSourceSupport,
+    hydrateVendoredMermaidDiagrams,
+    hasRawHtmlMermaidLabel,
+    hasUnsafeSvgCss,
+    initializeVendoredMermaidRuntime,
+    mermaidSourceHash,
+    sanitizeMermaidSvg,
+    sanitizeSvgElement,
+    removeMermaidRenderArtifacts,
     mermaidShapeLabel,
     wrapMermaidLabel,
     renderJsonDocument,
@@ -279,11 +305,14 @@ export const rendererClientScript = `
     const textOrEmpty = ${textOrEmpty.toString()};
     const textFromResponseBody = ${textFromResponseBody.toString()};
     const textFromResponsesOutput = ${textFromResponsesOutput.toString()};
+    const MERMAID_MAX_SOURCE_CHARS = 6000;
+    const MERMAID_MAX_LINES = 240;
+    const MERMAID_SUPPORTED_FAMILIES = ["flowchart", "graph", "sequencediagram", "statediagram", "statediagram-v2", "classdiagram", "erdiagram"];
     const codeBlockRenderers = [
       {
         id: "mermaid",
         canRender: ({ language }) => String(language || "").split(/\\s+/)[0] === "mermaid",
-        render: ({ value }) => renderMermaidBlock(value),
+        render: ({ value, complete }) => renderMermaidBlock(value, { complete }),
       },
       {
         id: "json",
@@ -294,6 +323,18 @@ export const rendererClientScript = `
     ${renderMarkdown.toString()}
     ${renderCodeBlock.toString()}
     ${renderMermaidBlock.toString()}
+    ${renderVendoredMermaidBlock.toString()}
+    ${mermaidSourceSupport.toString()}
+    ${hasRawHtmlMermaidLabel.toString()}
+    ${hydrateVendoredMermaidDiagrams.toString()}
+    ${initializeVendoredMermaidRuntime.toString()}
+    ${mermaidSourceHash.toString()}
+    ${removeMermaidRenderArtifacts.toString()}
+    ${sanitizeMermaidSvg.toString()}
+    ${sanitizeSvgElement.toString()}
+    ${hasUnsafeSvgCss.toString()}
+    ${renderMermaidFallbackSource.toString()}
+    ${renderSafeMermaidFlowchartBlock.toString()}
     ${parseMermaidFlowchart.toString()}
     ${parseMermaidEdges.toString()}
     ${parseMermaidNode.toString()}
@@ -945,6 +986,7 @@ export const rendererClientScript = `
       });
       const shouldStickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
       transcript.innerHTML = messages.map((turn, index) => renderProtocolTurn(turn, index)).join("");
+      void hydrateVendoredMermaidDiagrams(transcript);
       const restoreDetailsScroll = () => transcript.querySelectorAll(".details-panel[data-details-key] pre").forEach((pre) => {
         const panel = pre.closest(".details-panel[data-details-key]");
         const top = panel?.dataset?.detailsKey ? responseDetailsScroll.get(panel.dataset.detailsKey) : undefined;

@@ -6,9 +6,12 @@ import {
     localFailureDetail,
     localReadinessState,
     localStartupText,
+    hasUnsafeSvgCss,
+    mermaidSourceSupport,
     rendererClientScript,
     renderMarkdown,
     renderMermaidBlock,
+    renderVendoredMermaidBlock,
     responseDetailsKey,
     responseDetailsPanelId,
     responseDisplayState,
@@ -424,6 +427,75 @@ test("valid Mermaid fenced blocks render as inline diagrams", () => {
     assert.match(html, /<p>After<\/p>/);
 });
 
+test("vendored Mermaid path emits a safe browser placeholder when runtime is available", () => {
+    const previousRuntime = globalThis.__castiaMermaid;
+    globalThis.__castiaMermaid = { initialize() {}, render() {} };
+    try {
+        const rendered = renderVendoredMermaidBlock([
+            "sequenceDiagram",
+            "participant User",
+            "User->>Agent: Explain status",
+        ].join("\n"));
+
+        assert.equal(rendered.ok, true);
+        assert.match(rendered.html, /class="mermaid-diagram mermaid-vendor-diagram"/);
+        assert.match(rendered.html, /data-mermaid-state="pending"/);
+        assert.match(rendered.html, /sequenceDiagram/);
+    } finally {
+        if (previousRuntime === undefined) delete globalThis.__castiaMermaid;
+        else globalThis.__castiaMermaid = previousRuntime;
+    }
+});
+
+test("vendored Mermaid contract rejects risky source before browser rendering", () => {
+    assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[<b>raw</b>] --> B"), {
+        ok: false,
+        reason: "unsafe",
+        error: "raw HTML labels are disabled",
+    });
+    assert.deepEqual(mermaidSourceSupport("flowchart LR\nclick A javascript:alert(1)"), {
+        ok: false,
+        reason: "unsafe",
+        error: "interactive Mermaid links and callbacks are disabled",
+    });
+    assert.deepEqual(mermaidSourceSupport("mindmap\n  root"), {
+        ok: false,
+        reason: "unsupported",
+        error: "only flowchart, sequence, state, class, and ER Mermaid diagrams are supported",
+    });
+});
+
+test("vendored Mermaid sanitizer allows static CSS but rejects URL-capable CSS", () => {
+    assert.equal(hasUnsafeSvgCss(".node rect { fill: currentColor; }"), false);
+    assert.equal(hasUnsafeSvgCss("path { marker-end: url(#flowchart-pointEnd); }"), false);
+    assert.equal(hasUnsafeSvgCss("path { fill: url(https://example.test/pattern.svg); }"), true);
+    assert.equal(hasUnsafeSvgCss("@import 'https://example.test/style.css';"), true);
+    assert.equal(hasUnsafeSvgCss("rect { background: javascript:alert(1); }"), true);
+});
+
+test("unsafe Mermaid blocks fall back to escaped source instead of a diagram", () => {
+    const html = renderMermaidBlock("flowchart LR\nA[<b>raw</b>] --> B");
+
+    assert.match(html, /class="mermaid-fallback"/);
+    assert.match(html, /raw HTML labels are disabled/);
+    assert.match(html, /A\[&lt;b&gt;raw&lt;\/b&gt;\] --&gt; B/);
+    assert.doesNotMatch(html, /<b>raw<\/b>/);
+    assert.doesNotMatch(html, /class="mermaid-diagram"/);
+});
+
+test("unterminated Mermaid fences do not hydrate while streaming", () => {
+    const html = renderMarkdown([
+        "```mermaid",
+        "sequenceDiagram",
+        "User->>Agent: still streaming",
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-fallback"/);
+    assert.match(html, /Mermaid diagram is still streaming/);
+    assert.doesNotMatch(html, /mermaid-vendor-diagram/);
+    assert.doesNotMatch(html, /data-mermaid-state="pending"/);
+});
+
 test("Mermaid dotted edges render as dashed inline diagrams", () => {
     const html = renderMermaidBlock([
         "flowchart LR",
@@ -536,6 +608,12 @@ test("renderer script includes code block registry before markdown rendering", (
     assert.ok(registryIndex < codeBlockIndex);
     assert.match(rendererClientScript, /id: "mermaid"/);
     assert.match(rendererClientScript, /id: "json"/);
+});
+
+test("renderer script removes Mermaid render artifacts after failed browser renders", () => {
+    assert.match(rendererClientScript, /function removeMermaidRenderArtifacts/);
+    assert.match(rendererClientScript, /getElementById\("d" \+ renderId\)\?\.remove\(\)/);
+    assert.match(rendererClientScript, /removeMermaidRenderArtifacts\(renderId\)/);
 });
 
 test("renderer client script remains syntactically valid after function assembly", () => {
