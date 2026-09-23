@@ -97,6 +97,15 @@ export function createRequestHandler({
                 res.end(svg);
                 return;
             }
+            if (req.method === "GET" && url.pathname === "/assets/playground-client.js") {
+                const script = await readFile(join(extensionRoot, "renderer", "dist", "playground-client.js"), "utf8");
+                res.writeHead(200, {
+                    "Content-Type": "application/javascript; charset=utf-8",
+                    "Cache-Control": "no-store",
+                });
+                res.end(script);
+                return;
+            }
             if (req.method === "GET" && url.pathname === "/api/state") {
                 sendJson(res, 200, snapshotState(state));
                 return;

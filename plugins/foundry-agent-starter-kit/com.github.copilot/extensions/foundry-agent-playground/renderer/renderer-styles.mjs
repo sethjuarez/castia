@@ -1272,6 +1272,9 @@ export const rendererStyles = `
       stroke: var(--cp-text-muted);
       stroke-width: 1.6;
     }
+    .mermaid-edge-dotted {
+      stroke-dasharray: 4 4;
+    }
     .mermaid-diagram marker path {
       fill: var(--cp-text-muted);
     }

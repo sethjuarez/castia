@@ -1,4 +1,3 @@
-import { rendererClientScript } from "./renderer-client.mjs";
 import { rendererStyles } from "./renderer-styles.mjs";
 
 export function renderHtml() {
@@ -188,7 +187,7 @@ export function renderHtml() {
       </form>
     </div>
   </div>
-  <script>${rendererClientScript}</script>
+  <script src="/assets/playground-client.js"></script>
 </body>
 </html>`;
 }

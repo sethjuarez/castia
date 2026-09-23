@@ -424,6 +424,69 @@ test("valid Mermaid fenced blocks render as inline diagrams", () => {
     assert.match(html, /<p>After<\/p>/);
 });
 
+test("Mermaid dotted edges render as dashed inline diagrams", () => {
+    const html = renderMermaidBlock([
+        "flowchart LR",
+        'A["Detected"] -.-> B["Triaged"]',
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /class="mermaid-edge mermaid-edge-dotted"/);
+    assert.match(html, /Detected/);
+    assert.match(html, /Triaged/);
+});
+
+test("Mermaid labeled dotted edges render with escaped labels", () => {
+    const html = renderMermaidBlock([
+        "flowchart TD",
+        'H["Human handoff"] -. "Human-controlled <downstream> context only" .-> R["Detected \u2192 Triaged \u2192 Assigned"]',
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /class="mermaid-edge mermaid-edge-dotted"/);
+    assert.match(html, /Human-controlled &lt;downstream&gt; context only/);
+    assert.doesNotMatch(html, /Human-controlled <downstream>/);
+    assert.match(html, /Detected \u2192/);
+});
+
+test("Mermaid plain solid edge labels render with escaped labels", () => {
+    const html = renderMermaidBlock([
+        "flowchart LR",
+        'A["Invoice"] -- needs <review> --> B["Human"]',
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /needs &lt;review&gt;/);
+    assert.doesNotMatch(html, /needs <review>/);
+});
+
+test("Mermaid chained solid edges render as bounded individual edges", () => {
+    const html = renderMermaidBlock([
+        "flowchart LR",
+        'A["Detected"] --> B["Triaged"] --> C["Assigned"]',
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /Detected/);
+    assert.match(html, /Triaged/);
+    assert.match(html, /Assigned/);
+    assert.equal((html.match(/class="mermaid-edge"/g) || []).length, 2);
+});
+
+test("Mermaid subgraph grouping syntax is accepted without unsafe rendering", () => {
+    const html = renderMermaidBlock([
+        "flowchart TD",
+        "subgraph Human review",
+        'A["Detected"] --> B["Assigned"]',
+        "end",
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /Detected/);
+    assert.match(html, /Assigned/);
+    assert.doesNotMatch(html, /Human review/);
+});
+
 test("malformed Mermaid fenced blocks fall back to source with an error", () => {
     const html = renderMermaidBlock("flowchart LR\nA -->\n");
 
@@ -431,6 +494,14 @@ test("malformed Mermaid fenced blocks fall back to source with an error", () => 
     assert.match(html, /Mermaid diagram could not be rendered/);
     assert.match(html, /unsupported Mermaid syntax/);
     assert.match(html, /A --&gt;/);
+});
+
+test("unsupported Mermaid edge syntax still falls back to source with an error", () => {
+    const html = renderMermaidBlock("flowchart LR\nA ==> B\n");
+
+    assert.match(html, /class="mermaid-fallback"/);
+    assert.match(html, /unsupported Mermaid syntax/);
+    assert.match(html, /A ==&gt; B/);
 });
 
 test("answer copy helpers preserve original Markdown fences", () => {
@@ -453,6 +524,22 @@ test("renderer script defines activity rendering at top level", () => {
     assert.ok(tickerIndex > 0);
     assert.ok(activityIndex > tickerIndex);
     assert.ok(activityIndex < elapsedIndex);
+});
+
+test("renderer script includes code block registry before markdown rendering", () => {
+    const registryIndex = rendererClientScript.indexOf("const codeBlockRenderers = [");
+    const markdownIndex = rendererClientScript.indexOf("function renderMarkdown");
+    const codeBlockIndex = rendererClientScript.indexOf("function renderCodeBlock");
+
+    assert.ok(registryIndex > 0);
+    assert.ok(registryIndex < markdownIndex);
+    assert.ok(registryIndex < codeBlockIndex);
+    assert.match(rendererClientScript, /id: "mermaid"/);
+    assert.match(rendererClientScript, /id: "json"/);
+});
+
+test("renderer client script remains syntactically valid after function assembly", () => {
+    assert.doesNotThrow(() => new Function(rendererClientScript));
 });
 
 test("renderer subscribes to canvas action state updates", () => {
