@@ -121,7 +121,7 @@ test("header guidance and diagnostics use compact hoverable details", () => {
     assert.match(rendererClientScript, /guideTitle\.textContent = !connected \? "Connect Foundry project" : "Deploy";/);
     assert.match(rendererClientScript, /guideTitle\.textContent = !connected \? "Connect Foundry project" : "Foundry Agent";/);
     assert.match(rendererClientScript, /deployButton\.textContent = "Deploy";/);
-    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(12rem, 1fr\) minmax\(16rem, 0\.9fr\);/);
+    assert.match(rendererStyles, /@media \(max-width: 820px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(12rem, 0\.8fr\);/);
     assert.match(rendererStyles, /@media \(max-width: 520px\)[\s\S]*?\.action-card\s*{[^}]*grid-template-columns:\s*1fr;/);
     assert.match(rendererStyles, /\.action-detail-trigger:hover \.action-copy/);
     assert.match(rendererStyles, /\.status-row\s*{[^}]*display:\s*flex;/);
