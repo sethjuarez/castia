@@ -1237,6 +1237,55 @@ export const rendererStyles = `
       border: 1px solid var(--cp-border);
       background: var(--cp-surface);
     }
+    .bubble-body .mermaid-diagram,
+    .bubble-body .mermaid-fallback {
+      margin: 0;
+      overflow-x: auto;
+      border: 1px solid var(--cp-border);
+      border-radius: 12px;
+      background: var(--cp-surface);
+    }
+    .bubble-body .mermaid-diagram {
+      padding: 10px;
+    }
+    .bubble-body .mermaid-diagram svg {
+      display: block;
+      min-width: 320px;
+      width: 100%;
+      max-height: 360px;
+    }
+    .mermaid-node rect {
+      fill: var(--cp-surface-soft);
+      stroke: var(--cp-accent);
+      stroke-width: 1.5;
+    }
+    .mermaid-node text,
+    .mermaid-edge-label {
+      fill: var(--cp-text);
+      font-family: var(--font-sans, "Segoe UI", sans-serif);
+      font-size: 12px;
+      text-anchor: middle;
+      dominant-baseline: middle;
+    }
+    .mermaid-edge {
+      fill: none;
+      stroke: var(--cp-text-muted);
+      stroke-width: 1.6;
+    }
+    .mermaid-diagram marker path {
+      fill: var(--cp-text-muted);
+    }
+    .mermaid-fallback figcaption {
+      padding: 8px;
+      border-bottom: 1px solid var(--cp-border);
+      color: var(--cp-danger);
+      font-weight: 600;
+    }
+    .bubble-body .mermaid-fallback pre {
+      margin: 0;
+      border-radius: 0;
+      background: color-mix(in srgb, var(--cp-danger) 8%, transparent);
+    }
     .json-key {
       color: var(--cp-accent);
       font-weight: 600;
@@ -1354,21 +1403,6 @@ export const rendererStyles = `
       color: var(--cp-text-muted);
       cursor: not-allowed;
       opacity: 0.7;
-    }
-    .transcript-copy-latest {
-      position: absolute;
-      right: 10px;
-      bottom: 10px;
-      z-index: 2;
-      border-color: var(--cp-border);
-      background: color-mix(in srgb, var(--cp-surface) 92%, transparent);
-      box-shadow: var(--cp-shadow);
-    }
-    .transcript-copy-latest:hover:not(:disabled) {
-      border-color: var(--cp-accent);
-    }
-    .transcript-copy-latest[hidden] {
-      display: none;
     }
     .details-toggle-icon {
       width: 0;

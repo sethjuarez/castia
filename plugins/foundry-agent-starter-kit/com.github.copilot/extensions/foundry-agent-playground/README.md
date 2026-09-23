@@ -40,6 +40,10 @@ The UI includes these parts.
 - readiness status and response latency;
 - transcript counters for total, passing, and failing turns;
 - raw request/response JSON for protocol debugging;
+- inline rendering for fenced `mermaid` flowchart/graph diagrams in agent
+  answers, while preserving the original Markdown fences for copy/export and
+  falling back to source text with a clear error when a diagram cannot be
+  rendered;
 - chat keyboard input. Enter sends, Shift+Enter adds a newline;
 - a refresh affordance for values the agent has already bootstrapped into `.env`.
 
@@ -109,6 +113,21 @@ containing `-e .`; current Foundry remote build resolves dependencies from
 must list runtime dependencies directly. If local agent code uses a newer SDK API
 than the Castia dependency pinned in `pyproject.toml`, the hosted session can
 fail readiness even though deployment succeeds.
+
+Local canvas startup follows the same contract as the Castia lifecycle skill:
+when the selected agent root contains `main.py` plus a managed Castia/uv
+`pyproject.toml` or `uv.lock`, **Start local** runs:
+
+```powershell
+uv run --directory <agent-root> python main.py
+```
+
+That lets uv create or sync the app-local environment before `main.py` imports
+`castia`. The canvas falls back to an existing venv or bare `python main.py`
+only for unmanaged Python app roots. During cold start, the status ticker keeps
+dependency sync/startup separate from `/readiness` polling, and a successful
+`/readiness` check marks the endpoint usable even if an earlier
+canvas-managed process failed.
 
 The Teams view keeps the Microsoft 365 handoff lightweight.
 

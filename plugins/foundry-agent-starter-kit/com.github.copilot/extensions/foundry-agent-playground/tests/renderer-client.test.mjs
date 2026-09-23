@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     composerGate,
-    latestVisibleAnswerText,
+    copyableAnswerText,
+    localFailureDetail,
     localReadinessState,
+    localStartupText,
     rendererClientScript,
+    renderMarkdown,
+    renderMermaidBlock,
     responseDetailsKey,
     responseDetailsPanelId,
     responseDisplayState,
@@ -30,6 +34,16 @@ test("renderer styles force structural surfaces back to light in light mode", ()
     assert.match(rendererStyles, /--cp-shadow:\s*0 1px 2px rgba\(31, 35, 40, 0\.08\);/);
     assert.match(rendererStyles, /html\[data-theme="light"\]\s+\.hero[\s\S]*border-bottom:\s*1px solid var\(--cp-border\);/);
     assert.match(rendererStyles, /html\[data-theme="light"\]\s+\.empty[\s\S]*background:\s*var\(--cp-surface\);/);
+});
+
+test("mermaid diagrams inherit theme-safe colors in light and dark modes", () => {
+    assert.match(rendererStyles, /html\[data-theme="light"\][\s\S]*--cp-surface:\s*#ffffff;/);
+    assert.match(rendererStyles, /html\[data-color-mode="dark"\][\s\S]*--cp-surface:\s*var\(--background-color-default/);
+    assert.match(rendererStyles, /\.bubble-body \.mermaid-diagram,[\s\S]*background:\s*var\(--cp-surface\);/);
+    assert.match(rendererStyles, /\.mermaid-node rect\s*{[\s\S]*fill:\s*var\(--cp-surface-soft\);/);
+    assert.match(rendererStyles, /\.mermaid-node text,[\s\S]*fill:\s*var\(--cp-text\);/);
+    assert.match(rendererStyles, /\.mermaid-edge\s*{[\s\S]*stroke:\s*var\(--cp-text-muted\);/);
+    assert.match(rendererStyles, /\.mermaid-diagram marker path\s*{[\s\S]*fill:\s*var\(--cp-text-muted\);/);
 });
 
 test("empty transcript state fills the available transcript space", () => {
@@ -123,6 +137,54 @@ test("composer gate enables local chat when readiness is ok", () => {
         inputDisabled: false,
         disabledReason: null,
     });
+});
+
+test("local readiness treats healthy endpoint as usable even after a previous managed start failed", () => {
+    const state = {
+        target: "local",
+        lastHealth: { ok: true, status: 200 },
+        localRun: {
+            running: false,
+            exitCode: 1,
+            failure: {
+                rootCause: "ModuleNotFoundError: No module named 'castia'",
+            },
+        },
+    };
+
+    assert.deepEqual(localReadinessState(state), {
+        ready: true,
+        reason: null,
+    });
+    assert.equal(composerGate(state).canSend, true);
+});
+
+test("local startup text and failure details expose root cause and uv remediation", () => {
+    assert.equal(
+        localStartupText({ running: true, readiness: { phase: "dependency_sync" } }),
+        "Syncing Python dependencies with uv; first run can take a minute.",
+    );
+    assert.equal(
+        localStartupText({ running: true, readiness: { phase: "polling_readiness" } }),
+        "Polling /readiness until the local agent is usable.",
+    );
+
+    const localRun = {
+        failure: {
+            command: "uv run --directory C:\\agent python main.py",
+            cwd: "C:\\agent",
+            exitCode: 1,
+            rootCause: "ModuleNotFoundError: No module named 'castia'",
+            suggestion: "Start with uv run --directory C:\\agent python main.py.",
+            stderrTail: "ModuleNotFoundError: No module named 'castia'",
+        },
+    };
+
+    assert.match(localStartupText(localRun), /uv run --directory/);
+    assert.match(localFailureDetail(localRun), /Command: uv run --directory/);
+    assert.match(localFailureDetail(localRun), /cwd: C:\\agent/);
+    assert.match(localFailureDetail(localRun), /exit code: 1/);
+    assert.match(localFailureDetail(localRun), /stderr:/);
 });
 
 test("composer gate reports precise local readiness states", () => {
@@ -316,26 +378,71 @@ test("non-envelope JSON strings remain raw diagnostics for markdown/details path
     assert.equal(responseText(diagnostics), diagnostics);
 });
 
-test("latest visible answer text skips pending envelopes and copies latest final answer", () => {
-    assert.equal(latestVisibleAnswerText([
-        { response: { ok: true, body: { output_text: "first answer" } } },
-        { response: { ok: false, status: "waiting", body: '{ "output_text": "" }' } },
-        { response: { ok: true, body: { output_text: "final answer" } } },
-    ]), "final answer");
+test("answer copy text extracts final answer text", () => {
+    assert.equal(copyableAnswerText({ ok: true, body: { output_text: "final answer" } }), "final answer");
 });
 
-test("latest visible answer text does not copy raw JSON details", () => {
-    assert.equal(latestVisibleAnswerText([
-        { response: { ok: true, body: { output_text: "first answer" } } },
-        { response: { ok: true, status: 200, body: '{ "trace": "abc123" }' } },
-    ]), "first answer");
+test("answer copy text does not copy raw JSON details", () => {
+    assert.equal(copyableAnswerText({ ok: true, status: 200, body: '{ "trace": "abc123" }' }), "");
 });
 
-test("latest visible answer text skips failed responses with error text", () => {
-    assert.equal(latestVisibleAnswerText([
-        { response: { ok: true, body: { output_text: "first answer" } } },
-        { response: { ok: false, status: 500, body: { error: { message: "boom" } } } },
-    ]), "first answer");
+test("answer copy text skips failed responses with error text", () => {
+    assert.equal(copyableAnswerText({ ok: false, status: 500, body: { error: { message: "boom" } } }), "");
+});
+
+test("normal Markdown renders without Mermaid treatment", () => {
+    const html = renderMarkdown("A **Canvas moment** with `evidence` and [docs](https://example.test).");
+
+    assert.match(html, /<strong>Canvas moment<\/strong>/);
+    assert.match(html, /<code>evidence<\/code>/);
+    assert.match(html, /<a href="https:\/\/example\.test"/);
+    assert.doesNotMatch(html, /mermaid-diagram/);
+});
+
+test("valid Mermaid fenced blocks render as inline diagrams", () => {
+    const markdown = [
+        "Before",
+        "```mermaid",
+        "flowchart LR",
+        '    A["Invoice evidence review"] --> B["Pricing variance + evidence gaps"]',
+        '    B --> C["Human reviews dispute scope"]',
+        "```",
+        "After",
+    ].join("\n");
+
+    const html = renderMarkdown(markdown);
+
+    assert.match(html, /<p>Before<\/p>/);
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /<svg role="img"/);
+    assert.match(html, /Invoice evidence/);
+    assert.match(html, /review/);
+    assert.match(html, /Pricing variance \+/);
+    assert.match(html, /evidence gaps/);
+    assert.match(html, /Human reviews dispute/);
+    assert.match(html, /scope/);
+    assert.match(html, /<p>After<\/p>/);
+});
+
+test("malformed Mermaid fenced blocks fall back to source with an error", () => {
+    const html = renderMermaidBlock("flowchart LR\nA -->\n");
+
+    assert.match(html, /class="mermaid-fallback"/);
+    assert.match(html, /Mermaid diagram could not be rendered/);
+    assert.match(html, /unsupported Mermaid syntax/);
+    assert.match(html, /A --&gt;/);
+});
+
+test("answer copy helpers preserve original Markdown fences", () => {
+    const answer = [
+        "Canvas moment",
+        "```mermaid",
+        "flowchart LR",
+        "A --> B",
+        "```",
+    ].join("\n");
+
+    assert.equal(copyableAnswerText({ ok: true, body: { output_text: answer } }), answer);
 });
 
 test("renderer script defines activity rendering at top level", () => {

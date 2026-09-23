@@ -125,7 +125,6 @@ export function renderHtml() {
         <div id="transcript" class="transcript empty-state">
           <div class="empty">Send a prompt to test <code>POST /responses</code>.</div>
         </div>
-        <button id="copyLatestAnswer" class="transcript-copy-latest" type="button" aria-label="Copy latest answer" hidden disabled>Copy latest answer</button>
       </section>
       <section id="deployView" class="deploy-view view" hidden>
         <div class="deploy-summary">

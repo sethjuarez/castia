@@ -8,8 +8,8 @@ test("renderer includes pending and answer-copy chat affordances", () => {
     assert.match(html, /Thinking\.\.\./);
     assert.match(html, /Copy answer/);
     assert.match(html, /copy-answer/);
-    assert.match(html, /copyLatestAnswer/);
-    assert.match(html, /transcript-copy-latest/);
+    assert.doesNotMatch(html, /copyLatestAnswer/);
+    assert.doesNotMatch(html, /transcript-copy-latest/);
     assert.match(html, /activityLog/);
     assert.match(html, /class="activity-title">operation log</);
     assert.match(html, /id="transcript" class="transcript empty-state"/);
