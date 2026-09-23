@@ -9,6 +9,7 @@ export function renderVendoredMermaidBlock(value) {
     const source = String(value || "");
     const support = mermaidSourceSupport(source);
     if (!support.ok) return { ok: false, reason: support.reason, error: support.error };
+    const sanitizedSource = sanitizeMermaidLabelHtml(source);
     if (!globalThis.__castiaMermaid) {
         return { ok: false, reason: "unavailable", error: "vendored Mermaid runtime is not available" };
     }
@@ -17,13 +18,14 @@ export function renderVendoredMermaidBlock(value) {
         html: '<figure class="mermaid-diagram mermaid-vendor-diagram" data-mermaid-state="pending">' +
             renderMermaidExpandButton(true) +
             '<div class="mermaid-vendor-target" role="img" aria-label="Mermaid diagram">Rendering Mermaid diagram...</div>' +
-            '<pre class="mermaid-source" hidden>' + escapeHtml(source) + '</pre>' +
+            '<pre class="mermaid-source" hidden>' + escapeHtml(sanitizedSource) + '</pre>' +
             '</figure>',
     };
 }
 
 export function mermaidSourceSupport(value) {
     const source = String(value || "");
+    const sanitizedSource = sanitizeMermaidLabelHtml(source);
     if (!source.trim()) return { ok: false, reason: "unsupported", error: "diagram source is empty" };
     if (source.length > MERMAID_MAX_SOURCE_CHARS) {
         return { ok: false, reason: "too_large", error: "diagram source is too large for inline Mermaid rendering" };
@@ -35,13 +37,13 @@ export function mermaidSourceSupport(value) {
     if (/%%\s*\{/m.test(source)) {
         return { ok: false, reason: "unsafe", error: "Mermaid init/config directives are disabled" };
     }
-    if (hasRawHtmlMermaidLabel(source)) {
-        return { ok: false, reason: "unsafe", error: "raw HTML labels are disabled" };
+    if (hasRawHtmlMermaidLabel(sanitizedSource)) {
+        return { ok: false, reason: "unsafe", error: "unsupported raw HTML labels are disabled" };
     }
-    if (/(?:^|\n)\s*(?:click|href|call)\b/i.test(source)) {
+    if (/(?:^|\n)\s*(?:click|href|call)\b/i.test(sanitizedSource)) {
         return { ok: false, reason: "unsafe", error: "interactive Mermaid links and callbacks are disabled" };
     }
-    if (/\b(?:javascript|data):/i.test(source)) {
+    if (/\b(?:javascript|data):/i.test(sanitizedSource)) {
         return { ok: false, reason: "unsafe", error: "scriptable Mermaid URLs are disabled" };
     }
     const firstLine = lines.map((line) => line.trim()).find((line) => line && !line.startsWith("%%")) || "";
@@ -56,16 +58,28 @@ export function mermaidSourceSupport(value) {
     return { ok: true, family };
 }
 
+export function sanitizeMermaidLabelHtml(value) {
+    return String(value || "").replace(/<\s*(\/?)\s*([A-Za-z][\w:-]*)(?:\s[^<>]*)?\s*(\/?)\s*>/g, (match, closing, name) => {
+        const tag = String(name || "").toLowerCase();
+        if (isUnsafeMermaidHtmlTag(tag)) return match;
+        if (tag === "br") return "<br/>";
+        return closing ? "</" + tag + ">" : "<" + tag + ">";
+    });
+}
+
+export function isUnsafeMermaidHtmlTag(tagName) {
+    return new Set([
+        "script", "style", "iframe", "object", "embed", "foreignobject", "svg",
+        "math", "link", "meta", "base", "form", "input", "button", "select",
+        "textarea", "option", "img", "video", "audio", "source", "canvas",
+    ]).has(String(tagName || "").toLowerCase());
+}
+
 export function hasRawHtmlMermaidLabel(value) {
-    const source = String(value || "").replace(/<br\s*\/?>/gi, "\n");
-    const htmlTags = [
-        "a", "abbr", "article", "aside", "b", "blockquote", "button", "code", "div",
-        "em", "foreignObject", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "iframe",
-        "img", "input", "label", "li", "link", "math", "object", "ol", "p", "pre", "script",
-        "section", "select", "small", "span", "strong", "style", "sub", "sup", "svg", "table",
-        "tbody", "td", "textarea", "th", "thead", "tr", "u", "ul", "video",
-    ].join("|");
-    return new RegExp("</?(" + htmlTags + ")(?:\\s|/?>)", "i").test(source);
+    const source = sanitizeMermaidLabelHtml(value)
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\s*\/?\s*(?!script|style|iframe|object|embed|foreignobject|svg|math|link|meta|base|form|input|button|select|textarea|option|img|video|audio|source|canvas\b)[A-Za-z][\w:-]*\s*>/gi, "");
+    return /<\s*\/?\s*(?:script|style|iframe|object|embed|foreignobject|svg|math|link|meta|base|form|input|button|select|textarea|option|img|video|audio|source|canvas)\b/i.test(source);
 }
 
 export function initializeVendoredMermaidRuntime() {
@@ -110,7 +124,7 @@ export async function hydrateVendoredMermaidDiagrams(root = document) {
     const diagrams = [...root.querySelectorAll(".mermaid-vendor-diagram[data-mermaid-state='pending']")];
     for (let index = 0; index < diagrams.length; index += 1) {
         const figure = diagrams[index];
-        const source = figure.querySelector(".mermaid-source")?.textContent || "";
+        const source = sanitizeMermaidLabelHtml(figure.querySelector(".mermaid-source")?.textContent || "");
         const target = figure.querySelector(".mermaid-vendor-target");
         const hash = mermaidSourceHash(source);
         const support = mermaidSourceSupport(source);

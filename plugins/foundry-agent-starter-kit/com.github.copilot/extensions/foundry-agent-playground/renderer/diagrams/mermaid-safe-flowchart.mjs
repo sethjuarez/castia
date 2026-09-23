@@ -148,6 +148,7 @@ export function mermaidShapeLabel(shape = "") {
         .replace(/^[\s[({"']+|[\s\])}"']+$/g, "")
         .replace(/\\"/g, '"')
         .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\s*\/?\s*[A-Za-z][\w:-]*(?:\s[^<>]*)?\/?\s*>/g, "")
         .trim();
 }
 

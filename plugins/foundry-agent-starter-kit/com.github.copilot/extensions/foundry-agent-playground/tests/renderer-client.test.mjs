@@ -13,6 +13,7 @@ import {
     renderMarkdown,
     renderMermaidBlock,
     renderVendoredMermaidBlock,
+    sanitizeMermaidLabelHtml,
     responseDetailsKey,
     responseDetailsPanelId,
     responseDisplayState,
@@ -458,10 +459,18 @@ test("vendored Mermaid contract rejects risky source before browser rendering", 
         ok: true,
         family: "flowchart",
     });
-    assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[<b>raw</b>] --> B"), {
+    assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[<b onclick=\"alert(1)\">raw</b>] --> B"), {
+        ok: true,
+        family: "flowchart",
+    });
+    assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[<div class=\"card\">raw</div>] --> B"), {
+        ok: true,
+        family: "flowchart",
+    });
+    assert.deepEqual(mermaidSourceSupport("flowchart LR\nA[<img src=x onerror=alert(1)>] --> B"), {
         ok: false,
         reason: "unsafe",
-        error: "raw HTML labels are disabled",
+        error: "unsupported raw HTML labels are disabled",
     });
     assert.deepEqual(mermaidSourceSupport("flowchart LR\nclick A javascript:alert(1)"), {
         ok: false,
@@ -475,11 +484,26 @@ test("vendored Mermaid contract rejects risky source before browser rendering", 
     });
 });
 
-test("Mermaid preflight permits simple line-break labels but blocks other raw HTML", () => {
+test("Mermaid source sanitizer strips attributes while preserving most HTML labels", () => {
+    assert.equal(
+        sanitizeMermaidLabelHtml('flowchart LR\nA[<b onclick="alert(1)">Bold</b><span style="color:red">Red</span>] --> B'),
+        "flowchart LR\nA[<b>Bold</b><span>Red</span>] --> B"
+    );
+    assert.equal(
+        sanitizeMermaidLabelHtml('flowchart LR\nA[<div class="card" data-x="1">Block</div>] --> B'),
+        "flowchart LR\nA[<div>Block</div>] --> B"
+    );
+    assert.equal(
+        sanitizeMermaidLabelHtml('flowchart LR\nA[<img src="x" onerror="alert(1)">] --> B'),
+        'flowchart LR\nA[<img src="x" onerror="alert(1)">] --> B'
+    );
     assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[First<br>Second] --> B"), false);
     assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[First<br/>Second] --> B"), false);
     assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[First<br />Second] --> B"), false);
-    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[<b>raw</b>] --> B"), true);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[<b onclick=\"alert(1)\">raw</b>] --> B"), false);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[<table><tr><td>raw</td></tr></table>] --> B"), false);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[<img src=x onerror=alert(1)>] --> B"), true);
+    assert.equal(hasRawHtmlMermaidLabel("flowchart LR\nA[<script>alert(1)</script>] --> B"), true);
 });
 
 test("vendored Mermaid sanitizer allows static CSS but rejects URL-capable CSS", () => {
@@ -491,12 +515,12 @@ test("vendored Mermaid sanitizer allows static CSS but rejects URL-capable CSS",
 });
 
 test("unsafe Mermaid blocks fall back to escaped source instead of a diagram", () => {
-    const html = renderMermaidBlock("flowchart LR\nA[<b>raw</b>] --> B");
+    const html = renderMermaidBlock("flowchart LR\nA[<img src=x onerror=alert(1)>] --> B");
 
     assert.match(html, /class="mermaid-fallback"/);
-    assert.match(html, /raw HTML labels are disabled/);
-    assert.match(html, /A\[&lt;b&gt;raw&lt;\/b&gt;\] --&gt; B/);
-    assert.doesNotMatch(html, /<b>raw<\/b>/);
+    assert.match(html, /unsupported raw HTML labels are disabled/);
+    assert.match(html, /A\[&lt;img src=x onerror=alert\(1\)&gt;\] --&gt; B/);
+    assert.doesNotMatch(html, /<img/);
     assert.doesNotMatch(html, /class="mermaid-diagram"/);
     assert.doesNotMatch(html, /mermaid-expand-button/);
 });
@@ -563,6 +587,19 @@ test("Mermaid safe flowchart renderer turns br labels into SVG line breaks", () 
     assert.match(html, /Review/);
     assert.doesNotMatch(html, /&lt;br/);
     assert.equal((html.match(/<tspan /g) || []).length, 4);
+});
+
+test("Mermaid safe flowchart fallback strips sanitized label HTML tags to text", () => {
+    const html = renderMermaidBlock([
+        "flowchart LR",
+        'A["<b onclick=\\"alert(1)\\">Invoice</b> <div class=\\"x\\">Evidence</div>"] --> B["Human"]',
+    ].join("\n"));
+
+    assert.match(html, /class="mermaid-diagram"/);
+    assert.match(html, /Invoice Evidence/);
+    assert.doesNotMatch(html, /&lt;b/);
+    assert.doesNotMatch(html, /onclick/);
+    assert.doesNotMatch(html, /class=&quot;x&quot;/);
 });
 
 test("Mermaid chained solid edges render as bounded individual edges", () => {
