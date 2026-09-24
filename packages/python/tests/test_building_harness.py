@@ -268,6 +268,72 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
         dependencies._CACHE.update(previous)
 
 
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("previous_response_id", ["resp_previous", "", 123])
+def test_responses_rejects_previous_response_id(stream, previous_response_id):
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses",
+                json={
+                    "input": "hello",
+                    "stream": stream,
+                    "previous_response_id": previous_response_id,
+                },
+            )
+            assert response.status_code == 400
+            body = response.json()
+            assert body["error"]["code"] == "unsupported_parameter"
+            assert body["error"]["param"] == "previous_response_id"
+
+            allowed = await test.client.post(
+                "/responses",
+                json={
+                    "input": "hello",
+                    "stream": stream,
+                    "previous_response_id": None,
+                },
+            )
+            assert allowed.status_code == 200
+            if stream:
+                events = sse_events(allowed.text)
+                assert events[-2][0] == "response.completed"
+                assert events[-2][1]["response"]["output_text"] == "hello"
+            else:
+                assert allowed.json()["output_text"] == "hello"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("conversation", ["conv_previous", {}, {"id": "conv"}])
+def test_responses_rejects_conversation_history_parameter(stream, conversation):
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses",
+                json={"input": "hello", "stream": stream, "conversation": conversation},
+            )
+            assert response.status_code == 400
+            body = response.json()
+            assert body["error"]["code"] == "unsupported_parameter"
+            assert body["error"]["param"] == "conversation"
+
+    asyncio.run(run())
+
+
 def test_agent_run_uses_env_port_and_startup_checks(monkeypatch):
     calls = []
     captured = {}

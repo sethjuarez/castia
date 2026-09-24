@@ -704,6 +704,20 @@ def _register_wire(
                         code="unsupported_parameter",
                         param="background",
                     )
+                if body.get("previous_response_id") is not None:
+                    return _api_error(
+                        "previous_response_id is not supported by this Castia runtime; "
+                        "send the full prior turns in input instead.",
+                        code="unsupported_parameter",
+                        param="previous_response_id",
+                    )
+                if body.get("conversation") is not None:
+                    return _api_error(
+                        "conversation is not supported by this Castia runtime; "
+                        "send the full prior turns in input instead.",
+                        code="unsupported_parameter",
+                        param="conversation",
+                    )
                 text = _responses_input(body.get("input"))
                 response_options = _responses_request_options(body)
                 store = body.get("store") is not False

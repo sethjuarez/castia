@@ -178,9 +178,10 @@ hosted-runtime features: `background=true` is rejected with
 `400 unsupported_parameter`; `POST /responses/{response_id}/cancel` exists only
 to return a clear `400 unsupported_parameter` for a stored, already-completed
 response (`404` if the response is unknown); durable replay and true in-flight
-cancellation are not implemented. `previous_response_id` is accepted and
-silently ignored: it is neither echoed in the response nor used to reconstruct
-history.
+cancellation are not implemented. `previous_response_id` and `conversation` are
+rejected with `400 unsupported_parameter` instead of being silently ignored,
+because Castia does not currently reconstruct prior response history. Send the
+full prior turns in `input` when a client needs local multi-turn context.
 
 ### Composing protocols with routers
 
