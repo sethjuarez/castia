@@ -112,6 +112,18 @@ Then test:
 
 Local is complete when the agent answers.
 
+For higher-confidence debugging or Copilot handoff, register a local Castia
+JSONL trace sink in the app and inspect it with:
+
+```powershell
+python -m castia observe local-traces --path .castia/traces/live.jsonl --limit 20
+```
+
+If the app uses Prompty, also call `register_prompty_trace_sinks()` so Prompty
+`turn_async` / `run_async` spans appear beside Castia runtime/model/tool steps.
+Do not enable content recording unless the user explicitly accepts storing
+prompt and response text.
+
 ## Foundry step
 
 Before deploying, verify that the selected agent boots with the same dependency
@@ -141,6 +153,14 @@ The preferred recovery is:
 
 Foundry is complete when the hosted agent/version is resolved and the same smoke
 prompt works against the hosted Responses endpoint.
+
+For telemetry validation, register `otel_trace_sink()` in the app, invoke the
+hosted agent once, and query the App Insights operation ID printed by
+`azd ai agent invoke`. The expected evidence is one or more `dependencies` rows
+with `castia.trace.kind`, `castia.trace.status`, `castia.trace.id`, and
+`gen_ai.provider.name=microsoft.foundry`; custom marker attributes emitted with
+`trace_attribute(...)` should be visible on the corresponding span. Remove any
+disposable smoke agent after the validation unless the user asks to keep it.
 
 If hosted testing fails with `session_not_ready` or `424 FailedDependency`, read
 the hosted session logs before changing deployment settings. A common cause is a

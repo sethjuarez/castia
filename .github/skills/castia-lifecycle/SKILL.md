@@ -210,6 +210,67 @@ For native MCP, use `toolbox_mcp_tool`, `toolbox_token`, and
 Read [the optimizer skill](../castia-optimizer/SKILL.md) for the pure provider,
 upstream schema, and candidate guidance constraints.
 
+## Local tracing and Copilot handoff
+
+When a user asks to inspect, debug, compare, or live-validate an agent's runtime
+behavior, wire Castia local traces before adding ad-hoc logging. The local trace
+bus records runtime/model/tool/Prompty steps and can be redirected to JSONL for
+Copilot-readable local analysis or to OpenTelemetry for hosted App Insights
+validation.
+
+For local Copilot-readable traces:
+
+```python
+from castia import jsonl_trace_sink, register_trace_sink
+
+register_trace_sink("jsonl", jsonl_trace_sink(".castia/traces/live.jsonl"))
+```
+
+Read the stream without cloud access:
+
+```powershell
+python -m castia observe local-traces --path .castia/traces/live.jsonl --limit 20
+python -m castia observe local-traces --path .castia/traces/live.jsonl --kind prompty
+python -m castia observe local-traces --path .castia/traces/live.jsonl --status error
+```
+
+For Prompty-backed agents, also register the Prompty bridge after any local sink:
+
+```python
+from castia.prompty import register_prompty_trace_sinks
+
+register_prompty_trace_sinks()
+```
+
+Prompty `inputs` and `result` are omitted by default. Enable content only when
+the user explicitly accepts recording prompts/responses:
+
+```python
+register_prompty_trace_sinks(enable_content_recording=True)
+```
+
+The same content gate is `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`.
+`CASTIA_PROMPTY_TRACE_INTERNAL=true` adds internal Prompty lifecycle spans such
+as `prepare_async` and `render_async`; use it only while debugging Prompty
+internals because those spans can include configuration-shaped attributes.
+Prompty attributes are sanitized before local sink emission, but content opt-in
+still writes prompt/response text to local files and possibly telemetry.
+
+For hosted/App Insights validation, register the OpenTelemetry sink after
+observability is configured:
+
+```python
+from castia import otel_trace_sink, register_trace_sink
+
+register_trace_sink("otel", otel_trace_sink())
+```
+
+Then deploy/invoke normally and query App Insights for `castia.trace.*`
+attributes and any marker attributes you emitted with `trace_attribute(...)`.
+Treat the `azd ai agent invoke` trace ID as the App Insights `operation_Id`.
+Clean up disposable smoke agents and local `.castia/` trace files after
+validation unless the user asks to keep them.
+
 ## Choose the operation and its approval boundary
 
 | Goal | Start offline | Live boundary |
