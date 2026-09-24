@@ -65,6 +65,12 @@ Runtime logical state belongs in session-scoped JSON/JSONL files, not repo files
 - `state.json` stores the current durable logical snapshot.
 - `operations.jsonl` stores append-only operation history.
 - Runtime handles such as child processes, HTTP servers, SSE clients, and cancellation tokens remain ephemeral and are reattached or marked stale after reload.
+- On provider or app restart, the playground reads `state.json`, restores only
+  allowlisted durable UI state, and resets volatile runtime truth. Selected
+  agent, target/protocol, non-secret Foundry metadata, hosted discovery,
+  transcript messages, and completed activity/operation history can return.
+  Local process state, PIDs, raw logs, cancellation handles, active operations,
+  project endpoint prompts, and readiness are not restored as current truth.
 
 Committed repo files should only be source/docs/assets. Gitignored `.env` files are allowed for non-secret Foundry values that the user provides through the Start local endpoint dialog.
 
@@ -76,6 +82,8 @@ Implemented now:
 - Shared command handlers for agent selection and local startup across UI routes and Copilot canvas actions.
 - Equivalent project-endpoint prompt submission for UI routes and Copilot canvas actions, so the in-canvas setup flow can be exercised without browser automation while preserving the Start local first-run contract.
 - Session-scoped `state.json` and `operations.jsonl` persistence under Copilot session files storage.
+- Safe restart rehydration from session-scoped `state.json`, with stale local
+  runtime/operation state reset instead of revived.
 - First-in-wins operation tracking for deploy/provision lifecycle commands.
 - Phase-aware cancellation requests: stop before irreversible remote phases, wait-for-settle after remote registration begins.
 - Deterministic diagnostic bridge actions for activity, operations, diagnostics, Foundry state, and next actions.
