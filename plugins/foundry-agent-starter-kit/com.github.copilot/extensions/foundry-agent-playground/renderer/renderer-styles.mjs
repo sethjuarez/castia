@@ -14,7 +14,7 @@ export const rendererStyles = `
       --cp-accent-hover: #9a1a41;
       --cp-accent-soft: rgba(177, 31, 75, 0.08);
       --cp-accent-fg: #ffffff;
-      --cp-success: #16a34a;
+      --cp-success: #1f883d;
       --cp-danger: #dc2626;
       --cp-warning: #f59e0b;
       --cp-link: #0078d4;
@@ -68,7 +68,7 @@ export const rendererStyles = `
       --cp-accent-hover: var(--color-focus-outline, var(--cp-link));
       --cp-accent-soft: color-mix(in srgb, var(--cp-accent) 10%, var(--cp-surface));
       --cp-accent-fg: var(--color-white, #ffffff);
-      --cp-success: var(--true-color-green, #16a34a);
+      --cp-success: var(--true-color-green, #1f883d);
       --cp-danger: var(--true-color-red, #dc2626);
       --cp-warning: var(--true-color-yellow, #f59e0b);
       --cp-link: var(--true-color-blue, var(--color-focus-outline, #0078d4));
