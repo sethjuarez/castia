@@ -58,7 +58,7 @@ optimize = ["azure-ai-agentserver-optimization>=1.0.0b1", "ruamel.yaml>=0.18"]
 prompty = ["jinja2>=3.1", "prompty[foundry,otel]>=2.0.2"]
 # Test-time only. Includes ruamel.yaml because the eval-suite tests parse real
 # eval.yaml / rubric fixtures.
-test = ["pytest>=8", "ruamel.yaml>=0.18"]
+test = ["pytest>=8", "ruamel.yaml>=0.18", "openai>=1.66"]
 
 [tool.uv]
 prerelease = "allow"

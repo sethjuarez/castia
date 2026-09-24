@@ -34,6 +34,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from copy import deepcopy
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -849,10 +850,12 @@ def _register_wire(
                     reply = await responses_dispatch(text)
                     dev_diagnostics.record_output(reply)
                 response_id = f"resp_{uuid4().hex}"
+                output_item_id = f"msg_{uuid4().hex}"
                 created_at = int(time.time())
                 body_out = _responses_body(
                     reply,
                     response_id=response_id,
+                    output_item_id=output_item_id,
                     created_at=created_at,
                     **response_options,
                 )
@@ -861,13 +864,7 @@ def _register_wire(
                         responses_store,
                         response_id,
                         {
-                            "response": _responses_body(
-                                reply,
-                                response_id=response_id,
-                                output_item_id=f"msg_{uuid4().hex}",
-                                created_at=created_at,
-                                **response_options,
-                            ),
+                            "response": deepcopy(body_out),
                             "input_items": _responses_input_items(
                                 body.get("input"), response_id=response_id
                             ),

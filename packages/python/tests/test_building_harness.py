@@ -7,6 +7,7 @@ import subprocess
 
 import httpx
 import pytest
+from openai.types.responses.response import Response as OpenAIResponse
 
 from castia import Agent, Depends, Message, Teams, current_request_context
 from castia.building import AgentTestHarness
@@ -67,6 +68,26 @@ def assert_responses_object_defaults(body: dict, *, output_text: str) -> None:
         }
     else:
         assert body["usage"] is None
+
+
+def assert_sdk_parseable_response(body: dict) -> None:
+    OpenAIResponse.model_validate(body)
+
+
+def assert_response_message_output(body: dict, *, text: str) -> None:
+    message = body["output"][0]
+    assert message["id"].startswith("msg_")
+    assert message["type"] == "message"
+    assert message["role"] == "assistant"
+    assert message["status"] == body["status"]
+    assert message["content"] == [
+        {
+            "type": "output_text",
+            "text": text,
+            "annotations": [],
+            "logprobs": [],
+        }
+    ]
 
 
 def assert_responses_sse_contract(response, *, deltas: list[str], output_text: str):
@@ -538,11 +559,8 @@ def test_responses_stream_uses_stream_handler_for_sse(monkeypatch):
             assert "application/json" in response.headers["content-type"]
             body = response.json()
             assert_responses_object_defaults(body, output_text="single:hello")
-            assert body["output"][0] == {
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": "single:hello"}],
-            }
+            assert_response_message_output(body, text="single:hello")
+            assert_sdk_parseable_response(body)
 
     asyncio.run(run())
 
@@ -571,11 +589,8 @@ def test_responses_stream_falls_back_to_responses_handler_for_sse():
             assert "application/json" in response.headers["content-type"]
             body = response.json()
             assert_responses_object_defaults(body, output_text="single:hello")
-            assert body["output"][0] == {
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": "single:hello"}],
-            }
+            assert_response_message_output(body, text="single:hello")
+            assert_sdk_parseable_response(body)
 
     asyncio.run(run())
 
@@ -594,17 +609,14 @@ def test_responses_lifecycle_stores_completed_json_response():
             body = created.json()
             response_id = body["id"]
             assert_responses_object_defaults(body, output_text="answer:hello")
+            assert_response_message_output(body, text="answer:hello")
+            assert_sdk_parseable_response(body)
 
             fetched = await test.client.get(f"/responses/{response_id}")
             assert fetched.status_code == 200
             stored = fetched.json()
-            assert stored["id"] == body["id"]
-            assert_responses_object_defaults(stored, output_text=body["output_text"])
-            assert stored["created_at"] == body["created_at"]
-            assert stored["output"][0]["id"].startswith("msg_")
-            assert stored["output"][0]["status"] == "completed"
-            assert stored["output"][0]["content"][0]["annotations"] == []
-            assert stored["output"][0]["content"][0]["logprobs"] == []
+            assert stored == body
+            assert_sdk_parseable_response(stored)
 
             input_items = await test.client.get(f"/responses/{response_id}/input_items")
             assert input_items.status_code == 200
