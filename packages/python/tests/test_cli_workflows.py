@@ -14,7 +14,7 @@ from castia.building import AgentTestHarness
     [
         ("build", ("scaffold", "check", "test")),
         ("lifecycle", ("snapshot", "dataset", "evaluate", "promote", "rollback")),
-        ("observe", ("features", "traces", "verify", "suite")),
+        ("observe", ("features", "traces", "local-traces", "verify", "suite")),
         ("finetune", ("submit", "status", "results", "handoff")),
         ("optimize", ("run", "status", "cancel", "apply")),
     ],

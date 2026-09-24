@@ -376,6 +376,13 @@ steps. Inputs and results are still omitted unless
 `CASTIA_PROMPTY_TRACE_INTERNAL=true` only when debugging Prompty lifecycle
 internals such as `prepare_async` or `render_async`.
 
+The local JSONL stream can be summarized without cloud access:
+
+```powershell
+python -m castia observe local-traces --path .castia/traces/live.jsonl --limit 20
+python -m castia observe local-traces --path .castia/traces/live.jsonl --kind prompty
+```
+
 For a Prompty-owned tool loop, Castia provides a local toolbox MCP executor.
 This is different from the default server-side Responses `mcp` spec above:
 Prompty receives a model function-tool call, Castia calls the toolbox MCP

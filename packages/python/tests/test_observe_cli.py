@@ -155,6 +155,91 @@ def test_summarize_is_offline_and_preserves_unknowns(monkeypatch, capsys):
     assert output["error_rate"] is None and output["cost"] is None
 
 
+def test_local_traces_reads_jsonl_without_network(tmp_path, capsys):
+    trace_path = tmp_path / "live.jsonl"
+    trace_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"name": "turn", "kind": "turn", "status": "ok"}),
+                json.dumps({"name": "tool", "kind": "tool", "status": "error"}),
+                json.dumps({"name": "model", "kind": "model", "status": "ok"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert invoke(
+        "local-traces",
+        "--path", str(trace_path),
+        "--status", "ok",
+        "--limit", "1",
+    ) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["source"] == str(trace_path)
+    assert output["summary"] == {
+        "record_count": 1,
+        "total_matching_records": 2,
+        "skipped_incomplete_records": 0,
+        "status_counts": {"ok": 1},
+        "kind_counts": {"model": 1},
+    }
+    assert [record["name"] for record in output["records"]] == ["model"]
+
+
+def test_local_traces_filters_kind_and_name(tmp_path, capsys):
+    trace_path = tmp_path / "live.jsonl"
+    trace_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"name": "prompty turn_async", "kind": "prompty", "status": "ok"}),
+                json.dumps({"name": "castia.model.respond", "kind": "model", "status": "ok"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert invoke(
+        "local-traces",
+        "--path", str(trace_path),
+        "--kind", "prompty",
+        "--name-contains", "turn",
+    ) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["summary"]["kind_counts"] == {"prompty": 1}
+    assert output["records"][0]["name"] == "prompty turn_async"
+
+
+def test_local_traces_ignores_torn_final_line(tmp_path, capsys):
+    trace_path = tmp_path / "live.jsonl"
+    trace_path.write_text(
+        json.dumps({"name": "turn", "kind": "turn", "status": "ok"})
+        + "\n"
+        + '{"name": "partial"',
+        encoding="utf-8",
+    )
+
+    assert invoke("local-traces", "--path", str(trace_path)) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["summary"]["record_count"] == 1
+    assert output["summary"]["skipped_incomplete_records"] == 1
+
+
+def test_local_traces_rejects_malformed_middle_line(tmp_path, capsys):
+    trace_path = tmp_path / "live.jsonl"
+    trace_path.write_text(
+        json.dumps({"name": "turn", "kind": "turn", "status": "ok"})
+        + "\n"
+        + '{"name": "bad"'
+        + "\n"
+        + json.dumps({"name": "model", "kind": "model", "status": "ok"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert invoke("local-traces", "--path", str(trace_path)) == 2
+    assert json.loads(capsys.readouterr().out)["category"] == "configuration"
+
+
 def test_canonical_output_file_uses_requested_path(monkeypatch):
     written = {}
     monkeypatch.setattr(Path, "write_text", lambda self, text, **kwargs: written.update({str(self): text}))
@@ -179,7 +264,7 @@ def test_requested_top_level_commands_are_registered(capsys):
     with pytest.raises(SystemExit):
         invoke("--help")
     help_text = capsys.readouterr().out
-    for command in ("traces", "summary", "verify", "drift", "compare", "catalog"):
+    for command in ("traces", "summary", "local-traces", "verify", "drift", "compare", "catalog"):
         assert command in help_text
 
 

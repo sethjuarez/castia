@@ -48,6 +48,27 @@ def _json(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _jsonl(path: str) -> tuple[list[dict[str, Any]], int]:
+    rows: list[dict[str, Any]] = []
+    text = Path(path).read_text(encoding="utf-8")
+    lines = text.splitlines()
+    skipped_incomplete = 0
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            if index == len(lines) - 1 and not text.endswith("\n"):
+                skipped_incomplete += 1
+                continue
+            raise
+        if not isinstance(value, dict):
+            raise TypeError("local trace rows must be JSON objects")
+        rows.append(value)
+    return rows, skipped_incomplete
+
+
 def _safe(command: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Namespace], int]:
     @functools.wraps(command)
     def invoke(args: argparse.Namespace) -> int:
@@ -115,6 +136,44 @@ def _summarize(args: argparse.Namespace) -> int:
     if not isinstance(rows, list):
         raise TypeError("records must be a list")
     _emit(summarize(ExecutionRecord(**row) for row in rows), args.out)
+    return 0
+
+
+@_safe
+def _local_traces(args: argparse.Namespace) -> int:
+    rows, skipped_incomplete = _jsonl(args.path)
+    if args.status:
+        rows = [row for row in rows if row.get("status") == args.status]
+    if args.kind:
+        rows = [row for row in rows if row.get("kind") == args.kind]
+    if args.name_contains:
+        rows = [row for row in rows if args.name_contains in str(row.get("name", ""))]
+    if args.limit < 1:
+        raise ValueError("limit must be positive")
+    selected = rows[-args.limit:]
+    status_counts = {
+        status: sum(str(row.get("status", "unknown")) == status for row in selected)
+        for status in sorted({str(row.get("status", "unknown")) for row in selected})
+    }
+    kind_counts = {
+        kind: sum(str(row.get("kind", "unknown")) == kind for row in selected)
+        for kind in sorted({str(row.get("kind", "unknown")) for row in selected})
+    }
+    _emit(
+        {
+            "schema_version": 1,
+            "source": args.path,
+            "records": selected,
+            "summary": {
+                "record_count": len(selected),
+                "total_matching_records": len(rows),
+                "skipped_incomplete_records": skipped_incomplete,
+                "status_counts": status_counts,
+                "kind_counts": kind_counts,
+            },
+        },
+        args.out,
+    )
     return 0
 
 
@@ -280,6 +339,19 @@ def register(subparsers: Any) -> argparse.ArgumentParser:
     summary.add_argument("--records", required=True)
     _output(summary)
     summary.set_defaults(func=_summarize)
+
+    local_traces = commands.add_parser(
+        "local-traces",
+        help="read local Castia JSONL trace sink records without network calls",
+    )
+    local_traces.add_argument("--path", default=".castia/traces/live.jsonl")
+    local_traces.add_argument("--limit", type=int, default=100,
+                              help="return the newest matching records")
+    local_traces.add_argument("--status", choices=["ok", "error", "cancelled"])
+    local_traces.add_argument("--kind", help="filter by trace record kind")
+    local_traces.add_argument("--name-contains", help="filter by trace record name substring")
+    _output(local_traces)
+    local_traces.set_defaults(func=_local_traces)
 
     verify = commands.add_parser("verify", help="wait for an already submitted tagged probe in telemetry")
     _trace_options(verify, verify=True)
