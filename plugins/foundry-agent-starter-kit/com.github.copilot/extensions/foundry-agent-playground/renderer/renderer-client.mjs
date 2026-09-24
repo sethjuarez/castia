@@ -1031,7 +1031,7 @@ export const rendererClientScript = `
       overlay.setAttribute("role", "presentation");
       overlay.innerHTML = '<div class="mermaid-lightbox" role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram">' +
         '<div class="mermaid-lightbox-head">' +
-          '<div><strong>Mermaid diagram</strong><div class="mermaid-lightbox-help">Drag to pan · Ctrl+wheel to zoom · Space+drag to move</div></div>' +
+          '<div><strong>Mermaid diagram</strong><div class="mermaid-lightbox-help">Drag to pan · Wheel to zoom</div></div>' +
           '<div class="mermaid-lightbox-controls" aria-label="Diagram zoom controls">' +
             '<button type="button" class="mermaid-zoom-out" aria-label="Zoom out">−</button>' +
             '<button type="button" class="mermaid-zoom-in" aria-label="Zoom in">+</button>' +
@@ -1047,13 +1047,15 @@ export const rendererClientScript = `
       clone.removeAttribute("height");
       const viewport = overlay.querySelector(".mermaid-lightbox-body");
       const canvas = overlay.querySelector(".mermaid-lightbox-canvas");
-      const box = svg.viewBox?.baseVal;
-      const baseWidth = Math.max(320, Math.round(box?.width || svg.getBoundingClientRect().width || 960));
-      const baseHeight = Math.max(180, Math.round(box?.height || svg.getBoundingClientRect().height || 540));
-      clone.style.width = baseWidth + "px";
-      clone.style.height = baseHeight + "px";
       canvas.appendChild(clone);
       document.body.appendChild(overlay);
+      const contentBox = mermaidSvgContentBox(clone);
+      const box = contentBox || svg.viewBox?.baseVal;
+      const baseWidth = Math.max(320, Math.round(box?.width || svg.getBoundingClientRect().width || 960));
+      const baseHeight = Math.max(180, Math.round(box?.height || svg.getBoundingClientRect().height || 540));
+      if (contentBox) clone.setAttribute("viewBox", [contentBox.x, contentBox.y, contentBox.width, contentBox.height].join(" "));
+      clone.style.width = baseWidth + "px";
+      clone.style.height = baseHeight + "px";
       activeMermaidLightbox = {
         overlay,
         trigger,
@@ -1065,7 +1067,6 @@ export const rendererClientScript = `
         baseWidth,
         baseHeight,
         panning: null,
-        spaceDown: false,
       };
       wireMermaidLightboxViewport(activeMermaidLightbox);
       fitMermaidLightboxToViewport(activeMermaidLightbox);
@@ -1102,11 +1103,26 @@ export const rendererClientScript = `
       viewport.addEventListener("pointerup", endPan);
       viewport.addEventListener("pointercancel", endPan);
       viewport.addEventListener("wheel", (event) => {
-        if (!(event.ctrlKey || event.metaKey)) return;
         event.preventDefault();
-        const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+        const factor = Math.exp(-event.deltaY * 0.0015);
         zoomMermaidLightbox(factor, event.clientX, event.clientY);
       }, { passive: false });
+    }
+
+    function mermaidSvgContentBox(svg) {
+      try {
+        const box = svg.getBBox?.();
+        if (!box || box.width <= 0 || box.height <= 0) return null;
+        const padding = Math.max(24, Math.min(80, Math.max(box.width, box.height) * 0.04));
+        return {
+          x: Math.floor(box.x - padding),
+          y: Math.floor(box.y - padding),
+          width: Math.ceil(box.width + padding * 2),
+          height: Math.ceil(box.height + padding * 2),
+        };
+      } catch {
+        return null;
+      }
     }
 
     function applyMermaidLightboxTransform(state = activeMermaidLightbox) {
@@ -1320,16 +1336,7 @@ export const rendererClientScript = `
       if (event.key === "Escape" && activeMermaidLightbox) {
         event.preventDefault();
         closeMermaidDiagramLightbox();
-      } else if (event.code === "Space" && activeMermaidLightbox && !event.repeat && !event.target?.closest?.("button, input, textarea, select")) {
-        activeMermaidLightbox.spaceDown = true;
-        activeMermaidLightbox.viewport.classList.add("space-pan");
       }
-    });
-
-    document.addEventListener("keyup", (event) => {
-      if (event.code !== "Space" || !activeMermaidLightbox) return;
-      activeMermaidLightbox.spaceDown = false;
-      activeMermaidLightbox.viewport.classList.remove("space-pan");
     });
 
     function answerTextForDetailsKey(detailsKey) {
