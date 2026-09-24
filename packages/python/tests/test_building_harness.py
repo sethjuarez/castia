@@ -749,7 +749,12 @@ def test_responses_lifecycle_stores_completed_json_response():
 
             cancel = await test.client.post(f"/responses/{response_id}/cancel")
             assert cancel.status_code == 400
-            assert cancel.json()["error"]["message"] == "Cannot cancel a synchronous response."
+            assert cancel.json()["error"] == {
+                "message": "Cannot cancel a completed response.",
+                "type": "invalid_request_error",
+                "param": "response_id",
+                "code": "unsupported_parameter",
+            }
 
             deleted = await test.client.delete(f"/responses/{response_id}")
             assert deleted.status_code == 200
@@ -760,6 +765,10 @@ def test_responses_lifecycle_stores_completed_json_response():
             }
             missing = await test.client.get(f"/responses/{response_id}")
             assert missing.status_code == 404
+
+            cancel_missing = await test.client.post(f"/responses/{response_id}/cancel")
+            assert cancel_missing.status_code == 404
+            assert cancel_missing.json()["error"]["param"] == "response_id"
 
     asyncio.run(run())
 
@@ -783,11 +792,28 @@ def test_responses_lifecycle_honors_store_false_and_rejects_background():
                 await test.client.get(f"/responses/{response_id}/input_items")
             ).status_code == 404
 
+            for background in (False, None):
+                created = await test.client.post(
+                    "/responses",
+                    json={
+                        "input": f"background-{background}",
+                        "background": background,
+                        "store": False,
+                    },
+                )
+                assert created.status_code == 200
+                assert created.json()["output_text"] == f"background-{background}"
+
             background = await test.client.post(
                 "/responses", json={"input": "later", "background": True}
             )
             assert background.status_code == 400
-            assert background.json()["error"]["param"] == "background"
+            assert background.json()["error"] == {
+                "message": "background=true is not supported by this Castia runtime.",
+                "type": "invalid_request_error",
+                "param": "background",
+                "code": "unsupported_parameter",
+            }
 
             bad_body = await test.client.post("/responses", json=["not", "object"])
             assert bad_body.status_code == 400
@@ -1084,6 +1110,16 @@ def test_responses_stream_failure_emits_terminal_failed_event(monkeypatch):
             )
             assert input_items.status_code == 200
             assert input_items.json()["data"][0]["content"][0]["text"] == "hello"
+            cancel = await test.client.post(
+                f"/responses/{failed['response']['id']}/cancel"
+            )
+            assert cancel.status_code == 400
+            assert cancel.json()["error"] == {
+                "message": "Cannot cancel a failed response.",
+                "type": "invalid_request_error",
+                "param": "response_id",
+                "code": "unsupported_parameter",
+            }
             assert stream_attributes["terminal_status"] == "failed"
             assert stream_attributes["chunk_count"] == 7
 

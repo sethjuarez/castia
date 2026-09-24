@@ -982,10 +982,17 @@ def _register_wire(
 
         @app.post("/responses/{response_id}/cancel")
         async def cancel_response(response_id: str) -> Response:
-            if response_id not in responses_store:
+            record = responses_store.get(response_id)
+            if record is None:
                 return _not_found_response(response_id)
+            status = record["response"].get("status")
+            if isinstance(status, str):
+                message = f"Cannot cancel a {status} response."
+            else:
+                # Defensive only: Castia stores terminal responses today.
+                message = "In-flight cancellation is not supported by this Castia runtime."
             return _api_error(
-                "Cannot cancel a synchronous response.",
+                message,
                 code="unsupported_parameter",
                 param="response_id",
             )
