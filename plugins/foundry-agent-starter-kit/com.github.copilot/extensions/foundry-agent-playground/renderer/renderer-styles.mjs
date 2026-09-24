@@ -68,7 +68,10 @@ export const rendererStyles = `
       --cp-accent-hover: var(--color-focus-outline, var(--cp-link));
       --cp-accent-soft: color-mix(in srgb, var(--cp-accent) 10%, var(--cp-surface));
       --cp-accent-fg: var(--color-white, #ffffff);
-      --cp-success: var(--true-color-green, #1f883d);
+      --cp-success: #2f8743;
+      --cp-success-text: #2f8743;
+      --cp-success-soft: color-mix(in srgb, var(--cp-success) 12%, var(--cp-surface));
+      --cp-success-fg: #ffffff;
       --cp-danger: var(--true-color-red, #dc2626);
       --cp-warning: var(--true-color-yellow, #f59e0b);
       --cp-link: var(--true-color-blue, var(--color-focus-outline, #0078d4));
@@ -95,6 +98,10 @@ export const rendererStyles = `
       --cp-accent-hover: var(--color-focus-outline, var(--true-color-blue, #75bfff));
       --cp-accent-soft: color-mix(in srgb, var(--cp-accent) 16%, var(--cp-surface));
       --cp-accent-fg: var(--background-color-default, #1f1f1f);
+      --cp-success: var(--true-color-green, #4ade80);
+      --cp-success-text: var(--cp-success);
+      --cp-success-soft: color-mix(in srgb, var(--cp-success) 18%, var(--cp-surface));
+      --cp-success-fg: var(--background-color-default, #1f1f1f);
       --cp-shadow: 0 0 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35);
       --cp-overlay: color-mix(in srgb, var(--cp-bg) 88%, transparent);
       --cp-panel: color-mix(in srgb, var(--cp-surface) 88%, transparent);
@@ -116,6 +123,10 @@ export const rendererStyles = `
       --cp-overlay: rgba(255, 255, 255, 0.92);
       --cp-sheen: #f5f5f5;
       --cp-highlight: color-mix(in srgb, var(--cp-accent) 10%, #ffffff);
+      --cp-success: #2f8743;
+      --cp-success-text: #2f8743;
+      --cp-success-soft: color-mix(in srgb, var(--cp-success) 12%, #ffffff);
+      --cp-success-fg: #ffffff;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; }
@@ -283,7 +294,7 @@ export const rendererStyles = `
       box-shadow: var(--cp-shadow);
     }
     .step.done {
-      border-color: color-mix(in srgb, var(--cp-success) 24%, transparent);
+      border-color: color-mix(in srgb, var(--cp-success) 38%, var(--cp-border));
     }
     .step.auxiliary {
       opacity: 0.68;
@@ -1553,7 +1564,7 @@ export const rendererStyles = `
       font-weight: 600;
     }
     .json-string {
-      color: var(--cp-success);
+      color: var(--cp-success-text);
     }
     .json-number {
       color: var(--cp-warning);
@@ -1854,7 +1865,7 @@ export const rendererStyles = `
     }
     .badge.ok {
       background: transparent;
-      color: var(--cp-success);
+      color: var(--cp-success-text);
     }
     .badge.fail {
       background: transparent;

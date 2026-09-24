@@ -17,6 +17,7 @@ import { DEFAULT_ENDPOINT, DEFAULT_MODEL_DEPLOYMENT, DEFAULT_TOOLBOX_NAME } from
 import {
     activeEndpoint,
     activeProtocolEndpoint,
+    addActivity,
     addLocalEvent,
     clearTargetHealth,
     clearMessagesForTarget,
@@ -52,7 +53,9 @@ import {
     appendOperationRecord,
     configureRuntimeStore,
     persistStateSnapshot,
+    readStateSnapshot,
 } from "./state/persistence.mjs";
+import { rehydratePlaygroundState } from "./state/rehydration.mjs";
 import { localStartupStillPending } from "./state/local-readiness.mjs";
 import { discoverAgents, serviceEnvPrefix } from "./client/agent-discovery.mjs";
 import {
@@ -1643,6 +1646,18 @@ async function startServer(ctx, copilotSession) {
         sessionId: copilotSession?.sessionId || ctx.sessionId || process.env.SESSION_ID || process.env.COPILOT_SESSION_ID,
         instanceId: ctx.instanceId,
     });
+    const persisted = await readStateSnapshot(state);
+    if (persisted.snapshot) {
+        rehydratePlaygroundState(state, persisted.snapshot, { input: ctx.input || {} });
+    } else if (persisted.error) {
+        addActivity(state, {
+            actor: "Canvas",
+            kind: "restore_state",
+            status: "warn",
+            summary: "Could not restore previous Playground state; starting fresh.",
+            details: { path: persisted.path, error: persisted.error.message },
+        });
+    }
     await hydrateFoundryConnection(state);
     snapshotState(state);
     const handleRequest = createRequestHandler({

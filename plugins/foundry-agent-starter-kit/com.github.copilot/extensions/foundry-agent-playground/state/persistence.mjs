@@ -1,6 +1,8 @@
-import { appendFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+export const PERSISTED_STATE_SCHEMA_VERSION = 1;
 
 function copilotHome() {
     return process.env.COPILOT_HOME || join(homedir(), ".copilot");
@@ -49,11 +51,33 @@ export async function persistStateSnapshot(state, snapshot) {
         await mkdir(dirname(path), { recursive: true });
         store.writeCounter = (store.writeCounter || 0) + 1;
         const tempPath = `${path}.${process.pid}.${store.writeCounter}.tmp`;
-        await writeFile(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+        await writeFile(tempPath, `${JSON.stringify({
+            schemaVersion: PERSISTED_STATE_SCHEMA_VERSION,
+            ...snapshot,
+        }, null, 2)}\n`, "utf8");
         await rename(tempPath, path);
         return path;
     });
     return store.queue;
+}
+
+export async function readStateSnapshot(stateOrStore) {
+    const store = stateOrStore?.runtimeStore || stateOrStore;
+    const path = store?.statePath;
+    if (!path) return { snapshot: null, path: null, error: null };
+    try {
+        const text = await readFile(path, "utf8");
+        const snapshot = JSON.parse(text);
+        if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+            return { snapshot: null, path, error: new Error("Persisted Playground state is not a JSON object.") };
+        }
+        return { snapshot, path, error: null };
+    } catch (error) {
+        if (error?.code === "ENOENT") {
+            return { snapshot: null, path, error: null };
+        }
+        return { snapshot: null, path, error };
+    }
 }
 
 export async function appendOperationRecord(state, record) {

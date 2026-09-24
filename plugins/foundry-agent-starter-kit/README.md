@@ -122,4 +122,10 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
    Playwright, browser navigation, or direct canvas URL automation for Playground
    smoke, layout, or collaboration validation; those paths do not exercise the
    shipped side-panel canvas.
-7. Deploy or publish only after explicit approval.
+7. If the Copilot app or extension process restarts, the Playground restores
+   safe session-scoped state from its saved canvas snapshot: selected agent,
+   target/protocol, non-secret Foundry metadata, hosted discovery, transcript,
+   and completed activity/operation history. It intentionally resets local
+   process state, active operations, raw logs, prompts, and readiness; click
+   **Start local** or run `health_check` again to verify current runtime state.
+8. Deploy or publish only after explicit approval.
