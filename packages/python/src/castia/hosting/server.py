@@ -647,7 +647,13 @@ def _register_wire(
         @app.post("/responses")
         async def responses(request: Request) -> Response:
             with _request_scope(request):
-                body = await request.json()
+                try:
+                    body = await request.json()
+                except Exception:  # noqa: BLE001 - malformed JSON is a protocol error
+                    return _api_error(
+                        "request body must be a JSON object",
+                        param="body",
+                    )
                 if not isinstance(body, dict):
                     return _api_error(
                         "request body must be a JSON object",
@@ -935,7 +941,18 @@ def _register_wire(
         @app.post("/chat/completions")
         async def chat(request: Request) -> Response:
             with _request_scope(request):
-                body = await request.json()
+                try:
+                    body = await request.json()
+                except Exception:  # noqa: BLE001 - malformed JSON is a protocol error
+                    return _api_error(
+                        "request body must be a JSON object",
+                        param="body",
+                    )
+                if not isinstance(body, dict):
+                    return _api_error(
+                        "request body must be a JSON object",
+                        param="body",
+                    )
                 text = _last_user_text(body.get("messages"))
                 with dev_diagnostics.turn("chat", text):
                     reply = await chat_dispatch(text)

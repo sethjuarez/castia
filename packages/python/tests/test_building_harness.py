@@ -4,6 +4,7 @@ import asyncio
 import json
 import socket
 import subprocess
+import uuid
 
 import httpx
 import pytest
@@ -897,6 +898,109 @@ def test_responses_input_items_pagination_and_order():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("bad_body", [["bad"], "bad", 7])
+def test_responses_rejects_non_object_json_bodies(bad_body):
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post("/responses", json=bad_body)
+            assert response.status_code == 400
+            assert response.json()["error"]["param"] == "body"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("raw_body", [b"", b"null", b'{"input":', b"not json"])
+def test_responses_rejects_unparseable_or_non_object_raw_bodies(raw_body):
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses",
+                content=raw_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response.status_code == 400
+            assert response.json()["error"]["param"] == "body"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("bad_body", [["bad"], "bad", 7])
+def test_chat_rejects_non_object_json_bodies(bad_body):
+    app = Agent()
+
+    @app.chat()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post("/chat/completions", json=bad_body)
+            assert response.status_code == 400
+            assert response.json()["error"]["param"] == "body"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("raw_body", [b"", b"null", b'{"messages":', b"not json"])
+def test_chat_rejects_unparseable_or_non_object_raw_bodies(raw_body):
+    app = Agent()
+
+    @app.chat()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/chat/completions",
+                content=raw_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response.status_code == 400
+            assert response.json()["error"]["param"] == "body"
+
+    asyncio.run(run())
+
+
+def test_responses_input_items_rejects_malformed_query_params():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post("/responses", json={"input": "hello"})
+            response_id = created.json()["id"]
+            cases = [
+                ("limit=not-an-int", "limit"),
+                ("limit=-1", "limit"),
+                ("limit=101", "limit"),
+                ("order=random", "order"),
+            ]
+            for query, param in cases:
+                response = await test.client.get(
+                    f"/responses/{response_id}/input_items?{query}"
+                )
+                assert response.status_code == 400
+                assert response.json()["error"]["param"] == param
+
+    asyncio.run(run())
+
+
 def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
     from castia.messaging import connector
 
@@ -994,6 +1098,74 @@ def test_invoke_and_unhandled_and_malformed_activity_use_production_behavior():
             assert non_object.status_code == 400
             assert not test.egress
             assert (await test.client.post("/responses", json={})).status_code == 404
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("activity_id", "expected_status"),
+    [
+        ("", 200),
+        ("x" * 257, 200),
+        ("bad id", 200),
+        ("bad\nid", 200),
+        (5, 400),
+    ],
+)
+def test_activity_malformed_ids_fall_back_to_safe_header(
+    activity_id, expected_status
+):
+    app = Agent()
+
+    @app.activity(Teams.direct)
+    async def reply(msg: Message):
+        return None
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(id=activity_id),
+                headers={"x-agent-session-id": "session-header"},
+            )
+            assert response.status_code == expected_status
+            header = response.headers["x-agent-activity-id"]
+            assert header != str(activity_id)
+            uuid.UUID(header)
+            assert response.headers["x-agent-session-id"] == "session-header"
+
+    asyncio.run(run())
+
+
+def test_activity_session_id_uses_valid_query_then_header_then_uuid():
+    app = Agent()
+
+    @app.activity(Teams.direct)
+    async def reply(msg: Message):
+        return None
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/activity/messages?agent_session_id=query-session",
+                json=activity(),
+                headers={"x-agent-session-id": "header-session"},
+            )
+            assert response.headers["x-agent-session-id"] == "query-session"
+
+            response = await test.client.post(
+                "/activity/messages?agent_session_id=bad%0d%0aInjected:%201",
+                json=activity(id="bad-query-session"),
+                headers={"x-agent-session-id": "header-session"},
+            )
+            assert response.headers["x-agent-session-id"] == "header-session"
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(id="bad-header-session"),
+                headers={"x-agent-session-id": "bad session"},
+            )
+            uuid.UUID(response.headers["x-agent-session-id"])
 
     asyncio.run(run())
 
