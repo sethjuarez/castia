@@ -178,8 +178,8 @@ def _responses_body(
     """An OpenAI Responses-shaped payload carrying ``text``.
 
     Minimal but real: ``output_text`` for simple readers and a structured
-    ``output[]`` for clients that walk the content array. ``id`` lets a caller
-    thread ``previous_response_id`` on a later turn.
+    ``output[]`` for clients that walk the content array. ``id`` lets clients
+    retrieve this completed response from the process-local lifecycle store.
     """
     content_part = {"type": "output_text", "text": text}
     message = {

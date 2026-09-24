@@ -147,6 +147,40 @@ input, selected local/Prompty tool calls, arguments, success/error summaries,
 and final output. The endpoint is disabled by default and returns 404 to
 non-loopback callers.
 
+### Responses lifecycle support
+
+Castia serves the OpenAI Responses wire protocol at `POST /responses`. A
+non-streaming request returns a completed `response` object immediately.
+`stream: true` returns Responses SSE lifecycle events followed by `[DONE]` on
+success. If the handler raises mid-turn, the stream terminates without a
+terminal event and no response record is stored; Castia does not emit
+`response.failed` for that failure today. Unless the request sets
+`store: false`, Castia also keeps the completed response and normalized input
+items in a bounded in-memory store for the current process.
+The completed record is available through:
+
+- `GET /responses/{response_id}`
+- `DELETE /responses/{response_id}`
+- `POST /responses/{response_id}/cancel`
+- `GET /responses/{response_id}/input_items`
+
+This lifecycle store is intentionally lightweight. It is process-local,
+in-memory, and capped at the most recent 512 responses per process; older
+records are evicted, so a later `GET` can return `404` even before restart. It
+is not durable and does not survive process restart, scale-out, or container
+replacement. Stored and returned response objects are wire-shaped but minimal:
+completed `usage` token counts are reported as zeros and are not real model
+accounting.
+
+The runtime is deliberately explicit about unsupported Azure AI AgentServer
+hosted-runtime features: `background=true` is rejected with
+`400 unsupported_parameter`; `POST /responses/{response_id}/cancel` exists only
+to return a clear `400 unsupported_parameter` for a stored, already-completed
+response (`404` if the response is unknown); durable replay and true in-flight
+cancellation are not implemented. `previous_response_id` is accepted and
+silently ignored: it is neither echoed in the response nor used to reconstruct
+history.
+
 ### Composing protocols with routers
 
 Like FastAPI's `include_router`, an `Agent` composes `Router`s so each protocol
