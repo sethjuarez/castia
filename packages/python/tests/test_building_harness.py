@@ -8,7 +8,7 @@ import subprocess
 import httpx
 import pytest
 
-from castia import Agent, Depends, Message, Teams
+from castia import Agent, Depends, Message, Teams, current_request_context
 from castia.building import AgentTestHarness
 from castia.building._offline import OfflineOperationError
 
@@ -738,6 +738,7 @@ def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
 
     @app.activity(Teams.direct)
     async def reply(msg: Message):
+        assert current_request_context().session_id == "session-header"
         await msg.typing()
         assert await msg.react()
         assert await msg.unreact()
@@ -752,8 +753,14 @@ def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
 
     async def run():
         async with AgentTestHarness(app) as test:
-            response = await test.client.post("/activity/messages", json=activity())
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(),
+                headers={"x-agent-session-id": "session-header"},
+            )
             assert response.status_code == 200
+            assert response.headers["x-agent-activity-id"] == "turn"
+            assert response.headers["x-agent-session-id"] == "session-header"
             events = test.egress
             assert [e.method for e in events[:6]] == [
                 "POST", "PUT", "DELETE", "POST", "PUT", "DELETE"
@@ -773,6 +780,8 @@ def test_invoke_and_unhandled_and_malformed_activity_use_production_behavior():
 
     @app.invoke("custom")
     async def invoke(value):
+        if value.get("action") == "query-session":
+            assert current_request_context().session_id == "session-query"
         return {"received": value}
 
     async def run():
@@ -781,11 +790,38 @@ def test_invoke_and_unhandled_and_malformed_activity_use_production_behavior():
                 type="invoke", name="custom", value={"action": "test"}
             ))
             assert response.json() == {"received": {"action": "test"}}
+            assert response.headers["x-agent-activity-id"] == "turn"
             response = await test.client.post("/activity/messages", json=activity(
-                type="invoke", name="unknown"
+                type="invoke", name="unknown", id="bad id\n"
             ))
             assert response.json() == {}
-            assert (await test.client.post("/activity/messages", content="{")).status_code == 200
+            fallback_activity_id = response.headers["x-agent-activity-id"]
+            assert fallback_activity_id != "bad id\n"
+            assert len(fallback_activity_id) == 36
+            response = await test.client.post(
+                "/activity/messages?agent_session_id=session-query",
+                json=activity(
+                    type="invoke",
+                    name="custom",
+                    value={"action": "query-session"},
+                    id="activity-query-session",
+                ),
+                headers={"x-agent-session-id": "session-header"},
+            )
+            assert response.headers["x-agent-session-id"] == "session-query"
+            response = await test.client.post(
+                "/activity/messages?agent_session_id=bad%0d%0aX-Evil:%201",
+                json=activity(id=5),
+                headers={"x-agent-session-id": "session-header"},
+            )
+            assert response.status_code == 400
+            assert "\n" not in response.headers["x-agent-session-id"]
+            assert response.headers["x-agent-activity-id"] != "5"
+            malformed = await test.client.post("/activity/messages", content="{")
+            assert malformed.status_code == 400
+            assert "x-agent-activity-id" in malformed.headers
+            non_object = await test.client.post("/activity/messages", json=["bad"])
+            assert non_object.status_code == 400
             assert not test.egress
             assert (await test.client.post("/responses", json={})).status_code == 404
 

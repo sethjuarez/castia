@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import socket
 import subprocess
 import time
@@ -39,6 +40,7 @@ from uuid import uuid4
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 
 from castia.messaging.connector import send_reply
 from castia.messaging.routing import (
@@ -82,6 +84,10 @@ _ROUTE_PATHS = {
     "invocations": "/invocations",
     "chat": "/chat/completions",
 }
+_ACTIVITY_ID_HEADER = "x-agent-activity-id"
+_ACTIVITY_SESSION_ID_QUERY_PARAM = "agent_session_id"
+_MAX_ACTIVITY_ID_LENGTH = 256
+_VALID_ACTIVITY_ID = re.compile(r"^[a-zA-Z0-9\-_.:]+\Z")
 _COMMON_ENV_CHECKS = (
     "FOUNDRY_PROJECT_ENDPOINT",
     "AZURE_AI_MODEL_DEPLOYMENT_NAME",
@@ -105,12 +111,47 @@ def _header_value(request: Request, name: str) -> str | None:
     return value or None
 
 
+def _valid_activity_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    if not value or len(value) > _MAX_ACTIVITY_ID_LENGTH:
+        return None
+    if not _VALID_ACTIVITY_ID.fullmatch(value):
+        return None
+    return value
+
+
+def _activity_response_headers(
+    request: Request,
+    payload: dict | None,
+    *,
+    session_id: str | None = None,
+) -> dict[str, str]:
+    activity_id = _valid_activity_id((payload or {}).get("id")) or str(uuid4())
+    return {
+        _ACTIVITY_ID_HEADER: activity_id,
+        FOUNDRY_SESSION_ID_HEADER: session_id or _activity_session_id(request),
+    }
+
+
+def _activity_session_id(request: Request) -> str:
+    return (
+        _valid_activity_id(request.query_params.get(_ACTIVITY_SESSION_ID_QUERY_PARAM))
+        or _valid_activity_id(_header_value(request, FOUNDRY_SESSION_ID_HEADER))
+        or str(uuid4())
+    )
+
+
 @contextmanager
-def _request_scope(request: Request) -> Iterator[RequestContext]:
+def _request_scope(
+    request: Request,
+    *,
+    session_id: str | None = None,
+) -> Iterator[RequestContext]:
     context = RequestContext(
         call_id=_header_value(request, FOUNDRY_CALL_ID_HEADER),
         user_id=_header_value(request, FOUNDRY_USER_ID_HEADER),
-        session_id=_header_value(request, FOUNDRY_SESSION_ID_HEADER),
+        session_id=session_id or _header_value(request, FOUNDRY_SESSION_ID_HEADER),
     )
     token = set_request_context(context)
     try:
@@ -452,14 +493,33 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
 
     @app.post("/activity/messages")
     async def messages(request: Request) -> Response:
-        with _request_scope(request):
-            try:
-                payload = await request.json()
-            except Exception:  # noqa: BLE001 - a malformed body is not our failure
-                logger.error("Activity: unparseable request body.")
-                return Response(status_code=200)
+        session_id = _activity_session_id(request)
+        try:
+            payload = await request.json()
+        except Exception:  # noqa: BLE001 - malformed JSON is a protocol error
+            logger.error("Activity: unparseable request body.")
+            return Response(
+                status_code=400,
+                headers=_activity_response_headers(
+                    request, None, session_id=session_id
+                ),
+            )
+        if not isinstance(payload, dict):
+            return Response(
+                status_code=400,
+                headers=_activity_response_headers(request, None, session_id=session_id),
+            )
 
-            activity = Activity.model_validate(payload)
+        response_headers = _activity_response_headers(
+            request, payload, session_id=session_id
+        )
+
+        with _request_scope(request, session_id=session_id):
+            try:
+                activity = Activity.model_validate(payload)
+            except ValidationError:
+                logger.error("Activity: payload failed validation.")
+                return Response(status_code=400, headers=response_headers)
 
             # Invoke is request/response: the answer is the HTTP body, not an
             # out-of-band connector send. Route on the invoke name and return the
@@ -472,10 +532,10 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
                 dispatch = compiled_invokes.get(activity.name)
                 if dispatch is None:
                     logger.info("Invoke name=%r has no handler; acking 200.", activity.name)
-                    return JSONResponse({}, status_code=200)
+                    return JSONResponse({}, status_code=200, headers=response_headers)
                 with turn_scope(activity):
                     body = await dispatch(activity)
-                return JSONResponse(body or {}, status_code=200)
+                return JSONResponse(body or {}, status_code=200, headers=response_headers)
 
             # One turn context spans dispatch *and* the connector send, so reply
             # decorations the handler/tools accumulate (AI label, citations, ...)
@@ -486,14 +546,14 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
                         reply = await dispatch(activity)
                         if reply:
                             await send_reply(activity, reply)
-                        return Response(status_code=200)
+                        return Response(status_code=200, headers=response_headers)
 
             logger.info(
                 "Ignoring unsupported activity type=%r channel=%r",
                 activity.type,
                 activity.channel_id,
             )
-            return Response(status_code=200)
+            return Response(status_code=200, headers=response_headers)
 
 
 def _register_wire(
