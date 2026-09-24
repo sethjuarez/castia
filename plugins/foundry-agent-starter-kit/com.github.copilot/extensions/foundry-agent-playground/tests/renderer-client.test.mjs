@@ -770,14 +770,15 @@ test("renderer script removes Mermaid render artifacts after failed browser rend
 test("renderer script wires panel-local Mermaid diagram expansion", () => {
     assert.match(rendererClientScript, /function openMermaidDiagramLightbox/);
     assert.match(rendererClientScript, /role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram"/);
-    assert.match(rendererClientScript, /Drag to pan · Ctrl\+wheel to zoom · Space\+drag to move/);
+    assert.match(rendererClientScript, /Drag to pan · Wheel to zoom/);
     assert.match(rendererClientScript, /aria-label="Close expanded diagram"/);
     assert.match(rendererClientScript, /aria-label="Zoom in"/);
     assert.match(rendererClientScript, /aria-label="Zoom out"/);
     assert.match(rendererClientScript, /function zoomMermaidLightbox/);
     assert.match(rendererClientScript, /function fitMermaidLightboxToViewport/);
-    assert.match(rendererClientScript, /event\.ctrlKey \|\| event\.metaKey/);
-    assert.match(rendererClientScript, /event\.code === "Space"/);
+    assert.match(rendererClientScript, /function mermaidSvgContentBox/);
+    assert.match(rendererClientScript, /Math\.exp\(-event\.deltaY \* 0\.0015\)/);
+    assert.doesNotMatch(rendererClientScript, /space-pan/);
     assert.match(rendererClientScript, /trigger\?\.isConnected\) trigger\.focus\(\)/);
     assert.match(rendererClientScript, /event\.key === "Escape" && activeMermaidLightbox/);
     assert.match(rendererClientScript, /contains\("mermaid-lightbox-backdrop"\)/);

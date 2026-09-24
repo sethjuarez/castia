@@ -1524,8 +1524,7 @@ export const rendererStyles = `
       touch-action: none;
       user-select: none;
     }
-    .mermaid-lightbox-body.is-panning,
-    .mermaid-lightbox-body.space-pan {
+    .mermaid-lightbox-body.is-panning {
       cursor: grabbing;
     }
     .mermaid-lightbox-canvas {
