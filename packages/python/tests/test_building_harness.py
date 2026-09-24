@@ -149,6 +149,7 @@ def assert_responses_sse_contract(response, *, deltas: list[str], output_text: s
         "response.completed",
         None,
     ]
+    assert_sdk_parseable_stream_events(events)
 
     payloads = [payload for _, payload in events]
     assert [
@@ -191,6 +192,7 @@ def assert_responses_sse_contract(response, *, deltas: list[str], output_text: s
     assert payloads[done_offset + 3]["type"] == "response.completed"
     assert payloads[done_offset + 3]["response"]["id"] == response_id
     assert payloads[done_offset + 3]["response"]["status"] == "completed"
+    assert_sdk_parseable_response(payloads[done_offset + 3]["response"])
     assert_responses_object_defaults(
         payloads[done_offset + 3]["response"], output_text=output_text
     )
