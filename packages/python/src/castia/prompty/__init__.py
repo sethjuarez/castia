@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -40,6 +41,10 @@ _NO_TOOLBOX_ENDPOINT_DIAGNOSTIC = (
     "or FOUNDRY_PROJECT_ENDPOINT plus TOOLBOX_NAME."
 )
 _REFERENCE_PAYLOAD_KEYS = frozenset({"ref_id", "uri", "sourceData", "snippet"})
+_PROMPTY_SECRET_KEY_PATTERN = re.compile(
+    r"secret|password|credential|passphrase|bearer|cookie|api[_.]?key|token(?!s)|auth(?!ors?\b)",
+    re.IGNORECASE,
+)
 _logger = logging.getLogger("agent")
 
 TokenProvider = Callable[[], str | Awaitable[str]]
@@ -132,6 +137,66 @@ def register_prompty_otel_tracing(
     return True
 
 
+def register_prompty_trace_sinks(
+    *,
+    enable_content_recording: bool | None = None,
+    name: str = "castia",
+) -> bool:
+    """Register a Prompty backend that emits Castia local trace records.
+
+    This mirrors :func:`register_prompty_otel_tracing` but targets Castia's
+    pluggable local trace sink registry. It is useful when running locally with
+    a JSONL/Copilot/dev sink and can be registered alongside Prompty's OTel
+    backend; both consume the same Prompty trace callbacks.
+    """
+    include_content = _content_recording_enabled() if enable_content_recording is None else enable_content_recording
+    include_internal = os.environ.get(_TRACE_INTERNAL_ENV, "").strip().lower() == "true"
+    prompty = _prompty()
+    prompty.Tracer.add(
+        name,
+        _prompty_trace_sink_backend(
+            include_content=include_content,
+            include_internal=include_internal,
+        ),
+    )
+    return True
+
+
+def _prompty_trace_sink_backend(*, include_content: bool, include_internal: bool):
+    from castia.observe.tracing import trace_attribute, trace_step
+
+    @contextmanager
+    def tracer(span_name: str):
+        if not _should_trace_prompty_span(span_name, include_internal=include_internal):
+            yield _prompty_noop_add
+            return
+        with trace_step(
+            f"prompty {span_name}",
+            kind="prompty",
+            attributes={"castia.prompty.span.name": span_name},
+            record_error_message=include_content,
+        ):
+
+            def filtered_add(key: str, value: Any) -> None:
+                if key == "result" and isinstance(value, dict) and "exception" in value:
+                    _record_prompty_trace_exception(
+                        value["exception"], include_content=include_content
+                    )
+                    return
+                if key in {"inputs", "result"} and not include_content:
+                    return
+                trace_attribute(
+                    f"castia.prompty.{key}",
+                    _sanitize_prompty_trace_attribute(key, value),
+                )
+                if include_content:
+                    _map_prompty_trace_content(key, value)
+
+            yield filtered_add
+
+    return tracer
+
+
 def _prompty_otel_backend(
     *,
     tracer_name: str,
@@ -193,6 +258,29 @@ def _should_trace_prompty_span(span_name: str, *, include_internal: bool) -> boo
 
 def _prompty_noop_add(_key: str, _value: Any) -> None:
     return None
+
+
+def _sanitize_prompty_trace_attribute(key: str, value: Any) -> Any:
+    try:
+        from prompty.tracing.tracer import sanitize  # type: ignore[import-not-found]
+    except ImportError:
+        return _fallback_sanitize_prompty_trace_attribute(key, value)
+    return sanitize(key, value)
+
+
+def _fallback_sanitize_prompty_trace_attribute(key: str, value: Any) -> Any:
+    if _PROMPTY_SECRET_KEY_PATTERN.search(key):
+        return "******"
+    if isinstance(value, Mapping):
+        return {
+            item_key: _fallback_sanitize_prompty_trace_attribute(str(item_key), item_value)
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [
+            _fallback_sanitize_prompty_trace_attribute(key, item) for item in value
+        ]
+    return value
 
 
 def _record_prompty_timeline_event(key: str, value: Any, *, include_content: bool) -> None:
@@ -263,6 +351,37 @@ def _record_prompty_exception(span: Any, exc_info: Mapping[str, Any]) -> None:
             "exception.stacktrace",
             "".join(stacktrace) if isinstance(stacktrace, list) else str(stacktrace),
         )
+
+
+def _record_prompty_trace_exception(
+    exc_info: Mapping[str, Any], *, include_content: bool
+) -> None:
+    from castia.observe.tracing import trace_attribute
+
+    message = str(exc_info.get("message", ""))
+    trace_attribute("castia.prompty.status", "error")
+    trace_attribute("castia.prompty.exception.type", str(exc_info.get("type", "")))
+    if include_content:
+        trace_attribute("castia.prompty.exception.message", message)
+
+
+def _map_prompty_trace_content(key: str, value: Any) -> None:
+    from castia.observe.tracing import trace_attribute
+
+    if key == "inputs":
+        text = _input_text(value)
+        if text:
+            trace_attribute(
+                "gen_ai.input.messages",
+                [{"role": "user", "content": text}],
+            )
+    elif key == "result":
+        text = value if isinstance(value, str) else _safe_json(value)
+        if text:
+            trace_attribute(
+                "gen_ai.output.messages",
+                [{"role": "assistant", "content": text}],
+            )
 
 
 def _map_prompty_content_attribute(span: Any, key: str, value: Any) -> None:
@@ -1131,6 +1250,7 @@ __all__ = [
     "prompty_agent_from_config",
     "register_foundry_default_connection",
     "register_prompty_otel_tracing",
+    "register_prompty_trace_sinks",
     "register_toolbox_function",
     "register_toolbox_tool_handler",
     "serialize_mcp_result",

@@ -87,6 +87,20 @@ def test_trace_step_async_decorator_records_errors():
     assert record.error_message == "boom"
 
 
+def test_trace_step_can_suppress_error_messages():
+    records: list[TraceRecord] = []
+    register_trace_sink("memory", records.append)
+
+    with pytest.raises(RuntimeError, match="private payload"), trace_step(
+        "private-error", record_error_message=False
+    ):
+        raise RuntimeError("private payload")
+
+    assert records[0].status == "error"
+    assert records[0].error_type == "RuntimeError"
+    assert records[0].error_message is None
+
+
 def test_trace_step_treats_generator_exit_as_cancelled():
     records: list[TraceRecord] = []
     register_trace_sink("memory", records.append)

@@ -121,12 +121,14 @@ class _TraceStep:
         attributes: dict[str, Any] | None = None,
         include_args: bool = False,
         include_result: bool = False,
+        record_error_message: bool = True,
     ) -> None:
         self._name = name
         self._kind = kind
         self._attributes = dict(attributes or {})
         self._include_args = include_args
         self._include_result = include_result
+        self._record_error_message = record_error_message
         self._active: _ActiveTraceStep | None = None
 
     def __enter__(self) -> Self:
@@ -182,7 +184,11 @@ class _TraceStep:
                 duration_ms=duration_ms,
                 attributes=_json_clone(active.attributes),
                 error_type=type(exc).__name__ if exc and not cancelled else None,
-                error_message=str(exc) if exc and not cancelled else None,
+                error_message=(
+                    str(exc)
+                    if exc and not cancelled and self._record_error_message
+                    else None
+                ),
             )
         except Exception:
             _logger.debug("Could not build Castia trace record", exc_info=True)
@@ -208,6 +214,7 @@ class _TraceStep:
                         include_args=self._include_args,
                     ),
                     include_result=self._include_result,
+                    record_error_message=self._record_error_message,
                 ):
                     result = await func(*args, **kwargs)
                     if self._include_result:
@@ -229,6 +236,7 @@ class _TraceStep:
                     include_args=self._include_args,
                 ),
                 include_result=self._include_result,
+                record_error_message=self._record_error_message,
             ):
                 result = func(*args, **kwargs)
                 if self._include_result:
@@ -245,6 +253,7 @@ def trace_step(
     attributes: dict[str, Any] | None = None,
     include_args: bool = False,
     include_result: bool = False,
+    record_error_message: bool = True,
 ) -> _TraceStep | Any:
     """Trace a local Castia step as a context manager or decorator.
 
@@ -259,6 +268,7 @@ def trace_step(
             attributes=attributes,
             include_args=include_args,
             include_result=include_result,
+            record_error_message=record_error_message,
         )
         return step(func)
     step_name = str(name) if name else "castia.step"
@@ -268,6 +278,7 @@ def trace_step(
         attributes=attributes,
         include_args=include_args,
         include_result=include_result,
+        record_error_message=record_error_message,
     )
 
 

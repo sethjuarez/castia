@@ -337,12 +337,14 @@ from castia.prompty import (
     configured_prompty_runner,
     register_foundry_default_connection,
     register_prompty_otel_tracing,
+    register_prompty_trace_sinks,
 )
 
 app = Agent(name="contracts-agent")
 config = load_agent_config(Path(__file__).parent / ".agent_configs")
 
 register_foundry_default_connection()
+register_prompty_trace_sinks()  # optional: Prompty spans into local Castia sinks
 register_prompty_otel_tracing()  # no-op unless content recording is enabled
 runner = configured_prompty_runner(config)
 
@@ -363,6 +365,16 @@ content recording:
 generic trace attributes can include inputs and results. When Castia
 observability is configured, the same agent-identity span processor stamps
 Prompty OTel spans with Foundry agent/project metadata.
+
+For local development, register a Castia sink (for example
+`register_trace_sink("jsonl", jsonl_trace_sink(".castia/traces/live.jsonl"))`)
+and call `register_prompty_trace_sinks()`. Prompty `turn_async` / `run_async`
+spans then flow into the same local trace records as Castia runtime/model/tool
+steps. Inputs and results are still omitted unless
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true` or
+`register_prompty_trace_sinks(enable_content_recording=True)` is used; set
+`CASTIA_PROMPTY_TRACE_INTERNAL=true` only when debugging Prompty lifecycle
+internals such as `prepare_async` or `render_async`.
 
 For a Prompty-owned tool loop, Castia provides a local toolbox MCP executor.
 This is different from the default server-side Responses `mcp` spec above:
