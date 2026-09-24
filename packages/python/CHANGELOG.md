@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.10.0](https://github.com/sethjuarez/castia/compare/python-v0.9.0...python-v0.10.0) (2026-09-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **python:** /responses now returns 400 unsupported_parameter for non-null previous_response_id instead of accepting and ignoring it. Send full prior turns in input, omit the field, or send null when using Castia's lightweight process-local Responses runtime. Hosted Foundry gateway conversation context is accepted and ignored for compatibility.
+
+### Features
+
+* **python:** add local trace inspection command ([889fdec](https://github.com/sethjuarez/castia/commit/889fdecdc7eed3fa9d946ce60476805136b26afe))
+* **python:** add local trace sink core ([c642457](https://github.com/sethjuarez/castia/commit/c642457839659a594d5f58ac7c0a6db7308152ec))
+* **python:** bridge Prompty traces to local sinks ([3ae2912](https://github.com/sethjuarez/castia/commit/3ae29129182c796eeb48d3f3d16ea074a4e9a590))
+* **python:** emit local runtime trace events ([0b5fb5d](https://github.com/sethjuarez/castia/commit/0b5fb5dc795ca5b0030174829f30a22b7325c91b))
+* **python:** export local traces to otel ([bb574d9](https://github.com/sethjuarez/castia/commit/bb574d92d5342392c01e746b360ea631a24efe07))
+* **python:** reject unsupported responses history parameters ([594b74a](https://github.com/sethjuarez/castia/commit/594b74a2ab74dd4881e4fd6f3c7b6e348a9c2c2f))
+
+
+### Bug Fixes
+
+* **python:** accept hosted responses conversation context ([24b4387](https://github.com/sethjuarez/castia/commit/24b4387fda3d0bfa76d08bbe6b7259cbdb955134))
+* **python:** add completed responses lifecycle routes ([42f34f0](https://github.com/sethjuarez/castia/commit/42f34f09a94fe0d55033ceda82e0eefc4d599656))
+* **python:** align activity response headers ([446814e](https://github.com/sethjuarez/castia/commit/446814e65f4acb4c50d8b2bbf09ed971b8eb8251))
+* **python:** align responses SSE event metadata ([b6f1794](https://github.com/sethjuarez/castia/commit/b6f1794e6724cb17f0ba53c422754b6be81af651))
+* **python:** clarify responses cancel errors ([db5962e](https://github.com/sethjuarez/castia/commit/db5962ecfbb837e7b0cbd1eee6169bb5665ffb8c))
+* **python:** emit failed responses for stream errors ([c79e213](https://github.com/sethjuarez/castia/commit/c79e213c6482057b1d971de95387379bf4747627))
+* **python:** guard responses request field echoes ([ce27bb2](https://github.com/sethjuarez/castia/commit/ce27bb23de994123809ea7fd6dcf7ee265e24838))
+* **python:** make immediate responses sdk parseable ([c41cdf2](https://github.com/sethjuarez/castia/commit/c41cdf2e3e5d4d7d1e1f5b7c9247825aa0d7906a))
+* **python:** preserve activity headers on failures ([37fa317](https://github.com/sethjuarez/castia/commit/37fa3176e9fa5703532bd3bc829254c3cb067453))
+* **python:** propagate Foundry request context ([d135276](https://github.com/sethjuarez/castia/commit/d135276818c1cb2e3eb449c0cb848c0c0d044eb6))
+* **python:** reject malformed wire protocol bodies ([564456a](https://github.com/sethjuarez/castia/commit/564456ae2a854cca487f4cbe81695ea9255d19d1))
+* **python:** strengthen responses object shape ([057f3c9](https://github.com/sethjuarez/castia/commit/057f3c9a685b3e333b88fcbc23fdaea028ba11d7))
+
+
+### Documentation
+
+* **python:** clarify responses lifecycle limits ([19504b7](https://github.com/sethjuarez/castia/commit/19504b76c1024e1e543258ce5832a548ba705a32))
+
 ## [0.9.0](https://github.com/sethjuarez/castia/compare/python-v0.8.0...python-v0.9.0) (2026-09-20)
 
 
