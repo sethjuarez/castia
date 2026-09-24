@@ -840,6 +840,112 @@ def test_responses_body_echoes_safe_request_shape_fields(monkeypatch):
     asyncio.run(run())
 
 
+def test_responses_stream_echoes_safe_request_shape_fields(monkeypatch):
+    monkeypatch.delenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", raising=False)
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    @app.responses_stream()
+    async def reply_stream(text: str):
+        yield text
+
+    valid_request_body = {
+        "input": "hello",
+        "stream": True,
+        "model": "stream-model",
+        "instructions": ["Follow the wire shape."],
+        "metadata": {"trace": "stream"},
+        "tools": [{"type": "function", "name": "lookup"}],
+        "tool_choice": {"type": "function", "name": "lookup"},
+        "parallel_tool_calls": False,
+    }
+    unsafe_request_body = {
+        "input": "unsafe",
+        "stream": True,
+        "model": ["not", "a", "string"],
+        "instructions": {"not": "safe"},
+        "metadata": ["not", "an", "object"],
+        "tools": {"not": "a list"},
+        "tool_choice": {"not": "safe"},
+        "parallel_tool_calls": "nope",
+    }
+
+    def assert_echoed(body, *, expected_model, expected_instructions, expected_metadata,
+                      expected_tools, expected_tool_choice, expected_parallel):
+        assert body["model"] == expected_model
+        assert body["instructions"] == expected_instructions
+        assert body["metadata"] == expected_metadata
+        assert body["tools"] == expected_tools
+        assert body["tool_choice"] == expected_tool_choice
+        assert body["parallel_tool_calls"] is expected_parallel
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            streamed = await test.client.post("/responses", json=valid_request_body)
+            assert streamed.status_code == 200
+            events = sse_events(streamed.text)
+            event_payloads = dict(events[:-1])
+            assert events[-1] == (None, "[DONE]")
+            completed = event_payloads["response.completed"]["response"]
+            for response_body in (
+                event_payloads["response.created"]["response"],
+                event_payloads["response.in_progress"]["response"],
+                completed,
+            ):
+                assert_echoed(
+                    response_body,
+                    expected_model="stream-model",
+                    expected_instructions=["Follow the wire shape."],
+                    expected_metadata={"trace": "stream"},
+                    expected_tools=[{"type": "function", "name": "lookup"}],
+                    expected_tool_choice={"type": "function", "name": "lookup"},
+                    expected_parallel=False,
+                )
+
+            stored = await test.client.get(f"/responses/{completed['id']}")
+            assert stored.status_code == 200
+            assert_echoed(
+                stored.json(),
+                expected_model="stream-model",
+                expected_instructions=["Follow the wire shape."],
+                expected_metadata={"trace": "stream"},
+                expected_tools=[{"type": "function", "name": "lookup"}],
+                expected_tool_choice={"type": "function", "name": "lookup"},
+                expected_parallel=False,
+            )
+
+            streamed = await test.client.post("/responses", json=unsafe_request_body)
+            assert streamed.status_code == 200
+            events = sse_events(streamed.text)
+            assert events[-1] == (None, "[DONE]")
+            unsafe_completed = dict(events[:-1])["response.completed"]["response"]
+            assert_echoed(
+                unsafe_completed,
+                expected_model="castia-agent",
+                expected_instructions=None,
+                expected_metadata={},
+                expected_tools=[],
+                expected_tool_choice="auto",
+                expected_parallel=True,
+            )
+            stored = await test.client.get(f"/responses/{unsafe_completed['id']}")
+            assert stored.status_code == 200
+            assert_echoed(
+                stored.json(),
+                expected_model="castia-agent",
+                expected_instructions=None,
+                expected_metadata={},
+                expected_tools=[],
+                expected_tool_choice="auto",
+                expected_parallel=True,
+            )
+
+    asyncio.run(run())
+
+
 def test_responses_lifecycle_stores_completed_stream_response():
     app = Agent()
 

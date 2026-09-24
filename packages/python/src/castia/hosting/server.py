@@ -228,13 +228,23 @@ def _responses_request_options(body: dict) -> dict:
         "instructions": body.get("instructions")
         if isinstance(body.get("instructions"), str | list)
         else None,
-        "metadata": body.get("metadata") if isinstance(body.get("metadata"), dict) else {},
-        "tools": body.get("tools") if isinstance(body.get("tools"), list) else [],
-        "tool_choice": body.get("tool_choice"),
+        "metadata": deepcopy(body.get("metadata"))
+        if isinstance(body.get("metadata"), dict)
+        else {},
+        "tools": deepcopy(body.get("tools")) if isinstance(body.get("tools"), list) else [],
+        "tool_choice": _responses_tool_choice(body.get("tool_choice")),
         "parallel_tool_calls": body.get("parallel_tool_calls")
         if isinstance(body.get("parallel_tool_calls"), bool)
         else None,
     }
+
+
+def _responses_tool_choice(value: object) -> object:
+    if isinstance(value, str) and value in {"auto", "none", "required"}:
+        return value
+    if isinstance(value, dict) and isinstance(value.get("type"), str):
+        return deepcopy(value)
+    return None
 
 
 def _responses_input_items(value, *, response_id: str) -> list[dict]:
