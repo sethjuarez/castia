@@ -62,31 +62,49 @@ def assert_responses_sse_contract(response, *, deltas: list[str], output_text: s
     ]
 
     payloads = [payload for _, payload in events]
+    assert [
+        payload["sequence_number"]
+        for payload in payloads[:-1]
+    ] == list(range(len(payloads) - 1))
     response_id = payloads[0]["response"]["id"]
     output_item_id = payloads[2]["item"]["id"]
     assert payloads[1]["response"]["id"] == response_id
     assert payloads[3]["item_id"] == output_item_id
+    assert payloads[3]["part"]["logprobs"] == []
 
     delta_payloads = payloads[4: 4 + len(deltas)]
     assert [payload["delta"] for payload in delta_payloads] == deltas
     assert all(payload["type"] == "response.output_text.delta" for payload in delta_payloads)
+    assert all(payload["item_id"] == output_item_id for payload in delta_payloads)
+    assert all(payload["output_index"] == 0 for payload in delta_payloads)
+    assert all(payload["content_index"] == 0 for payload in delta_payloads)
+    assert all(payload["logprobs"] == [] for payload in delta_payloads)
 
     done_offset = 4 + len(deltas)
     assert payloads[done_offset]["type"] == "response.output_text.done"
     assert payloads[done_offset]["item_id"] == output_item_id
+    assert payloads[done_offset]["output_index"] == 0
+    assert payloads[done_offset]["content_index"] == 0
+    assert payloads[done_offset]["logprobs"] == []
     assert payloads[done_offset]["text"] == output_text
     assert payloads[done_offset + 1]["type"] == "response.content_part.done"
     assert payloads[done_offset + 1]["item_id"] == output_item_id
     assert payloads[done_offset + 1]["part"]["text"] == output_text
+    assert payloads[done_offset + 1]["part"]["logprobs"] == []
     assert payloads[done_offset + 2]["type"] == "response.output_item.done"
     assert payloads[done_offset + 2]["item"]["id"] == output_item_id
     assert payloads[done_offset + 2]["item"]["status"] == "completed"
     assert payloads[done_offset + 2]["item"]["content"][0]["text"] == output_text
+    assert payloads[done_offset + 2]["item"]["content"][0]["logprobs"] == []
     assert payloads[done_offset + 3]["type"] == "response.completed"
     assert payloads[done_offset + 3]["response"]["id"] == response_id
     assert payloads[done_offset + 3]["response"]["status"] == "completed"
     assert payloads[done_offset + 3]["response"]["output_text"] == output_text
     assert payloads[done_offset + 3]["response"]["output"][0]["id"] == output_item_id
+    assert (
+        payloads[done_offset + 3]["response"]["output"][0]["content"][0]["logprobs"]
+        == []
+    )
     assert payloads[done_offset + 4] == "[DONE]"
 
 
@@ -549,6 +567,7 @@ def test_responses_lifecycle_stores_completed_json_response():
             assert stored["output"][0]["id"].startswith("msg_")
             assert stored["output"][0]["status"] == "completed"
             assert stored["output"][0]["content"][0]["annotations"] == []
+            assert stored["output"][0]["content"][0]["logprobs"] == []
 
             input_items = await test.client.get(f"/responses/{response_id}/input_items")
             assert input_items.status_code == 200

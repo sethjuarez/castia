@@ -140,6 +140,7 @@ def _responses_body(
     }
     if output_item_id is not None:
         content_part["annotations"] = []
+        content_part["logprobs"] = []
         message["id"] = output_item_id
         message["status"] = status
 
@@ -320,7 +321,9 @@ def _streaming_response(text: str, *, response_id: str, status: str) -> dict:
 def _streaming_item(item_id: str, text: str, *, status: str) -> dict:
     content = []
     if text or status == "completed":
-        content = [{"type": "output_text", "text": text, "annotations": []}]
+        content = [
+            {"type": "output_text", "text": text, "annotations": [], "logprobs": []}
+        ]
     return {
         "id": item_id,
         "type": "message",
@@ -331,7 +334,7 @@ def _streaming_item(item_id: str, text: str, *, status: str) -> dict:
 
 
 def _streaming_content_part(text: str) -> dict:
-    return {"type": "output_text", "text": text, "annotations": []}
+    return {"type": "output_text", "text": text, "annotations": [], "logprobs": []}
 
 
 def _chat_body(text: str) -> dict:
@@ -532,15 +535,23 @@ def _register_wire(
                         last_chunk_at: float | None = None
                         chunk_count = 0
                         bytes_sent = 0
+                        sequence_number = 0
 
-                        def emit(event: str) -> str:
-                            nonlocal first_chunk_at, last_chunk_at, chunk_count, bytes_sent
+                        def emit_raw(event: str) -> str:
+                            nonlocal first_chunk_at, last_chunk_at, chunk_count
+                            nonlocal bytes_sent
                             now = time.perf_counter()
                             first_chunk_at = first_chunk_at or now
                             last_chunk_at = now
                             chunk_count += 1
                             bytes_sent += len(event.encode("utf-8"))
                             return event
+
+                        def emit(event_type: str, payload: dict) -> str:
+                            nonlocal sequence_number
+                            payload["sequence_number"] = sequence_number
+                            sequence_number += 1
+                            return emit_raw(_sse_event(event_type, payload))
 
                         response_id = f"resp_{uuid4().hex}"
                         output_item_id = f"msg_{uuid4().hex}"
@@ -553,119 +564,110 @@ def _register_wire(
                                 "responses", text
                             ):
                                 yield emit(
-                                    _sse_event(
-                                        "response.created",
-                                        {
-                                            "type": "response.created",
-                                            "response": _streaming_response(
-                                                "",
-                                                response_id=response_id,
-                                                status="in_progress",
-                                            ),
-                                        },
-                                    )
+                                    "response.created",
+                                    {
+                                        "type": "response.created",
+                                        "response": _streaming_response(
+                                            "",
+                                            response_id=response_id,
+                                            status="in_progress",
+                                        ),
+                                    },
                                 )
                                 yield emit(
-                                    _sse_event(
-                                        "response.in_progress",
-                                        {
-                                            "type": "response.in_progress",
-                                            "response": _streaming_response(
-                                                "",
-                                                response_id=response_id,
-                                                status="in_progress",
-                                            ),
-                                        },
-                                    )
+                                    "response.in_progress",
+                                    {
+                                        "type": "response.in_progress",
+                                        "response": _streaming_response(
+                                            "",
+                                            response_id=response_id,
+                                            status="in_progress",
+                                        ),
+                                    },
                                 )
                                 yield emit(
-                                    _sse_event(
-                                        "response.output_item.added",
-                                        {
-                                            "type": "response.output_item.added",
-                                            "output_index": 0,
-                                            "item": _streaming_item(
-                                                output_item_id, "", status="in_progress"
-                                            ),
-                                        },
-                                    )
+                                    "response.output_item.added",
+                                    {
+                                        "type": "response.output_item.added",
+                                        "output_index": 0,
+                                        "item": _streaming_item(
+                                            output_item_id, "", status="in_progress"
+                                        ),
+                                    },
                                 )
                                 yield emit(
-                                    _sse_event(
-                                        "response.content_part.added",
-                                        {
-                                            "type": "response.content_part.added",
-                                            "item_id": output_item_id,
-                                            "output_index": 0,
-                                            "content_index": 0,
-                                            "part": _streaming_content_part(""),
-                                        },
-                                    )
+                                    "response.content_part.added",
+                                    {
+                                        "type": "response.content_part.added",
+                                        "item_id": output_item_id,
+                                        "output_index": 0,
+                                        "content_index": 0,
+                                        "part": _streaming_content_part(""),
+                                    },
                                 )
                                 if responses_stream_dispatch is not None:
                                     async for delta in responses_stream_dispatch(text):
                                         chunks.append(delta)
                                         yield emit(
-                                            _sse_event(
-                                                "response.output_text.delta",
-                                                {
-                                                    "type": "response.output_text.delta",
-                                                    "delta": delta,
-                                                },
-                                            )
+                                            "response.output_text.delta",
+                                            {
+                                                "type": "response.output_text.delta",
+                                                "item_id": output_item_id,
+                                                "output_index": 0,
+                                                "content_index": 0,
+                                                "delta": delta,
+                                                "logprobs": [],
+                                            },
                                         )
                                 else:
                                     reply = await responses_dispatch(text)
                                     if reply:
                                         chunks.append(reply)
                                         yield emit(
-                                            _sse_event(
-                                                "response.output_text.delta",
-                                                {
-                                                    "type": "response.output_text.delta",
-                                                    "delta": reply,
-                                                },
-                                            )
+                                            "response.output_text.delta",
+                                            {
+                                                "type": "response.output_text.delta",
+                                                "item_id": output_item_id,
+                                                "output_index": 0,
+                                                "content_index": 0,
+                                                "delta": reply,
+                                                "logprobs": [],
+                                            },
                                         )
                                 output_text = "".join(chunks)
                                 dev_diagnostics.record_output(output_text)
                                 yield emit(
-                                    _sse_event(
-                                        "response.output_text.done",
-                                        {
-                                            "type": "response.output_text.done",
-                                            "item_id": output_item_id,
-                                            "output_index": 0,
-                                            "content_index": 0,
-                                            "text": output_text,
-                                        },
-                                    )
+                                    "response.output_text.done",
+                                    {
+                                        "type": "response.output_text.done",
+                                        "item_id": output_item_id,
+                                        "output_index": 0,
+                                        "content_index": 0,
+                                        "text": output_text,
+                                        "logprobs": [],
+                                    },
                                 )
                                 yield emit(
-                                    _sse_event(
-                                        "response.content_part.done",
-                                        {
-                                            "type": "response.content_part.done",
-                                            "item_id": output_item_id,
-                                            "output_index": 0,
-                                            "content_index": 0,
-                                            "part": _streaming_content_part(output_text),
-                                        },
-                                    )
+                                    "response.content_part.done",
+                                    {
+                                        "type": "response.content_part.done",
+                                        "item_id": output_item_id,
+                                        "output_index": 0,
+                                        "content_index": 0,
+                                        "part": _streaming_content_part(output_text),
+                                    },
                                 )
                                 yield emit(
-                                    _sse_event(
-                                        "response.output_item.done",
-                                        {
-                                            "type": "response.output_item.done",
-                                            "output_index": 0,
-                                            "item": _streaming_item(
-                                                output_item_id,
-                                                output_text,
-                                                status="completed",
-                                            ),
-                                        },
-                                    )
+                                    "response.output_item.done",
+                                    {
+                                        "type": "response.output_item.done",
+                                        "output_index": 0,
+                                        "item": _streaming_item(
+                                            output_item_id,
+                                            output_text,
+                                            status="completed",
+                                        ),
+                                    },
                                 )
                                 if store:
                                     _store_completed_response(
@@ -681,16 +683,14 @@ def _register_wire(
                                         },
                                     )
                                 yield emit(
-                                    _sse_event(
-                                        "response.completed",
-                                        _responses_completed_event(
-                                            output_text,
-                                            response_id=response_id,
-                                            output_item_id=output_item_id,
-                                        ),
+                                    "response.completed",
+                                    _responses_completed_event(
+                                        output_text,
+                                        response_id=response_id,
+                                        output_item_id=output_item_id,
                                     ),
                                 )
-                                yield emit(_sse_done())
+                                yield emit_raw(_sse_done())
                         finally:
                             _record_stream_attributes(
                                 started=started,
