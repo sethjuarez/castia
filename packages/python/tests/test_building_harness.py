@@ -845,6 +845,71 @@ def test_failing_connector_is_captured_not_reported_as_success():
     asyncio.run(run())
 
 
+def test_activity_failures_preserve_protocol_headers():
+    app = Agent()
+    calls = []
+
+    @app.activity(Teams.direct)
+    async def reply(msg: Message):
+        calls.append("message")
+        raise RuntimeError("boom")
+
+    @app.invoke("fail")
+    async def invoke(value):
+        calls.append("invoke")
+        raise RuntimeError("invoke boom")
+
+    @app.invoke("non-json")
+    async def non_json(value):
+        calls.append("non-json")
+        return {"bad": {object()}}
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/activity/messages?agent_session_id=session-error",
+                json=activity(id="activity-error"),
+            )
+            assert response.status_code == 500
+            assert response.headers["x-agent-activity-id"] == "activity-error"
+            assert response.headers["x-agent-session-id"] == "session-error"
+            assert calls[-1] == "message"
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(
+                    type="invoke",
+                    name="fail",
+                    id="invoke-error",
+                ),
+                headers={"x-agent-session-id": "session-invoke-error"},
+            )
+            assert response.status_code == 500
+            assert response.headers["x-agent-activity-id"] == "invoke-error"
+            assert response.headers["x-agent-session-id"] == "session-invoke-error"
+            assert calls[-1] == "invoke"
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(
+                    type="invoke",
+                    name="non-json",
+                    id="invoke-serialization-error",
+                ),
+                headers={"x-agent-session-id": "session-serialization-error"},
+            )
+            assert response.status_code == 500
+            assert response.headers["x-agent-activity-id"] == (
+                "invoke-serialization-error"
+            )
+            assert response.headers["x-agent-session-id"] == (
+                "session-serialization-error"
+            )
+            assert calls[-1] == "non-json"
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("failure", [ValueError, asyncio.CancelledError])
 def test_restoration_and_generator_cleanup_even_on_failure(failure):
     from opentelemetry import trace

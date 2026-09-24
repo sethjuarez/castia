@@ -521,39 +521,50 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
                 logger.error("Activity: payload failed validation.")
                 return Response(status_code=400, headers=response_headers)
 
-            # Invoke is request/response: the answer is the HTTP body, not an
-            # out-of-band connector send. Route on the invoke name and return the
-            # handler's InvokeResponse body (or an empty 200 ack when unhandled --
-            # e.g. a feedbackLoop "default" submission we simply acknowledge).
-            if activity.type == "invoke":
-                # Record the raw wire name so invoke routing is never a black box: a
-                # client whose name we don't recognize is diagnosable from traces.
-                logger.info("Invoke received name=%r", activity.name)
-                dispatch = compiled_invokes.get(activity.name)
-                if dispatch is None:
-                    logger.info("Invoke name=%r has no handler; acking 200.", activity.name)
-                    return JSONResponse({}, status_code=200, headers=response_headers)
+            try:
+                # Invoke is request/response: the answer is the HTTP body, not an
+                # out-of-band connector send. Route on the invoke name and return the
+                # handler's InvokeResponse body (or an empty 200 ack when unhandled --
+                # e.g. a feedbackLoop "default" submission we simply acknowledge).
+                if activity.type == "invoke":
+                    # Record the raw wire name so invoke routing is never a black box: a
+                    # client whose name we don't recognize is diagnosable from traces.
+                    logger.info("Invoke received name=%r", activity.name)
+                    dispatch = compiled_invokes.get(activity.name)
+                    if dispatch is None:
+                        logger.info(
+                            "Invoke name=%r has no handler; acking 200.",
+                            activity.name,
+                        )
+                        return JSONResponse(
+                            {}, status_code=200, headers=response_headers
+                        )
+                    with turn_scope(activity):
+                        body = await dispatch(activity)
+                    return JSONResponse(
+                        body or {}, status_code=200, headers=response_headers
+                    )
+
+                # One turn context spans dispatch *and* the connector send, so reply
+                # decorations the handler/tools accumulate (AI label, citations, ...)
+                # are still present when the answer message is posted.
                 with turn_scope(activity):
-                    body = await dispatch(activity)
-                return JSONResponse(body or {}, status_code=200, headers=response_headers)
+                    for predicate, dispatch in compiled:
+                        if predicate(activity):
+                            reply = await dispatch(activity)
+                            if reply:
+                                await send_reply(activity, reply)
+                            return Response(status_code=200, headers=response_headers)
 
-            # One turn context spans dispatch *and* the connector send, so reply
-            # decorations the handler/tools accumulate (AI label, citations, ...)
-            # are still present when the answer message is posted.
-            with turn_scope(activity):
-                for predicate, dispatch in compiled:
-                    if predicate(activity):
-                        reply = await dispatch(activity)
-                        if reply:
-                            await send_reply(activity, reply)
-                        return Response(status_code=200, headers=response_headers)
-
-            logger.info(
-                "Ignoring unsupported activity type=%r channel=%r",
-                activity.type,
-                activity.channel_id,
-            )
-            return Response(status_code=200, headers=response_headers)
+                logger.info(
+                    "Ignoring unsupported activity type=%r channel=%r",
+                    activity.type,
+                    activity.channel_id,
+                )
+                return Response(status_code=200, headers=response_headers)
+            except Exception:
+                logger.exception("Activity handler failed.")
+                return Response(status_code=500, headers=response_headers)
 
 
 def _register_wire(
