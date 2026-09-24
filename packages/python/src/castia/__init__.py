@@ -58,6 +58,7 @@ from castia.optimizing.config import (
 from castia.runtime.application import PUBLISHABLE_PROTOCOLS, Agent, Router
 from castia.runtime.context import Turn, current_turn, current_turn_or_none
 from castia.runtime.dependencies import Depends
+from castia.runtime.request_context import RequestContext, current_request_context
 
 __all__ = [
     "PUBLISHABLE_PROTOCOLS",
@@ -70,6 +71,7 @@ __all__ = [
     "Model",
     "OperationName",
     "Reaction",
+    "RequestContext",
     "Router",
     "Streamer",
     "Teams",
@@ -86,6 +88,7 @@ __all__ = [
     "citation",
     "compose_toolbox_endpoint",
     "configured_model",
+    "current_request_context",
     "current_turn",
     "current_turn_or_none",
     "decision_card",

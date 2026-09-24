@@ -30,7 +30,8 @@ import os
 import socket
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -53,6 +54,14 @@ from castia.runtime.dispatch import (
     make_invoke_dispatch,
     make_return_dispatch,
     make_stream_dispatch,
+)
+from castia.runtime.request_context import (
+    FOUNDRY_CALL_ID_HEADER,
+    FOUNDRY_SESSION_ID_HEADER,
+    FOUNDRY_USER_ID_HEADER,
+    RequestContext,
+    reset_request_context,
+    set_request_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +93,28 @@ def _any_of(surfaces: tuple[Teams, ...]) -> Callable[[Activity], bool]:
     """Combine the selected surface predicates with OR."""
     predicates = [_PREDICATES[s] for s in surfaces]
     return lambda activity: any(predicate(activity) for predicate in predicates)
+
+
+def _header_value(request: Request, name: str) -> str | None:
+    """Return a non-empty platform header value, or ``None``."""
+    if name not in request.headers:
+        return None
+    value = request.headers[name].strip()
+    return value or None
+
+
+@contextmanager
+def _request_scope(request: Request) -> Iterator[RequestContext]:
+    context = RequestContext(
+        call_id=_header_value(request, FOUNDRY_CALL_ID_HEADER),
+        user_id=_header_value(request, FOUNDRY_USER_ID_HEADER),
+        session_id=_header_value(request, FOUNDRY_SESSION_ID_HEADER),
+    )
+    token = set_request_context(context)
+    try:
+        yield context
+    finally:
+        reset_request_context(token)
 
 
 def _responses_body(
@@ -306,47 +337,48 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
 
     @app.post("/activity/messages")
     async def messages(request: Request) -> Response:
-        try:
-            payload = await request.json()
-        except Exception:  # noqa: BLE001 - a malformed body is not our failure
-            logger.error("Activity: unparseable request body.")
-            return Response(status_code=200)
+        with _request_scope(request):
+            try:
+                payload = await request.json()
+            except Exception:  # noqa: BLE001 - a malformed body is not our failure
+                logger.error("Activity: unparseable request body.")
+                return Response(status_code=200)
 
-        activity = Activity.model_validate(payload)
+            activity = Activity.model_validate(payload)
 
-        # Invoke is request/response: the answer is the HTTP body, not an
-        # out-of-band connector send. Route on the invoke name and return the
-        # handler's InvokeResponse body (or an empty 200 ack when unhandled --
-        # e.g. a feedbackLoop "default" submission we simply acknowledge).
-        if activity.type == "invoke":
-            # Record the raw wire name so invoke routing is never a black box: a
-            # client whose name we don't recognize is diagnosable from traces.
-            logger.info("Invoke received name=%r", activity.name)
-            dispatch = compiled_invokes.get(activity.name)
-            if dispatch is None:
-                logger.info("Invoke name=%r has no handler; acking 200.", activity.name)
-                return JSONResponse({}, status_code=200)
+            # Invoke is request/response: the answer is the HTTP body, not an
+            # out-of-band connector send. Route on the invoke name and return the
+            # handler's InvokeResponse body (or an empty 200 ack when unhandled --
+            # e.g. a feedbackLoop "default" submission we simply acknowledge).
+            if activity.type == "invoke":
+                # Record the raw wire name so invoke routing is never a black box: a
+                # client whose name we don't recognize is diagnosable from traces.
+                logger.info("Invoke received name=%r", activity.name)
+                dispatch = compiled_invokes.get(activity.name)
+                if dispatch is None:
+                    logger.info("Invoke name=%r has no handler; acking 200.", activity.name)
+                    return JSONResponse({}, status_code=200)
+                with turn_scope(activity):
+                    body = await dispatch(activity)
+                return JSONResponse(body or {}, status_code=200)
+
+            # One turn context spans dispatch *and* the connector send, so reply
+            # decorations the handler/tools accumulate (AI label, citations, ...)
+            # are still present when the answer message is posted.
             with turn_scope(activity):
-                body = await dispatch(activity)
-            return JSONResponse(body or {}, status_code=200)
+                for predicate, dispatch in compiled:
+                    if predicate(activity):
+                        reply = await dispatch(activity)
+                        if reply:
+                            await send_reply(activity, reply)
+                        return Response(status_code=200)
 
-        # One turn context spans dispatch *and* the connector send, so reply
-        # decorations the handler/tools accumulate (AI label, citations, ...)
-        # are still present when the answer message is posted.
-        with turn_scope(activity):
-            for predicate, dispatch in compiled:
-                if predicate(activity):
-                    reply = await dispatch(activity)
-                    if reply:
-                        await send_reply(activity, reply)
-                    return Response(status_code=200)
-
-        logger.info(
-            "Ignoring unsupported activity type=%r channel=%r",
-            activity.type,
-            activity.channel_id,
-        )
-        return Response(status_code=200)
+            logger.info(
+                "Ignoring unsupported activity type=%r channel=%r",
+                activity.type,
+                activity.channel_id,
+            )
+            return Response(status_code=200)
 
 
 def _register_wire(app: FastAPI, wire: dict) -> None:
@@ -363,172 +395,175 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
 
         @app.post("/responses")
         async def responses(request: Request) -> Response:
-            body = await request.json()
-            text = _responses_input(body.get("input"))
-            if body.get("stream") is True:
+            with _request_scope(request):
+                body = await request.json()
+                text = _responses_input(body.get("input"))
+                if body.get("stream") is True:
 
-                async def events():
-                    started = time.perf_counter()
-                    first_chunk_at: float | None = None
-                    last_chunk_at: float | None = None
-                    chunk_count = 0
-                    bytes_sent = 0
+                    async def events():
+                        started = time.perf_counter()
+                        first_chunk_at: float | None = None
+                        last_chunk_at: float | None = None
+                        chunk_count = 0
+                        bytes_sent = 0
 
-                    def emit(event: str) -> str:
-                        nonlocal first_chunk_at, last_chunk_at, chunk_count, bytes_sent
-                        now = time.perf_counter()
-                        first_chunk_at = first_chunk_at or now
-                        last_chunk_at = now
-                        chunk_count += 1
-                        bytes_sent += len(event.encode("utf-8"))
-                        return event
+                        def emit(event: str) -> str:
+                            nonlocal first_chunk_at, last_chunk_at, chunk_count, bytes_sent
+                            now = time.perf_counter()
+                            first_chunk_at = first_chunk_at or now
+                            last_chunk_at = now
+                            chunk_count += 1
+                            bytes_sent += len(event.encode("utf-8"))
+                            return event
 
-                    response_id = f"resp_{uuid4().hex}"
-                    output_item_id = f"msg_{uuid4().hex}"
-                    chunks: list[str] = []
-                    try:
-                        with dev_diagnostics.turn("responses", text):
-                            yield emit(
-                                _sse_event(
-                                    "response.created",
-                                    {
-                                        "type": "response.created",
-                                        "response": _streaming_response(
-                                            "",
-                                            response_id=response_id,
-                                            status="in_progress",
-                                        ),
-                                    },
-                                )
-                            )
-                            yield emit(
-                                _sse_event(
-                                    "response.in_progress",
-                                    {
-                                        "type": "response.in_progress",
-                                        "response": _streaming_response(
-                                            "",
-                                            response_id=response_id,
-                                            status="in_progress",
-                                        ),
-                                    },
-                                )
-                            )
-                            yield emit(
-                                _sse_event(
-                                    "response.output_item.added",
-                                    {
-                                        "type": "response.output_item.added",
-                                        "output_index": 0,
-                                        "item": _streaming_item(
-                                            output_item_id, "", status="in_progress"
-                                        ),
-                                    },
-                                )
-                            )
-                            yield emit(
-                                _sse_event(
-                                    "response.content_part.added",
-                                    {
-                                        "type": "response.content_part.added",
-                                        "item_id": output_item_id,
-                                        "output_index": 0,
-                                        "content_index": 0,
-                                        "part": _streaming_content_part(""),
-                                    },
-                                )
-                            )
-                            if responses_stream_dispatch is not None:
-                                async for delta in responses_stream_dispatch(text):
-                                    chunks.append(delta)
-                                    yield emit(
-                                        _sse_event(
-                                            "response.output_text.delta",
-                                            {
-                                                "type": "response.output_text.delta",
-                                                "delta": delta,
-                                            },
-                                        )
+                        response_id = f"resp_{uuid4().hex}"
+                        output_item_id = f"msg_{uuid4().hex}"
+                        chunks: list[str] = []
+                        try:
+                            with _request_scope(request), dev_diagnostics.turn(
+                                "responses", text
+                            ):
+                                yield emit(
+                                    _sse_event(
+                                        "response.created",
+                                        {
+                                            "type": "response.created",
+                                            "response": _streaming_response(
+                                                "",
+                                                response_id=response_id,
+                                                status="in_progress",
+                                            ),
+                                        },
                                     )
-                            else:
-                                reply = await responses_dispatch(text)
-                                if reply:
-                                    chunks.append(reply)
-                                    yield emit(
-                                        _sse_event(
-                                            "response.output_text.delta",
-                                            {
-                                                "type": "response.output_text.delta",
-                                                "delta": reply,
-                                            },
-                                        )
+                                )
+                                yield emit(
+                                    _sse_event(
+                                        "response.in_progress",
+                                        {
+                                            "type": "response.in_progress",
+                                            "response": _streaming_response(
+                                                "",
+                                                response_id=response_id,
+                                                status="in_progress",
+                                            ),
+                                        },
                                     )
-                            output_text = "".join(chunks)
-                            dev_diagnostics.record_output(output_text)
-                            yield emit(
-                                _sse_event(
-                                    "response.output_text.done",
-                                    {
-                                        "type": "response.output_text.done",
-                                        "item_id": output_item_id,
-                                        "output_index": 0,
-                                        "content_index": 0,
-                                        "text": output_text,
-                                    },
                                 )
-                            )
-                            yield emit(
-                                _sse_event(
-                                    "response.content_part.done",
-                                    {
-                                        "type": "response.content_part.done",
-                                        "item_id": output_item_id,
-                                        "output_index": 0,
-                                        "content_index": 0,
-                                        "part": _streaming_content_part(output_text),
-                                    },
+                                yield emit(
+                                    _sse_event(
+                                        "response.output_item.added",
+                                        {
+                                            "type": "response.output_item.added",
+                                            "output_index": 0,
+                                            "item": _streaming_item(
+                                                output_item_id, "", status="in_progress"
+                                            ),
+                                        },
+                                    )
                                 )
-                            )
-                            yield emit(
-                                _sse_event(
-                                    "response.output_item.done",
-                                    {
-                                        "type": "response.output_item.done",
-                                        "output_index": 0,
-                                        "item": _streaming_item(
-                                            output_item_id,
+                                yield emit(
+                                    _sse_event(
+                                        "response.content_part.added",
+                                        {
+                                            "type": "response.content_part.added",
+                                            "item_id": output_item_id,
+                                            "output_index": 0,
+                                            "content_index": 0,
+                                            "part": _streaming_content_part(""),
+                                        },
+                                    )
+                                )
+                                if responses_stream_dispatch is not None:
+                                    async for delta in responses_stream_dispatch(text):
+                                        chunks.append(delta)
+                                        yield emit(
+                                            _sse_event(
+                                                "response.output_text.delta",
+                                                {
+                                                    "type": "response.output_text.delta",
+                                                    "delta": delta,
+                                                },
+                                            )
+                                        )
+                                else:
+                                    reply = await responses_dispatch(text)
+                                    if reply:
+                                        chunks.append(reply)
+                                        yield emit(
+                                            _sse_event(
+                                                "response.output_text.delta",
+                                                {
+                                                    "type": "response.output_text.delta",
+                                                    "delta": reply,
+                                                },
+                                            )
+                                        )
+                                output_text = "".join(chunks)
+                                dev_diagnostics.record_output(output_text)
+                                yield emit(
+                                    _sse_event(
+                                        "response.output_text.done",
+                                        {
+                                            "type": "response.output_text.done",
+                                            "item_id": output_item_id,
+                                            "output_index": 0,
+                                            "content_index": 0,
+                                            "text": output_text,
+                                        },
+                                    )
+                                )
+                                yield emit(
+                                    _sse_event(
+                                        "response.content_part.done",
+                                        {
+                                            "type": "response.content_part.done",
+                                            "item_id": output_item_id,
+                                            "output_index": 0,
+                                            "content_index": 0,
+                                            "part": _streaming_content_part(output_text),
+                                        },
+                                    )
+                                )
+                                yield emit(
+                                    _sse_event(
+                                        "response.output_item.done",
+                                        {
+                                            "type": "response.output_item.done",
+                                            "output_index": 0,
+                                            "item": _streaming_item(
+                                                output_item_id,
+                                                output_text,
+                                                status="completed",
+                                            ),
+                                        },
+                                    )
+                                )
+                                yield emit(
+                                    _sse_event(
+                                        "response.completed",
+                                        _responses_completed_event(
                                             output_text,
-                                            status="completed",
+                                            response_id=response_id,
+                                            output_item_id=output_item_id,
                                         ),
-                                    },
-                                )
-                            )
-                            yield emit(
-                                _sse_event(
-                                    "response.completed",
-                                    _responses_completed_event(
-                                        output_text,
-                                        response_id=response_id,
-                                        output_item_id=output_item_id,
                                     ),
                                 )
+                                yield emit(_sse_done())
+                        finally:
+                            _record_stream_attributes(
+                                started=started,
+                                first_chunk_at=first_chunk_at,
+                                last_chunk_at=last_chunk_at,
+                                chunk_count=chunk_count,
+                                bytes_sent=bytes_sent,
                             )
-                            yield emit(_sse_done())
-                    finally:
-                        _record_stream_attributes(
-                            started=started,
-                            first_chunk_at=first_chunk_at,
-                            last_chunk_at=last_chunk_at,
-                            chunk_count=chunk_count,
-                            bytes_sent=bytes_sent,
-                        )
 
-                return StreamingResponse(events(), media_type="text/event-stream")
+                    return StreamingResponse(events(), media_type="text/event-stream")
 
-            with dev_diagnostics.turn("responses", text):
-                reply = await responses_dispatch(text)
-                dev_diagnostics.record_output(reply)
-            return JSONResponse(_responses_body(reply))
+                with dev_diagnostics.turn("responses", text):
+                    reply = await responses_dispatch(text)
+                    dev_diagnostics.record_output(reply)
+                return JSONResponse(_responses_body(reply))
 
         logger.info("Serving responses protocol on POST /responses")
 
@@ -538,12 +573,13 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
 
         @app.post("/chat/completions")
         async def chat(request: Request) -> Response:
-            body = await request.json()
-            text = _last_user_text(body.get("messages"))
-            with dev_diagnostics.turn("chat", text):
-                reply = await chat_dispatch(text)
-                dev_diagnostics.record_output(reply)
-            return JSONResponse(_chat_body(reply))
+            with _request_scope(request):
+                body = await request.json()
+                text = _last_user_text(body.get("messages"))
+                with dev_diagnostics.turn("chat", text):
+                    reply = await chat_dispatch(text)
+                    dev_diagnostics.record_output(reply)
+                return JSONResponse(_chat_body(reply))
 
         logger.info("Serving chat protocol on POST /chat/completions")
 
@@ -553,18 +589,19 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
 
         @app.post("/invocations")
         async def invocations(request: Request) -> Response:
-            # Pass-through: accept a JSON object ({"message"|"input"}) or a bare
-            # text body, matching Foundry's Invocations sample.
-            raw = await request.body()
-            try:
-                body = json.loads(raw) if raw else ""
-            except json.JSONDecodeError:
-                body = raw.decode("utf-8", errors="replace").strip()
-            text = _invocations_input(body)
-            with dev_diagnostics.turn("invocations", text):
-                reply = await invocations_dispatch(text)
-                dev_diagnostics.record_output(reply)
-            return JSONResponse(_invocations_body(reply))
+            with _request_scope(request):
+                # Pass-through: accept a JSON object ({"message"|"input"}) or a bare
+                # text body, matching Foundry's Invocations sample.
+                raw = await request.body()
+                try:
+                    body = json.loads(raw) if raw else ""
+                except json.JSONDecodeError:
+                    body = raw.decode("utf-8", errors="replace").strip()
+                text = _invocations_input(body)
+                with dev_diagnostics.turn("invocations", text):
+                    reply = await invocations_dispatch(text)
+                    dev_diagnostics.record_output(reply)
+                return JSONResponse(_invocations_body(reply))
 
         logger.info("Serving invocations protocol on POST /invocations")
 

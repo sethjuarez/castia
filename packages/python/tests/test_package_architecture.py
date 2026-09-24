@@ -41,6 +41,7 @@ MODULE_PATHS = {
     "optimization": "optimizing.config",
     "optimize": "optimizing.baseline",
     "optimizer": "optimizing.jobs",
+    "request_context": "runtime.request_context",
     "server": "hosting.server",
     "streaming": "messaging.streaming",
     "surfaces": "messaging.surfaces",
@@ -53,6 +54,7 @@ PUBLIC_EXPORTS = {
     "runtime.application": ("PUBLISHABLE_PROTOCOLS", "Agent", "Router"),
     "runtime.context": ("Turn", "current_turn", "current_turn_or_none"),
     "runtime.dependencies": ("Depends",),
+    "runtime.request_context": ("RequestContext", "current_request_context"),
     "hosting.identity": (
         "AgenticIdentityError", "agentic_user_id", "require_agentic_user",
     ),

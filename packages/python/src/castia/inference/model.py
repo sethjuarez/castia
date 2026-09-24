@@ -350,13 +350,29 @@ def _public_tool_spec(
 ) -> dict:
     """Apply optimizer rewrites, then drop private metadata before Responses."""
     from castia.integrations.toolbox import apply_optimized_toolbox_tools
+    from castia.runtime.request_context import (
+        FOUNDRY_CALL_ID_HEADER,
+        current_request_context,
+    )
 
     optimized = apply_optimized_toolbox_tools(spec, tool_definitions)
-    return {
+    public = {
         k: v
         for k, v in optimized.items()
         if not str(k).startswith(_PRIVATE_TOOL_PREFIX)
     }
+    if public.get("type") == "mcp":
+        headers = {
+            k: v
+            for k, v in (public.get("headers") or {}).items()
+            if str(k).lower() != FOUNDRY_CALL_ID_HEADER
+        }
+        headers.update(current_request_context().platform_headers())
+        if headers:
+            public["headers"] = headers
+        else:
+            public.pop("headers", None)
+    return public
 
 
 def use_model(
