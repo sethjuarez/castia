@@ -5,6 +5,7 @@ import json
 import socket
 import subprocess
 import uuid
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +14,8 @@ from openai.types.responses.response import Response as OpenAIResponse
 from castia import Agent, Depends, Message, Teams, current_request_context
 from castia.building import AgentTestHarness
 from castia.building._offline import OfflineOperationError
+
+FIXTURES = Path(__file__).with_name("fixtures")
 
 
 def activity(**changes):
@@ -44,6 +47,36 @@ def sse_events(text: str):
             event_type = None
             data_lines = []
     return events
+
+
+def normalize_sse_payload(value, *, key: str | None = None):
+    if isinstance(value, str):
+        if key in {"id", "response_id"} and value.startswith("resp_"):
+            return "resp_fixture"
+        if key in {"id", "item_id"} and value.startswith("msg_"):
+            return "msg_fixture"
+        return value
+    if isinstance(value, dict):
+        return {
+            child_key: 0
+            if child_key == "created_at" and isinstance(item, int)
+            else normalize_sse_payload(item, key=child_key)
+            for child_key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [normalize_sse_payload(item, key=key) for item in value]
+    return value
+
+
+def normalized_sse_events(text: str):
+    return [
+        {"event": event, "data": normalize_sse_payload(payload)}
+        for event, payload in sse_events(text)
+    ]
+
+
+def load_fixture(name: str):
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
 def assert_responses_object_defaults(body: dict, *, output_text: str) -> None:
@@ -521,6 +554,7 @@ def test_responses_stream_uses_stream_handler_for_sse(monkeypatch):
 
     app = Agent()
     stream_attributes = {}
+    monkeypatch.delenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", raising=False)
 
     @app.responses()
     async def reply(text: str):
@@ -545,6 +579,9 @@ def test_responses_stream_uses_stream_handler_for_sse(monkeypatch):
                 response,
                 deltas=["stream:", "hello"],
                 output_text="stream:hello",
+            )
+            assert normalized_sse_events(response.text) == load_fixture(
+                "responses_sse_stream_golden.json"
             )
             assert stream_attributes["chunk_count"] == 11
             assert stream_attributes["bytes_sent"] == len(response.text.encode("utf-8"))
