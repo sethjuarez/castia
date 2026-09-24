@@ -82,7 +82,12 @@ PUBLIC_EXPORTS = {
         "resolve_toolbox_endpoint", "toolbox_mcp_tool", "toolbox_token",
         "validate_toolbox_endpoint",
     ),
-    "observe.tracing": ("OperationName", "execute_tool", "invoke_agent"),
+    "observe.tracing": (
+        "OperationName", "TraceRecord", "clear_trace_sinks", "execute_tool",
+        "invoke_agent", "jsonl_trace_sink", "register_trace_sink",
+        "registered_trace_sinks", "remove_trace_sink", "trace_attribute",
+        "trace_step",
+    ),
 }
 
 PACKAGE_ROOT = Path(castia.__file__).resolve().parent

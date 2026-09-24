@@ -47,7 +47,19 @@ from castia.messaging.invokes import (
 from castia.messaging.messages import Message
 from castia.messaging.streaming import Streamer
 from castia.messaging.surfaces import Teams
-from castia.observe.tracing import OperationName, execute_tool, invoke_agent
+from castia.observe.tracing import (
+    OperationName,
+    TraceRecord,
+    clear_trace_sinks,
+    execute_tool,
+    invoke_agent,
+    jsonl_trace_sink,
+    register_trace_sink,
+    registered_trace_sinks,
+    remove_trace_sink,
+    trace_attribute,
+    trace_step,
+)
 from castia.optimizing.config import (
     AgentConfig,
     apply_optimized_tools,
@@ -77,6 +89,7 @@ __all__ = [
     "Teams",
     "ToolboxAuthenticationError",
     "ToolboxConfigurationError",
+    "TraceRecord",
     "Turn",
     "action_chips",
     "adaptive_card",
@@ -86,6 +99,7 @@ __all__ = [
     "card_action",
     "card_invoke_response",
     "citation",
+    "clear_trace_sinks",
     "compose_toolbox_endpoint",
     "configured_model",
     "current_request_context",
@@ -96,11 +110,15 @@ __all__ = [
     "feedback_payload",
     "get_model",
     "invoke_agent",
+    "jsonl_trace_sink",
     "knowledge_base_mcp_tool",
     "load_agent_config",
     "mention_entity",
     "message_invoke_response",
     "platform_endpoint_env",
+    "register_trace_sink",
+    "registered_trace_sinks",
+    "remove_trace_sink",
     "require_agentic_user",
     "resolve_toolbox_endpoint",
     "sensitivity_label",
@@ -108,6 +126,8 @@ __all__ = [
     "toolbox_mcp_tool",
     "toolbox_token",
     "tools_json",
+    "trace_attribute",
+    "trace_step",
     "use_model",
     "validate_toolbox_endpoint",
 ]

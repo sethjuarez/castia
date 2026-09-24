@@ -59,6 +59,16 @@ if TYPE_CHECKING:
         VerificationResult,
         verify_probe,
     )
+    from castia.observe.tracing import (
+        TraceRecord,
+        clear_trace_sinks,
+        jsonl_trace_sink,
+        register_trace_sink,
+        registered_trace_sinks,
+        remove_trace_sink,
+        trace_attribute,
+        trace_step,
+    )
 
 __all__ = [
     "FEATURE_CATALOG",
@@ -75,13 +85,21 @@ __all__ = [
     "RestAdapter",
     "SuiteReport",
     "TraceQuery",
+    "TraceRecord",
     "VerificationResult",
+    "clear_trace_sinks",
     "compare_reports",
+    "jsonl_trace_sink",
     "live_probes",
     "normalize_record",
+    "register_trace_sink",
+    "registered_trace_sinks",
+    "remove_trace_sink",
     "run_suite",
     "summarize",
     "telemetry_probes",
+    "trace_attribute",
+    "trace_step",
     "verify_probe",
 ]
 
@@ -96,6 +114,10 @@ _EXPORT_MODULES = {
     **dict.fromkeys((
         "AppInsightsClient", "ObserveError", "TraceQuery", "VerificationResult", "verify_probe",
     ), "telemetry"),
+    **dict.fromkeys((
+        "TraceRecord", "clear_trace_sinks", "jsonl_trace_sink", "register_trace_sink",
+        "registered_trace_sinks", "remove_trace_sink", "trace_attribute", "trace_step",
+    ), "tracing"),
 }
 
 
