@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from unittest import mock
 
 import pytest
 
@@ -10,6 +11,7 @@ from castia.observe.tracing import (
     TraceRecord,
     clear_trace_sinks,
     jsonl_trace_sink,
+    otel_trace_sink,
     register_trace_sink,
     registered_trace_sinks,
     remove_trace_sink,
@@ -165,6 +167,88 @@ def test_jsonl_trace_sink_writes_completed_records(tmp_path):
     assert rows[0]["name"] == "write-jsonl"
     assert rows[0]["attributes"]["items"] == [1, 2]
     assert rows[0]["attributes"]["object"].startswith("<object object at ")
+
+
+def test_otel_trace_sink_exports_completed_records(monkeypatch):
+    from opentelemetry.trace import StatusCode
+
+    span = mock.MagicMock()
+    tracer = mock.MagicMock()
+    tracer.start_span.return_value = span
+    get_tracer = mock.MagicMock(return_value=tracer)
+    monkeypatch.setattr("opentelemetry.trace.get_tracer", get_tracer)
+    record = TraceRecord(
+        trace_id="trace",
+        span_id="span",
+        parent_id="parent",
+        name="local step",
+        kind="prompty",
+        status="ok",
+        started_at="2024-01-01T00:00:00Z",
+        ended_at="2024-01-01T00:00:00.125000Z",
+        duration_ms=125,
+        attributes={
+            "safe": "value",
+            "nested": {"items": [1]},
+            "numbers": [1, 2],
+            "mixed": ["a", 1],
+            "not-a-number": math.nan,
+        },
+    )
+
+    otel_trace_sink(tracer_name="custom")(record)
+
+    get_tracer.assert_called_once_with("custom")
+    tracer.start_span.assert_called_once()
+    _, kwargs = tracer.start_span.call_args
+    assert tracer.start_span.call_args.args == ("local step",)
+    assert kwargs["start_time"] == 1704067200000000000
+    attrs = kwargs["attributes"]
+    assert attrs["castia.trace.id"] == "trace"
+    assert attrs["castia.trace.span_id"] == "span"
+    assert attrs["castia.trace.parent_id"] == "parent"
+    assert attrs["castia.trace.kind"] == "prompty"
+    assert attrs["castia.trace.status"] == "ok"
+    assert attrs["gen_ai.system"] == "microsoft.foundry"
+    assert attrs["safe"] == "value"
+    assert attrs["nested"] == '{"items": [1]}'
+    assert attrs["numbers"] == [1, 2]
+    assert attrs["mixed"] == '["a", 1]'
+    assert attrs["not-a-number"] == "nan"
+    status = span.set_status.call_args.args[0]
+    assert status.status_code is StatusCode.OK
+    span.end.assert_called_once_with(end_time=1704067200125000000)
+
+
+def test_otel_trace_sink_preserves_error_privacy(monkeypatch):
+    from opentelemetry.trace import StatusCode
+
+    span = mock.MagicMock()
+    tracer = mock.MagicMock()
+    tracer.start_span.return_value = span
+    monkeypatch.setattr("opentelemetry.trace.get_tracer", mock.MagicMock(return_value=tracer))
+    record = TraceRecord(
+        trace_id="trace",
+        span_id="span",
+        parent_id=None,
+        name="private failure",
+        kind="prompty",
+        status="error",
+        started_at="2024-01-01T00:00:00Z",
+        ended_at="2024-01-01T00:00:01Z",
+        duration_ms=1000,
+        error_type="RuntimeError",
+        error_message=None,
+    )
+
+    otel_trace_sink()(record)
+
+    status = span.set_status.call_args.args[0]
+    assert status.status_code is StatusCode.ERROR
+    assert status.description == "RuntimeError"
+    span.set_attribute.assert_called_once_with("exception.type", "RuntimeError")
+    attributes = tracer.start_span.call_args.kwargs["attributes"]
+    assert "exception.message" not in attributes
 
 
 def test_trace_records_freeze_nested_attributes():

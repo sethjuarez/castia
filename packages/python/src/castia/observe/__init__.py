@@ -63,6 +63,7 @@ if TYPE_CHECKING:
         TraceRecord,
         clear_trace_sinks,
         jsonl_trace_sink,
+        otel_trace_sink,
         register_trace_sink,
         registered_trace_sinks,
         remove_trace_sink,
@@ -92,6 +93,7 @@ __all__ = [
     "jsonl_trace_sink",
     "live_probes",
     "normalize_record",
+    "otel_trace_sink",
     "register_trace_sink",
     "registered_trace_sinks",
     "remove_trace_sink",
@@ -116,7 +118,8 @@ _EXPORT_MODULES = {
     ), "telemetry"),
     **dict.fromkeys((
         "TraceRecord", "clear_trace_sinks", "jsonl_trace_sink", "register_trace_sink",
-        "registered_trace_sinks", "remove_trace_sink", "trace_attribute", "trace_step",
+        "otel_trace_sink", "registered_trace_sinks", "remove_trace_sink",
+        "trace_attribute", "trace_step",
     ), "tracing"),
 }
 

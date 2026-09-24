@@ -482,6 +482,17 @@ Set `CASTIA_OTEL_TRACE_ASGI_INTERNAL=true` only when debugging the ASGI transpor
 itself. `CASTIA_OTEL_TRACE_ASGI_SEND=true` remains accepted as a compatibility
 alias.
 
+Local Castia trace records can also be redirected into the active OpenTelemetry
+pipeline. Register `otel_trace_sink()` after configuring observability when you
+want the same runtime/model/tool/Prompty local records to appear in App
+Insights with `castia.trace.*` correlation attributes:
+
+```python
+from castia import otel_trace_sink, register_trace_sink
+
+register_trace_sink("otel", otel_trace_sink())
+```
+
 > **Security caveat:** enabling content recording writes prompt and response
 > **text** to Application Insights. Only enable it where storing that content is
 > acceptable for your data-handling and privacy requirements.

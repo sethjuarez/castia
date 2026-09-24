@@ -339,6 +339,35 @@ def jsonl_trace_sink(path: str | os.PathLike[str]) -> TraceSink:
     return sink
 
 
+def otel_trace_sink(*, tracer_name: str = "castia.local") -> TraceSink:
+    """Create a sink that exports completed local trace records as OTel spans."""
+
+    def sink(record: TraceRecord) -> None:
+        from opentelemetry import trace
+        from opentelemetry.trace import Status, StatusCode
+
+        attributes = _otel_record_attributes(record)
+        span = trace.get_tracer(tracer_name).start_span(
+            record.name,
+            attributes=attributes,
+            start_time=_iso_to_unix_nanos(record.started_at),
+        )
+        try:
+            if record.status == "error":
+                description = record.error_message or record.error_type
+                span.set_status(Status(StatusCode.ERROR, description))
+            elif record.status == "ok":
+                span.set_status(Status(StatusCode.OK))
+            if record.error_type:
+                span.set_attribute("exception.type", record.error_type)
+            if record.error_message:
+                span.set_attribute("exception.message", record.error_message)
+        finally:
+            span.end(end_time=_iso_to_unix_nanos(record.ended_at))
+
+    return sink
+
+
 def _emit_trace_record(record: TraceRecord) -> None:
     if _EMITTING_TRACE_RECORD.get():
         return
@@ -357,6 +386,67 @@ def _emit_trace_record(record: TraceRecord) -> None:
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _iso_to_unix_nanos(value: str) -> int:
+    try:
+        timestamp = datetime.fromisoformat(value)
+    except ValueError:
+        timestamp = datetime.now(UTC)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    delta = timestamp.astimezone(UTC) - datetime(1970, 1, 1, tzinfo=UTC)
+    return (
+        (delta.days * 86_400 + delta.seconds) * 1_000_000_000
+        + delta.microseconds * 1_000
+    )
+
+
+def _otel_record_attributes(record: TraceRecord) -> dict[str, Any]:
+    attributes: dict[str, Any] = {
+        "castia.trace.id": record.trace_id,
+        "castia.trace.span_id": record.span_id,
+        "castia.trace.kind": record.kind,
+        "castia.trace.status": record.status,
+        "castia.trace.duration_ms": record.duration_ms,
+        "gen_ai.system": PROVIDER,
+        "gen_ai.provider.name": PROVIDER,
+    }
+    if record.parent_id:
+        attributes["castia.trace.parent_id"] = record.parent_id
+    if record.error_type:
+        attributes["error.type"] = record.error_type
+    for key, value in record.attributes.items():
+        if key not in attributes:
+            attributes[key] = _otel_attribute_value(value)
+    return {key: value for key, value in attributes.items() if value is not None}
+
+
+def _otel_attribute_value(value: Any) -> Any:
+    if isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
+    if (
+        isinstance(value, list | tuple)
+        and all(_is_otel_sequence_value(item) for item in value)
+        and _is_homogeneous_otel_sequence(value)
+    ):
+        return list(value)
+    return json.dumps(_json_safe(value), ensure_ascii=False, default=str)
+
+
+def _is_otel_sequence_value(value: Any) -> bool:
+    if isinstance(value, str | bool | int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _is_homogeneous_otel_sequence(values: list[Any] | tuple[Any, ...]) -> bool:
+    if not values:
+        return True
+    first_type = type(values[0])
+    return all(type(value) is first_type for value in values)
 
 
 def _json_safe_mapping(values: dict[str, Any]) -> dict[str, Any]:

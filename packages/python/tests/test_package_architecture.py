@@ -84,7 +84,7 @@ PUBLIC_EXPORTS = {
     ),
     "observe.tracing": (
         "OperationName", "TraceRecord", "clear_trace_sinks", "execute_tool",
-        "invoke_agent", "jsonl_trace_sink", "register_trace_sink",
+        "invoke_agent", "jsonl_trace_sink", "otel_trace_sink", "register_trace_sink",
         "registered_trace_sinks", "remove_trace_sink", "trace_attribute",
         "trace_step",
     ),
