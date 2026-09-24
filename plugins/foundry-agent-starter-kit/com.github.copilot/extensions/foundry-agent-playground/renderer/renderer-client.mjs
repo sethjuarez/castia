@@ -1029,9 +1029,9 @@ export const rendererClientScript = `
       const overlay = document.createElement("div");
       overlay.className = "mermaid-lightbox-backdrop";
       overlay.setAttribute("role", "presentation");
-      overlay.innerHTML = '<div class="mermaid-lightbox" role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram">' +
+      overlay.innerHTML = '<div class="mermaid-lightbox" role="dialog" aria-modal="true" aria-label="Expanded diagram">' +
         '<div class="mermaid-lightbox-head">' +
-          '<div><strong>Mermaid diagram</strong><div class="mermaid-lightbox-help">Drag to pan · Wheel to zoom</div></div>' +
+          '<div><strong>Diagram</strong><div class="mermaid-lightbox-help">Drag to pan · Wheel to zoom</div></div>' +
           '<div class="mermaid-lightbox-controls" aria-label="Diagram zoom controls">' +
             '<button type="button" class="mermaid-zoom-out" aria-label="Zoom out">−</button>' +
             '<button type="button" class="mermaid-zoom-in" aria-label="Zoom in">+</button>' +
@@ -1040,7 +1040,7 @@ export const rendererClientScript = `
             '<button type="button" class="mermaid-lightbox-close" aria-label="Close expanded diagram">Close</button>' +
           '</div>' +
         '</div>' +
-        '<div class="mermaid-lightbox-body" tabindex="0" aria-label="Expanded Mermaid diagram viewport"><div class="mermaid-lightbox-canvas"></div></div>' +
+        '<div class="mermaid-lightbox-body" tabindex="0" aria-label="Expanded diagram viewport"><div class="mermaid-lightbox-canvas"></div></div>' +
         '</div>';
       const clone = svg.cloneNode(true);
       clone.removeAttribute("width");
