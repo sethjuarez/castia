@@ -30,6 +30,7 @@ import os
 import socket
 import subprocess
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from ipaddress import ip_address
@@ -87,6 +88,7 @@ _COMMON_ENV_CHECKS = (
     "TOOLBOX_ENDPOINT",
     "OPTIMIZATION_CANDIDATE_ID",
 )
+_MAX_STORED_RESPONSES = 512
 
 
 def _any_of(surfaces: tuple[Teams, ...]) -> Callable[[Activity], bool]:
@@ -148,6 +150,116 @@ def _responses_body(
         "output_text": text,
         "output": [message],
     }
+
+
+def _responses_input_items(value, *, response_id: str) -> list[dict]:
+    """Return a minimal input-items page payload source for a Responses request."""
+    if isinstance(value, str):
+        return [
+            {
+                "id": f"{response_id}_input_0",
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": value}],
+            }
+        ]
+    if not isinstance(value, list):
+        return []
+
+    items: list[dict] = []
+    for index, item in enumerate(value):
+        if isinstance(item, str):
+            items.append(
+                {
+                    "id": f"{response_id}_input_{index}",
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": item}],
+                }
+            )
+        elif isinstance(item, dict):
+            normalized = dict(item)
+            normalized["id"] = f"{response_id}_input_{index}"
+            normalized.setdefault("type", "message")
+            items.append(normalized)
+    return items
+
+
+def _responses_list(
+    items: list[dict],
+    *,
+    limit: int = 20,
+    order: str = "desc",
+    after: str | None = None,
+    before: str | None = None,
+) -> dict:
+    ordered = items if order == "asc" else list(reversed(items))
+    if after is not None:
+        ordered = _after_item(ordered, after)
+    if before is not None:
+        ordered = _before_item(ordered, before)
+    page = ordered[:limit]
+    return {
+        "object": "list",
+        "data": page,
+        "first_id": page[0].get("id") if page else None,
+        "last_id": page[-1].get("id") if page else None,
+        "has_more": len(ordered) > limit,
+    }
+
+
+def _after_item(items: list[dict], item_id: str) -> list[dict]:
+    for index, item in enumerate(items):
+        if item.get("id") == item_id:
+            return items[index + 1 :]
+    return items
+
+
+def _before_item(items: list[dict], item_id: str) -> list[dict]:
+    for index, item in enumerate(items):
+        if item.get("id") == item_id:
+            return items[:index]
+    return items
+
+
+def _store_completed_response(
+    responses_store: OrderedDict[str, dict],
+    response_id: str,
+    record: dict,
+) -> None:
+    responses_store[response_id] = record
+    responses_store.move_to_end(response_id)
+    while len(responses_store) > _MAX_STORED_RESPONSES:
+        responses_store.popitem(last=False)
+
+
+def _api_error(
+    message: str,
+    *,
+    code: str = "invalid_request",
+    param: str | None = None,
+    status_code: int = 400,
+) -> JSONResponse:
+    return JSONResponse(
+        {
+            "error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": param,
+                "code": code,
+            }
+        },
+        status_code=status_code,
+    )
+
+
+def _not_found_response(response_id: str) -> JSONResponse:
+    return _api_error(
+        f"Response {response_id!r} was not found.",
+        code="not_found",
+        param="response_id",
+        status_code=404,
+    )
 
 
 def _sse_event(event_type: str, payload: dict) -> str:
@@ -381,7 +493,9 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
             return Response(status_code=200)
 
 
-def _register_wire(app: FastAPI, wire: dict) -> None:
+def _register_wire(
+    app: FastAPI, wire: dict, responses_store: OrderedDict[str, dict]
+) -> None:
     """Serve each registered wire-protocol handler on its native endpoint."""
     responses_handler = wire.get("responses")
     if responses_handler is not None:
@@ -397,7 +511,19 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
         async def responses(request: Request) -> Response:
             with _request_scope(request):
                 body = await request.json()
+                if not isinstance(body, dict):
+                    return _api_error(
+                        "request body must be a JSON object",
+                        param="body",
+                    )
+                if body.get("background") is True:
+                    return _api_error(
+                        "background=true is not supported by this Castia runtime.",
+                        code="unsupported_parameter",
+                        param="background",
+                    )
                 text = _responses_input(body.get("input"))
+                store = body.get("store") is not False
                 if body.get("stream") is True:
 
                     async def events():
@@ -418,6 +544,9 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
 
                         response_id = f"resp_{uuid4().hex}"
                         output_item_id = f"msg_{uuid4().hex}"
+                        input_items = _responses_input_items(
+                            body.get("input"), response_id=response_id
+                        )
                         chunks: list[str] = []
                         try:
                             with _request_scope(request), dev_diagnostics.turn(
@@ -538,6 +667,19 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
                                         },
                                     )
                                 )
+                                if store:
+                                    _store_completed_response(
+                                        responses_store,
+                                        response_id,
+                                        {
+                                            "response": _responses_body(
+                                                output_text,
+                                                response_id=response_id,
+                                                output_item_id=output_item_id,
+                                            ),
+                                            "input_items": input_items,
+                                        },
+                                    )
                                 yield emit(
                                     _sse_event(
                                         "response.completed",
@@ -563,9 +705,80 @@ def _register_wire(app: FastAPI, wire: dict) -> None:
                 with dev_diagnostics.turn("responses", text):
                     reply = await responses_dispatch(text)
                     dev_diagnostics.record_output(reply)
-                return JSONResponse(_responses_body(reply))
+                response_id = f"resp_{uuid4().hex}"
+                body_out = _responses_body(reply, response_id=response_id)
+                if store:
+                    _store_completed_response(
+                        responses_store,
+                        response_id,
+                        {
+                            "response": _responses_body(
+                                reply,
+                                response_id=response_id,
+                                output_item_id=f"msg_{uuid4().hex}",
+                            ),
+                            "input_items": _responses_input_items(
+                                body.get("input"), response_id=response_id
+                            ),
+                        },
+                    )
+                return JSONResponse(body_out)
 
         logger.info("Serving responses protocol on POST /responses")
+
+        @app.get("/responses/{response_id}")
+        async def get_response(response_id: str) -> Response:
+            record = responses_store.get(response_id)
+            if record is None:
+                return _not_found_response(response_id)
+            return JSONResponse(record["response"])
+
+        @app.delete("/responses/{response_id}")
+        async def delete_response(response_id: str) -> Response:
+            if response_id not in responses_store:
+                return _not_found_response(response_id)
+            del responses_store[response_id]
+            return JSONResponse(
+                {"id": response_id, "object": "response", "deleted": True},
+                status_code=200,
+            )
+
+        @app.post("/responses/{response_id}/cancel")
+        async def cancel_response(response_id: str) -> Response:
+            if response_id not in responses_store:
+                return _not_found_response(response_id)
+            return _api_error(
+                "Cannot cancel a synchronous response.",
+                code="unsupported_parameter",
+                param="response_id",
+            )
+
+        @app.get("/responses/{response_id}/input_items")
+        async def response_input_items(response_id: str, request: Request) -> Response:
+            record = responses_store.get(response_id)
+            if record is None:
+                return _not_found_response(response_id)
+            try:
+                limit = int(request.query_params.get("limit", "20"))
+            except ValueError:
+                return _api_error(
+                    "limit must be an integer between 1 and 100",
+                    param="limit",
+                )
+            if limit < 1 or limit > 100:
+                return _api_error("limit must be between 1 and 100", param="limit")
+            order = request.query_params.get("order", "desc").lower()
+            if order not in {"asc", "desc"}:
+                return _api_error("order must be 'asc' or 'desc'", param="order")
+            return JSONResponse(
+                _responses_list(
+                    record["input_items"],
+                    limit=limit,
+                    order=order,
+                    after=request.query_params.get("after"),
+                    before=request.query_params.get("before"),
+                )
+            )
 
     chat_handler = wire.get("chat")
     if chat_handler is not None:
@@ -728,7 +941,7 @@ def build_app(
         )
 
     _register_activity(app, routes, invokes)
-    _register_wire(app, wire or {})
+    _register_wire(app, wire or {}, OrderedDict())
     return app
 
 

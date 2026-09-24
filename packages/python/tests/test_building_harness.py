@@ -526,6 +526,188 @@ def test_responses_stream_falls_back_to_responses_handler_for_sse():
     asyncio.run(run())
 
 
+def test_responses_lifecycle_stores_completed_json_response():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return f"answer:{text}"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post("/responses", json={"input": "hello"})
+            assert created.status_code == 200
+            body = created.json()
+            response_id = body["id"]
+            assert body["output_text"] == "answer:hello"
+
+            fetched = await test.client.get(f"/responses/{response_id}")
+            assert fetched.status_code == 200
+            stored = fetched.json()
+            assert stored["id"] == body["id"]
+            assert stored["output_text"] == body["output_text"]
+            assert stored["output"][0]["id"].startswith("msg_")
+            assert stored["output"][0]["status"] == "completed"
+            assert stored["output"][0]["content"][0]["annotations"] == []
+
+            input_items = await test.client.get(f"/responses/{response_id}/input_items")
+            assert input_items.status_code == 200
+            page = input_items.json()
+            assert page["object"] == "list"
+            assert page["has_more"] is False
+            assert page["first_id"] == f"{response_id}_input_0"
+            assert page["last_id"] == f"{response_id}_input_0"
+            assert page["data"] == [
+                {
+                    "id": f"{response_id}_input_0",
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "hello"}],
+                }
+            ]
+
+            cancel = await test.client.post(f"/responses/{response_id}/cancel")
+            assert cancel.status_code == 400
+            assert cancel.json()["error"]["message"] == "Cannot cancel a synchronous response."
+
+            deleted = await test.client.delete(f"/responses/{response_id}")
+            assert deleted.status_code == 200
+            assert deleted.json() == {
+                "id": response_id,
+                "object": "response",
+                "deleted": True,
+            }
+            missing = await test.client.get(f"/responses/{response_id}")
+            assert missing.status_code == 404
+
+    asyncio.run(run())
+
+
+def test_responses_lifecycle_honors_store_false_and_rejects_background():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses", json={"input": "private", "store": False}
+            )
+            assert created.status_code == 200
+            response_id = created.json()["id"]
+            assert (await test.client.get(f"/responses/{response_id}")).status_code == 404
+            assert (
+                await test.client.get(f"/responses/{response_id}/input_items")
+            ).status_code == 404
+
+            background = await test.client.post(
+                "/responses", json={"input": "later", "background": True}
+            )
+            assert background.status_code == 400
+            assert background.json()["error"]["param"] == "background"
+
+            bad_body = await test.client.post("/responses", json=["not", "object"])
+            assert bad_body.status_code == 400
+            assert bad_body.json()["error"]["param"] == "body"
+
+    asyncio.run(run())
+
+
+def test_responses_lifecycle_stores_completed_stream_response():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return f"single:{text}"
+
+    @app.responses_stream()
+    async def reply_stream(text: str):
+        yield "stream:"
+        yield text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            streamed = await test.client.post(
+                "/responses", json={"input": "hello", "stream": True}
+            )
+            assert streamed.status_code == 200
+            events = sse_events(streamed.text)
+            completed = next(
+                payload
+                for event, payload in events
+                if event == "response.completed"
+            )
+            response_id = completed["response"]["id"]
+
+            fetched = await test.client.get(f"/responses/{response_id}")
+            assert fetched.status_code == 200
+            assert fetched.json()["output_text"] == "stream:hello"
+
+    asyncio.run(run())
+
+
+def test_responses_input_items_pagination_and_order():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    input_value = [
+        {"role": "user", "content": "first", "id": "client-id-ignored"},
+        {"role": "user", "content": "second"},
+        "third",
+    ]
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post("/responses", json={"input": input_value})
+            response_id = created.json()["id"]
+
+            desc = await test.client.get(
+                f"/responses/{response_id}/input_items?limit=1"
+            )
+            assert desc.status_code == 200
+            desc_page = desc.json()
+            assert desc_page["has_more"] is True
+            assert [item["id"] for item in desc_page["data"]] == [
+                f"{response_id}_input_2"
+            ]
+
+            asc = await test.client.get(
+                f"/responses/{response_id}/input_items?order=asc&limit=2"
+            )
+            assert asc.status_code == 200
+            asc_page = asc.json()
+            assert asc_page["has_more"] is True
+            assert [item["id"] for item in asc_page["data"]] == [
+                f"{response_id}_input_0",
+                f"{response_id}_input_1",
+            ]
+
+            after = await test.client.get(
+                f"/responses/{response_id}/input_items"
+                f"?order=asc&after={response_id}_input_0"
+            )
+            assert [item["id"] for item in after.json()["data"]] == [
+                f"{response_id}_input_1",
+                f"{response_id}_input_2",
+            ]
+
+            bad_limit = await test.client.get(
+                f"/responses/{response_id}/input_items?limit=0"
+            )
+            assert bad_limit.status_code == 400
+            bad_order = await test.client.get(
+                f"/responses/{response_id}/input_items?order=random"
+            )
+            assert bad_order.status_code == 400
+
+    asyncio.run(run())
+
+
 def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
     from castia.messaging import connector
 
