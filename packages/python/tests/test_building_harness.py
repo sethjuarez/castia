@@ -133,6 +133,28 @@ def assert_response_message_output(body: dict, *, text: str) -> None:
     ]
 
 
+def assert_empty_activity_error(
+    response,
+    *,
+    status_code: int,
+    activity_id: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    assert response.status_code == status_code
+    assert response.content == b""
+    assert response.headers["x-agent-activity-id"]
+    assert response.headers["x-agent-session-id"]
+    for header_name in ("x-agent-activity-id", "x-agent-session-id"):
+        header = response.headers[header_name]
+        assert "\r" not in header
+        assert "\n" not in header
+        assert len(header) <= 256
+    if activity_id is not None:
+        assert response.headers["x-agent-activity-id"] == activity_id
+    if session_id is not None:
+        assert response.headers["x-agent-session-id"] == session_id
+
+
 def assert_responses_sse_contract(response, *, deltas: list[str], output_text: str):
     assert response.status_code == 200
     assert "text/event-stream" in response.headers["content-type"]
@@ -1453,14 +1475,13 @@ def test_invoke_and_unhandled_and_malformed_activity_use_production_behavior():
                 json=activity(id=5),
                 headers={"x-agent-session-id": "session-header"},
             )
-            assert response.status_code == 400
+            assert_empty_activity_error(response, status_code=400)
             assert "\n" not in response.headers["x-agent-session-id"]
             assert response.headers["x-agent-activity-id"] != "5"
             malformed = await test.client.post("/activity/messages", content="{")
-            assert malformed.status_code == 400
-            assert "x-agent-activity-id" in malformed.headers
+            assert_empty_activity_error(malformed, status_code=400)
             non_object = await test.client.post("/activity/messages", json=["bad"])
-            assert non_object.status_code == 400
+            assert_empty_activity_error(non_object, status_code=400)
             assert not test.egress
             assert (await test.client.post("/responses", json={})).status_code == 404
 
@@ -1494,6 +1515,8 @@ def test_activity_malformed_ids_fall_back_to_safe_header(
                 headers={"x-agent-session-id": "session-header"},
             )
             assert response.status_code == expected_status
+            if expected_status >= 400:
+                assert_empty_activity_error(response, status_code=expected_status)
             header = response.headers["x-agent-activity-id"]
             assert header != str(activity_id)
             uuid.UUID(header)
@@ -1577,9 +1600,12 @@ def test_activity_failures_preserve_protocol_headers():
                 "/activity/messages?agent_session_id=session-error",
                 json=activity(id="activity-error"),
             )
-            assert response.status_code == 500
-            assert response.headers["x-agent-activity-id"] == "activity-error"
-            assert response.headers["x-agent-session-id"] == "session-error"
+            assert_empty_activity_error(
+                response,
+                status_code=500,
+                activity_id="activity-error",
+                session_id="session-error",
+            )
             assert calls[-1] == "message"
 
             response = await test.client.post(
@@ -1591,9 +1617,12 @@ def test_activity_failures_preserve_protocol_headers():
                 ),
                 headers={"x-agent-session-id": "session-invoke-error"},
             )
-            assert response.status_code == 500
-            assert response.headers["x-agent-activity-id"] == "invoke-error"
-            assert response.headers["x-agent-session-id"] == "session-invoke-error"
+            assert_empty_activity_error(
+                response,
+                status_code=500,
+                activity_id="invoke-error",
+                session_id="session-invoke-error",
+            )
             assert calls[-1] == "invoke"
 
             response = await test.client.post(
@@ -1605,12 +1634,11 @@ def test_activity_failures_preserve_protocol_headers():
                 ),
                 headers={"x-agent-session-id": "session-serialization-error"},
             )
-            assert response.status_code == 500
-            assert response.headers["x-agent-activity-id"] == (
-                "invoke-serialization-error"
-            )
-            assert response.headers["x-agent-session-id"] == (
-                "session-serialization-error"
+            assert_empty_activity_error(
+                response,
+                status_code=500,
+                activity_id="invoke-serialization-error",
+                session_id="session-serialization-error",
             )
             assert calls[-1] == "non-json"
 
