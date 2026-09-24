@@ -152,11 +152,12 @@ non-loopback callers.
 Castia serves the OpenAI Responses wire protocol at `POST /responses`. A
 non-streaming request returns a completed `response` object immediately.
 `stream: true` returns Responses SSE lifecycle events followed by `[DONE]` on
-success. If the handler raises mid-turn, the stream terminates without a
-terminal event and no response record is stored; Castia does not emit
-`response.failed` for that failure today. Unless the request sets
-`store: false`, Castia also keeps the completed response and normalized input
-items in a bounded in-memory store for the current process.
+success. When streaming, if the handler raises mid-turn, Castia emits a terminal
+`response.failed` event with a generic `server_error`, then `[DONE]`; the
+exception is logged server-side and the public event does not include exception
+details. Unless the request sets `store: false`, Castia also keeps the terminal
+completed or failed response and normalized input items in a bounded in-memory
+store for the current process.
 The completed record is available through:
 
 - `GET /responses/{response_id}`
@@ -168,9 +169,9 @@ This lifecycle store is intentionally lightweight. It is process-local,
 in-memory, and capped at the most recent 512 responses per process; older
 records are evicted, so a later `GET` can return `404` even before restart. It
 is not durable and does not survive process restart, scale-out, or container
-replacement. Stored and returned response objects are wire-shaped but minimal:
-completed `usage` token counts are reported as zeros and are not real model
-accounting.
+replacement. Stored and returned response objects are wire-shaped but minimal: completed
+`usage` token counts are reported as zeros and are not real model accounting;
+failed responses currently report `usage: null`.
 
 The runtime is deliberately explicit about unsupported Azure AI AgentServer
 hosted-runtime features: `background=true` is rejected with

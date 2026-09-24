@@ -168,6 +168,7 @@ def _responses_body(
     output_item_id: str | None = None,
     status: str = "completed",
     created_at: int | None = None,
+    error: dict | None = None,
     model: str | None = None,
     instructions: object = None,
     metadata: dict | None = None,
@@ -191,14 +192,14 @@ def _responses_body(
         content_part["annotations"] = []
         content_part["logprobs"] = []
         message["id"] = output_item_id
-        message["status"] = status
+        message["status"] = "incomplete" if status == "failed" else status
 
     return {
         "id": response_id or f"resp_{uuid4().hex}",
         "object": "response",
         "created_at": created_at or int(time.time()),
         "status": status,
-        "error": None,
+        "error": error,
         "incomplete_details": None,
         "instructions": instructions,
         "metadata": metadata or {},
@@ -372,6 +373,7 @@ def _record_stream_attributes(
     last_chunk_at: float | None,
     chunk_count: int,
     bytes_sent: int,
+    terminal_status: str | None = None,
 ) -> None:
     """Attach aggregate streaming transport facts to the active request span."""
     try:
@@ -384,6 +386,8 @@ def _record_stream_attributes(
             "stream.chunk_count": chunk_count,
             "stream.bytes_sent": bytes_sent,
         }
+        if terminal_status is not None:
+            attributes["stream.terminal_status"] = terminal_status
         if first_chunk_at is not None:
             attributes["stream.first_chunk_ms"] = round(
                 (first_chunk_at - started) * 1000
@@ -391,6 +395,10 @@ def _record_stream_attributes(
         if last_chunk_at is not None:
             attributes["stream.last_chunk_ms"] = round((last_chunk_at - started) * 1000)
         span.set_attributes(attributes)
+        if terminal_status == "failed":
+            from opentelemetry.trace import Status, StatusCode
+
+            span.set_status(Status(StatusCode.ERROR, "response.failed"))
     except Exception:  # pragma: no cover - telemetry must never break streaming
         logger.debug("Failed to record streaming attributes", exc_info=True)
 
@@ -411,6 +419,27 @@ def _responses_completed_event(
         **response_options,
     )
     return {"type": "response.completed", "response": body, **body}
+
+
+def _responses_failed_event(
+    text: str,
+    *,
+    response_id: str,
+    output_item_id: str,
+    created_at: int,
+    response_options: dict,
+    message: str = "An internal server error occurred.",
+) -> dict:
+    body = _responses_body(
+        text,
+        response_id=response_id,
+        output_item_id=output_item_id,
+        status="failed",
+        created_at=created_at,
+        error={"code": "server_error", "message": message},
+        **response_options,
+    )
+    return {"type": "response.failed", "response": body, **body}
 
 
 def _streaming_response(
@@ -687,6 +716,8 @@ def _register_wire(
                         chunk_count = 0
                         bytes_sent = 0
                         sequence_number = 0
+                        terminal_status: str | None = None
+                        terminal_emitted = False
 
                         def emit_raw(event: str) -> str:
                             nonlocal first_chunk_at, last_chunk_at, chunk_count
@@ -850,7 +881,34 @@ def _register_wire(
                                         response_options=response_options,
                                     ),
                                 )
+                                terminal_status = "completed"
+                                terminal_emitted = True
                                 yield emit_raw(_sse_done())
+                        except Exception:
+                            logger.exception("Responses stream handler failed.")
+                            if terminal_emitted:
+                                return
+                            output_text = "".join(chunks)
+                            failed_event = _responses_failed_event(
+                                output_text,
+                                response_id=response_id,
+                                output_item_id=output_item_id,
+                                created_at=created_at,
+                                response_options=response_options,
+                            )
+                            if store:
+                                _store_completed_response(
+                                    responses_store,
+                                    response_id,
+                                    {
+                                        "response": deepcopy(failed_event["response"]),
+                                        "input_items": input_items,
+                                    },
+                                )
+                            terminal_status = "failed"
+                            yield emit("response.failed", failed_event)
+                            terminal_emitted = True
+                            yield emit_raw(_sse_done())
                         finally:
                             _record_stream_attributes(
                                 started=started,
@@ -858,6 +916,7 @@ def _register_wire(
                                 last_chunk_at=last_chunk_at,
                                 chunk_count=chunk_count,
                                 bytes_sent=bytes_sent,
+                                terminal_status=terminal_status,
                             )
 
                     return StreamingResponse(events(), media_type="text/event-stream")

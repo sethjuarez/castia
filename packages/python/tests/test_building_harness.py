@@ -10,12 +10,15 @@ from pathlib import Path
 import httpx
 import pytest
 from openai.types.responses.response import Response as OpenAIResponse
+from openai.types.responses.response_stream_event import ResponseStreamEvent
+from pydantic import TypeAdapter
 
 from castia import Agent, Depends, Message, Teams, current_request_context
 from castia.building import AgentTestHarness
 from castia.building._offline import OfflineOperationError
 
 FIXTURES = Path(__file__).with_name("fixtures")
+OPENAI_STREAM_EVENT = TypeAdapter(ResponseStreamEvent)
 
 
 def activity(**changes):
@@ -106,6 +109,12 @@ def assert_responses_object_defaults(body: dict, *, output_text: str) -> None:
 
 def assert_sdk_parseable_response(body: dict) -> None:
     OpenAIResponse.model_validate(body)
+
+
+def assert_sdk_parseable_stream_events(events) -> None:
+    for event_type, payload in events:
+        if event_type is not None:
+            OPENAI_STREAM_EVENT.validate_python(payload)
 
 
 def assert_response_message_output(body: dict, *, text: str) -> None:
@@ -942,6 +951,115 @@ def test_responses_stream_echoes_safe_request_shape_fields(monkeypatch):
                 expected_tool_choice="auto",
                 expected_parallel=True,
             )
+
+    asyncio.run(run())
+
+
+def test_responses_stream_failure_emits_terminal_failed_event(monkeypatch):
+    from castia.hosting import server
+
+    app = Agent()
+    stream_attributes = {}
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    @app.responses_stream()
+    async def reply_stream(text: str):
+        yield "partial"
+        raise RuntimeError("boom")
+
+    def record_stream_attributes(**attributes):
+        stream_attributes.update(attributes)
+
+    monkeypatch.setattr(server, "_record_stream_attributes", record_stream_attributes)
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses", json={"input": "hello", "stream": True}
+            )
+            assert response.status_code == 200
+            events = sse_events(response.text)
+            assert_sdk_parseable_stream_events(events)
+            assert [event for event, _ in events] == [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.content_part.added",
+                "response.output_text.delta",
+                "response.failed",
+                None,
+            ]
+            payloads = [payload for _, payload in events]
+            assert [
+                payload["sequence_number"]
+                for payload in payloads[:-1]
+            ] == list(range(len(payloads) - 1))
+            failed = payloads[-2]
+            assert failed["type"] == "response.failed"
+            assert failed["response"]["status"] == "failed"
+            assert failed["response"]["output_text"] == "partial"
+            assert failed["response"]["error"] == {
+                "code": "server_error",
+                "message": "An internal server error occurred.",
+            }
+            assert failed["response"]["output"][0]["status"] == "incomplete"
+            assert_sdk_parseable_response(failed["response"])
+            assert payloads[-1] == "[DONE]"
+
+            fetched = await test.client.get(f"/responses/{failed['response']['id']}")
+            assert fetched.status_code == 200
+            assert fetched.json() == failed["response"]
+
+            input_items = await test.client.get(
+                f"/responses/{failed['response']['id']}/input_items"
+            )
+            assert input_items.status_code == 200
+            assert input_items.json()["data"][0]["content"][0]["text"] == "hello"
+            assert stream_attributes["terminal_status"] == "failed"
+            assert stream_attributes["chunk_count"] == 7
+
+    asyncio.run(run())
+
+
+def test_responses_stream_failure_store_false_leaves_no_record():
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    @app.responses_stream()
+    async def reply_stream(text: str):
+        raise RuntimeError("boom")
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            response = await test.client.post(
+                "/responses",
+                json={"input": "hello", "stream": True, "store": False},
+            )
+            assert response.status_code == 200
+            events = sse_events(response.text)
+            assert_sdk_parseable_stream_events(events)
+            assert [event for event, _ in events] == [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.content_part.added",
+                "response.failed",
+                None,
+            ]
+            failed_response = events[-2][1]["response"]
+            assert failed_response["status"] == "failed"
+            assert failed_response["output_text"] == ""
+            assert failed_response["output"][0]["status"] == "incomplete"
+            assert_sdk_parseable_response(failed_response)
+
+            fetched = await test.client.get(f"/responses/{failed_response['id']}")
+            assert fetched.status_code == 404
 
     asyncio.run(run())
 
