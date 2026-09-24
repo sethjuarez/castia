@@ -712,12 +712,23 @@ def _register_wire(
                         param="previous_response_id",
                     )
                 if body.get("conversation") is not None:
-                    return _api_error(
-                        "conversation is not supported by this Castia runtime; "
-                        "send the full prior turns in input instead.",
-                        code="unsupported_parameter",
-                        param="conversation",
+                    logger.info(
+                        "Ignoring client-supplied Responses conversation; "
+                        "Castia does not reconstruct prior response history."
                     )
+                    try:
+                        from opentelemetry import trace
+
+                        span = trace.get_current_span()
+                        if span and span.is_recording():
+                            span.set_attribute(
+                                "castia.responses.conversation_ignored", True
+                            )
+                    except Exception as exc:
+                        logger.debug(
+                            "Could not annotate ignored Responses conversation.",
+                            exc_info=exc,
+                        )
                 text = _responses_input(body.get("input"))
                 response_options = _responses_request_options(body)
                 store = body.get("store") is not False

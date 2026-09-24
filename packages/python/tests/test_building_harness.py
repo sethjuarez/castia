@@ -336,8 +336,8 @@ def test_responses_rejects_previous_response_id(stream, previous_response_id):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("conversation", ["conv_previous", {}, {"id": "conv"}])
-def test_responses_rejects_conversation_history_parameter(stream, conversation):
+@pytest.mark.parametrize("conversation", [None, "conv_previous", {}, {"id": "conv"}])
+def test_responses_accepts_hosted_conversation_context(stream, conversation):
     app = Agent()
 
     @app.responses()
@@ -350,10 +350,13 @@ def test_responses_rejects_conversation_history_parameter(stream, conversation):
                 "/responses",
                 json={"input": "hello", "stream": stream, "conversation": conversation},
             )
-            assert response.status_code == 400
-            body = response.json()
-            assert body["error"]["code"] == "unsupported_parameter"
-            assert body["error"]["param"] == "conversation"
+            assert response.status_code == 200
+            if stream:
+                events = sse_events(response.text)
+                assert events[-2][0] == "response.completed"
+                assert events[-2][1]["response"]["output_text"] == "hello"
+            else:
+                assert response.json()["output_text"] == "hello"
 
     asyncio.run(run())
 

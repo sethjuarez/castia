@@ -179,10 +179,12 @@ hosted-runtime features: `background=true` is rejected with
 to return a clear `400 unsupported_parameter` for a stored terminal response
 (`Cannot cancel a completed response.` or `Cannot cancel a failed response.`,
 and `404` if the response is unknown); durable replay and true in-flight
-cancellation are not implemented. `previous_response_id` and `conversation` are
-rejected with `400 unsupported_parameter` instead of being silently ignored,
-because Castia does not currently reconstruct prior response history. Send the
-full prior turns in `input` when a client needs local multi-turn context.
+cancellation are not implemented. `previous_response_id` is rejected with
+`400 unsupported_parameter` instead of being silently ignored, because Castia
+does not currently reconstruct prior response history. `conversation` is
+accepted for hosted Foundry gateway compatibility but is not used for replay;
+send the full prior turns in `input` when a client needs local multi-turn
+context.
 
 ### Composing protocols with routers
 
