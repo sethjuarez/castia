@@ -24,6 +24,7 @@ from castia.inference.model import (
     _user_message_input,
 )
 from castia.integrations.toolbox import toolbox_mcp_tool
+from castia.observe.tracing import clear_trace_sinks, register_trace_sink
 
 
 class _Response:
@@ -87,6 +88,22 @@ def test_respond_threads_instructions():
     assert sink["instructions"] == "be terse"
     assert sink["input"] == _user_message_input("hi")
     assert sink["model"] == "dep"
+
+
+def test_respond_emits_local_model_trace():
+    records = []
+    model, _sink = _model("be terse")
+    register_trace_sink("memory", records.append)
+    try:
+        assert asyncio.run(model.respond("hi")) == "ok"
+    finally:
+        clear_trace_sinks()
+
+    assert [record.name for record in records] == ["castia.model.respond"]
+    assert records[0].kind == "model"
+    assert records[0].attributes["castia.model.phase"] == "single"
+    assert records[0].attributes["gen_ai.request.model"] == "dep"
+    assert records[0].attributes["castia.model.output_text_length"] == 2
 
 
 def test_respond_omits_none_instructions():
@@ -219,6 +236,72 @@ def test_respond_with_tools_keeps_recordable_input_and_emits_phase_events(monkey
     assert "castia.tool.call.started" in event_names
     assert "castia.tool.call.completed" in event_names
     assert "castia.model.final_response.completed" in event_names
+
+
+def test_respond_with_tools_emits_local_model_and_tool_traces():
+    records = []
+
+    class Tool:
+        name = "lookup_policy"
+
+        def spec(self):
+            return {"type": "function", "function": {"name": self.name}}
+
+        async def run(self, activity, **kwargs):
+            return {"ok": True, "policy": kwargs["policy"]}
+
+    class Responses:
+        def __init__(self):
+            self.inputs = []
+
+        async def create(self, **kwargs):
+            self.inputs.append(copy.deepcopy(kwargs["input"]))
+            if len(self.inputs) == 1:
+                return type("Response", (), {
+                    "output": [
+                        type("Call", (), {
+                            "type": "function_call",
+                            "call_id": "call-1",
+                            "name": "lookup_policy",
+                            "arguments": '{"policy":"travel"}',
+                        })()
+                    ],
+                    "output_text": "",
+                })()
+            return type("Response", (), {"output": [], "output_text": "done"})()
+
+    responses = Responses()
+    model = Model.__new__(Model)
+    model._deployment = "dep"
+    model._instructions = None
+    model._reasoning = {}
+    model._tool_definitions = ()
+    model._client = type("Client", (), {
+        "get_openai_client": lambda self: type("OpenAI", (), {"responses": responses})()
+    })()
+    register_trace_sink("memory", records.append)
+    try:
+        out = asyncio.run(
+            model.respond_with_tools("check travel", tools=[Tool()], activity=object())
+        )
+    finally:
+        clear_trace_sinks()
+
+    assert out == "done"
+    assert [record.name for record in records] == [
+        "castia.tool.execute",
+        "castia.model.respond_with_tools",
+    ]
+    tool_record, model_record = records
+    assert tool_record.parent_id == model_record.span_id
+    assert tool_record.kind == "tool"
+    assert tool_record.attributes["gen_ai.tool.name"] == "lookup_policy"
+    assert tool_record.attributes["castia.tool.status"] == "ok"
+    assert tool_record.attributes["castia.tool.argument_count"] == 1
+    assert model_record.attributes["castia.model.phase"] == "tool_loop"
+    assert model_record.attributes["castia.model.iteration"] == 2
+    assert model_record.attributes["castia.model.output_text_length"] == 4
+    assert model_record.attributes["castia.tool.available_count"] == 1
 
 
 # -- reasoning-effort passthrough (RFT / model-switch) ----------------------

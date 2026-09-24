@@ -22,7 +22,13 @@ from typing import Any
 
 from castia.messaging.messages import Message
 from castia.observe.configuration import flush_telemetry
-from castia.observe.tracing import invoke_agent, record_turn_input, record_turn_output
+from castia.observe.tracing import (
+    invoke_agent,
+    record_turn_input,
+    record_turn_output,
+    trace_attribute,
+    trace_step,
+)
 from castia.protocols.activity import Activity
 from castia.runtime.dependencies import _Depends, resolve
 
@@ -35,6 +41,33 @@ def _ambient_span():
     from opentelemetry import trace
 
     return trace.get_current_span()
+
+
+def _handler_name(func: Handler) -> str:
+    module = getattr(func, "__module__", "")
+    qualname = getattr(func, "__qualname__", getattr(func, "__name__", "handler"))
+    return f"{module}.{qualname}" if module else qualname
+
+
+def _dependency_name(dependency: Callable[..., Any]) -> str:
+    module = getattr(dependency, "__module__", "")
+    qualname = getattr(
+        dependency, "__qualname__", getattr(dependency, "__name__", "dependency")
+    )
+    return f"{module}.{qualname}" if module else qualname
+
+
+async def _resolve_dependency(param: inspect.Parameter, activity: Activity | None) -> Any:
+    dependency = param.default.dependency
+    with trace_step(
+        "castia.dependency.resolve",
+        kind="dependency",
+        attributes={
+            "castia.dependency.parameter": param.name,
+            "castia.dependency.name": _dependency_name(dependency),
+        },
+    ):
+        return await resolve(dependency, activity)
 
 
 def make_dispatch(func: Handler) -> ActivityDispatch:
@@ -54,29 +87,45 @@ def make_dispatch(func: Handler) -> ActivityDispatch:
             return None
 
         try:
-            ambient_span = _ambient_span()
-            record_turn_input(ambient_span, text)
-            with invoke_agent() as span:
-                record_turn_input(span, text)
-                kwargs: dict[str, Any] = {}
-                for param in parameters:
-                    if isinstance(param.default, _Depends):
-                        kwargs[param.name] = await resolve(
-                            param.default.dependency, activity
-                        )
-                    elif param.annotation is Activity:
-                        kwargs[param.name] = activity
-                    elif param.annotation is Message:
-                        kwargs[param.name] = Message(activity)
-                    else:
-                        kwargs[param.name] = text
+            with trace_step(
+                "castia.turn.dispatch",
+                kind="turn",
+                attributes={
+                    "castia.protocol": "activity",
+                    "castia.handler": _handler_name(func),
+                    "castia.turn.has_text": bool(text),
+                },
+            ):
+                trace_attribute("castia.turn.input_length", len(text))
+                ambient_span = _ambient_span()
+                record_turn_input(ambient_span, text)
+                with invoke_agent() as span:
+                    record_turn_input(span, text)
+                    kwargs: dict[str, Any] = {}
+                    for param in parameters:
+                        if isinstance(param.default, _Depends):
+                            kwargs[param.name] = await _resolve_dependency(
+                                param, activity
+                            )
+                        elif param.annotation is Activity:
+                            kwargs[param.name] = activity
+                        elif param.annotation is Message:
+                            kwargs[param.name] = Message(activity)
+                        else:
+                            kwargs[param.name] = text
 
-                result = await func(**kwargs)
-                output = result if isinstance(result, str) and result else None
-                if output:
-                    record_turn_output(span, output)
-                    record_turn_output(ambient_span, output)
-                return output
+                    with trace_step(
+                        "castia.handler.invoke",
+                        kind="handler",
+                        attributes={"castia.handler": _handler_name(func)},
+                    ):
+                        result = await func(**kwargs)
+                    output = result if isinstance(result, str) and result else None
+                    trace_attribute("castia.turn.output_length", len(output or ""))
+                    if output:
+                        record_turn_output(span, output)
+                        record_turn_output(ambient_span, output)
+                    return output
         finally:
             # Frozen hosted containers may never flush the batch processors on
             # their own, so push this turn's spans/logs out before returning.
@@ -105,28 +154,45 @@ def make_invoke_dispatch(func: Handler) -> InvokeDispatch:
 
     async def dispatch(activity: Activity) -> dict | None:
         try:
-            ambient_span = _ambient_span()
-            with invoke_agent() as span:
-                kwargs: dict[str, Any] = {}
-                for param in parameters:
-                    if isinstance(param.default, _Depends):
-                        kwargs[param.name] = await resolve(
-                            param.default.dependency, activity
-                        )
-                    elif param.annotation is Activity:
-                        kwargs[param.name] = activity
-                    elif param.annotation is Message:
-                        kwargs[param.name] = Message(activity)
-                    else:
-                        kwargs[param.name] = activity.value
+            with trace_step(
+                "castia.turn.dispatch",
+                kind="turn",
+                attributes={
+                    "castia.protocol": "activity.invoke",
+                    "castia.handler": _handler_name(func),
+                    "castia.invoke.name": str(activity.name or ""),
+                },
+            ):
+                ambient_span = _ambient_span()
+                with invoke_agent() as span:
+                    kwargs: dict[str, Any] = {}
+                    for param in parameters:
+                        if isinstance(param.default, _Depends):
+                            kwargs[param.name] = await _resolve_dependency(
+                                param, activity
+                            )
+                        elif param.annotation is Activity:
+                            kwargs[param.name] = activity
+                        elif param.annotation is Message:
+                            kwargs[param.name] = Message(activity)
+                        else:
+                            kwargs[param.name] = activity.value
 
-                result = await func(**kwargs)
-                output = result if isinstance(result, dict) else None
-                if output:
-                    serialized = json.dumps(output, ensure_ascii=False, default=str)
-                    record_turn_output(span, serialized)
-                    record_turn_output(ambient_span, serialized)
-                return output
+                    with trace_step(
+                        "castia.handler.invoke",
+                        kind="handler",
+                        attributes={"castia.handler": _handler_name(func)},
+                    ):
+                        result = await func(**kwargs)
+                    output = result if isinstance(result, dict) else None
+                    if output:
+                        serialized = json.dumps(output, ensure_ascii=False, default=str)
+                        trace_attribute("castia.turn.output_length", len(serialized))
+                        record_turn_output(span, serialized)
+                        record_turn_output(ambient_span, serialized)
+                    else:
+                        trace_attribute("castia.turn.output_length", 0)
+                    return output
         finally:
             flush_telemetry()
 
@@ -155,24 +221,37 @@ def make_return_dispatch(func: Handler) -> Callable[[str], Awaitable[str]]:
 
     async def dispatch(text: str) -> str:
         try:
-            ambient_span = _ambient_span()
-            record_turn_input(ambient_span, text)
-            with invoke_agent() as span:
-                record_turn_input(span, text)
-                kwargs: dict[str, Any] = {}
-                for param in parameters:
-                    if isinstance(param.default, _Depends):
-                        kwargs[param.name] = await resolve(
-                            param.default.dependency, None
-                        )
-                    else:
-                        kwargs[param.name] = text
+            with trace_step(
+                "castia.turn.dispatch",
+                kind="turn",
+                attributes={
+                    "castia.protocol": "wire.return",
+                    "castia.handler": _handler_name(func),
+                },
+            ):
+                trace_attribute("castia.turn.input_length", len(text))
+                ambient_span = _ambient_span()
+                record_turn_input(ambient_span, text)
+                with invoke_agent() as span:
+                    record_turn_input(span, text)
+                    kwargs: dict[str, Any] = {}
+                    for param in parameters:
+                        if isinstance(param.default, _Depends):
+                            kwargs[param.name] = await _resolve_dependency(param, None)
+                        else:
+                            kwargs[param.name] = text
 
-                result = await func(**kwargs)
-                output = result if isinstance(result, str) else ""
-                record_turn_output(span, output)
-                record_turn_output(ambient_span, output)
-                return output
+                    with trace_step(
+                        "castia.handler.invoke",
+                        kind="handler",
+                        attributes={"castia.handler": _handler_name(func)},
+                    ):
+                        result = await func(**kwargs)
+                    output = result if isinstance(result, str) else ""
+                    trace_attribute("castia.turn.output_length", len(output))
+                    record_turn_output(span, output)
+                    record_turn_output(ambient_span, output)
+                    return output
         finally:
             flush_telemetry()
 
@@ -193,34 +272,50 @@ def make_stream_dispatch(func: Handler) -> Callable[[str], AsyncIterator[str]]:
 
     async def dispatch(text: str) -> AsyncIterator[str]:
         try:
-            ambient_span = _ambient_span()
-            record_turn_input(ambient_span, text)
-            with invoke_agent() as span:
-                record_turn_input(span, text)
-                kwargs: dict[str, Any] = {}
-                for param in parameters:
-                    if isinstance(param.default, _Depends):
-                        kwargs[param.name] = await resolve(
-                            param.default.dependency, None
-                        )
-                    else:
-                        kwargs[param.name] = text
+            with trace_step(
+                "castia.turn.dispatch",
+                kind="turn",
+                attributes={
+                    "castia.protocol": "wire.stream",
+                    "castia.handler": _handler_name(func),
+                },
+            ):
+                trace_attribute("castia.turn.input_length", len(text))
+                ambient_span = _ambient_span()
+                record_turn_input(ambient_span, text)
+                with invoke_agent() as span:
+                    record_turn_input(span, text)
+                    kwargs: dict[str, Any] = {}
+                    for param in parameters:
+                        if isinstance(param.default, _Depends):
+                            kwargs[param.name] = await _resolve_dependency(param, None)
+                        else:
+                            kwargs[param.name] = text
 
-                result = func(**kwargs)
-                if inspect.isawaitable(result):
-                    result = await result
-                chunks: list[str] = []
-                if hasattr(result, "__aiter__"):
-                    async for chunk in result:
-                        if isinstance(chunk, str) and chunk:
-                            chunks.append(chunk)
-                            yield chunk
-                elif isinstance(result, str) and result:
-                    chunks.append(result)
-                    yield result
-                output = "".join(chunks)
-                record_turn_output(span, output)
-                record_turn_output(ambient_span, output)
+                    with trace_step(
+                        "castia.handler.invoke",
+                        kind="handler",
+                        attributes={"castia.handler": _handler_name(func)},
+                    ):
+                        result = func(**kwargs)
+                        if inspect.isawaitable(result):
+                            result = await result
+                    chunks: list[str] = []
+                    if hasattr(result, "__aiter__"):
+                        async for chunk in result:
+                            if isinstance(chunk, str) and chunk:
+                                chunks.append(chunk)
+                                trace_attribute("castia.stream.chunk_count", len(chunks))
+                                yield chunk
+                    elif isinstance(result, str) and result:
+                        chunks.append(result)
+                        trace_attribute("castia.stream.chunk_count", len(chunks))
+                        yield result
+                    output = "".join(chunks)
+                    trace_attribute("castia.turn.output_length", len(output))
+                    trace_attribute("castia.stream.chunk_count", len(chunks))
+                    record_turn_output(span, output)
+                    record_turn_output(ambient_span, output)
         finally:
             flush_telemetry()
 

@@ -87,6 +87,19 @@ def test_trace_step_async_decorator_records_errors():
     assert record.error_message == "boom"
 
 
+def test_trace_step_treats_generator_exit_as_cancelled():
+    records: list[TraceRecord] = []
+    register_trace_sink("memory", records.append)
+    step = trace_step("stream")
+
+    step.__enter__()
+    assert step.__exit__(GeneratorExit, GeneratorExit(), None) is False
+
+    assert records[0].status == "cancelled"
+    assert records[0].error_type is None
+    assert records[0].error_message is None
+
+
 def test_trace_step_rejects_generator_functions():
     with pytest.raises(TypeError, match="generator"):
 

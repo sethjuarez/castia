@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Callable
 
+from castia.observe.tracing import trace_attribute, trace_step
+
 # Reasoning-effort levels accepted by the Responses API for reasoning models
 # (o-series, gpt-5, and their RFT-fine-tuned variants). A plain chat model
 # ignores the concept; we simply omit the field for it (see _reasoning_param).
@@ -80,15 +82,25 @@ class Model:
         # The GenAI instrumentor enabled in observability._enable_genai_tracing
         # wraps this Responses API call in a `chat {model}` span carrying the
         # gen_ai.* semantic-convention attributes the Foundry Traces UI renders.
-        _add_model_event("castia.model.request.started", phase="single")
-        response = await self._client.get_openai_client().responses.create(
-            model=self._deployment,
-            input=_user_message_input(text),
-            **_instructions_param(self._instructions),
-            **self._reasoning,
-        )
-        _add_model_event("castia.model.final_response.completed", phase="single")
-        return response.output_text
+        with trace_step(
+            "castia.model.respond",
+            kind="model",
+            attributes={
+                "castia.model.phase": "single",
+                "gen_ai.request.model": self._deployment,
+            },
+        ):
+            _add_model_event("castia.model.request.started", phase="single")
+            response = await self._client.get_openai_client().responses.create(
+                model=self._deployment,
+                input=_user_message_input(text),
+                **_instructions_param(self._instructions),
+                **self._reasoning,
+            )
+            output = response.output_text
+            trace_attribute("castia.model.output_text_length", len(output or ""))
+            _add_model_event("castia.model.final_response.completed", phase="single")
+            return output
 
     async def stream(self, text: str) -> AsyncIterator[str]:
         """Yield the answer to ``text`` as it is generated, delta by delta.
@@ -103,22 +115,39 @@ class Model:
                 await s.append(delta)
             await s.finish()
         """
-        _add_model_event("castia.model.request.started", phase="stream")
-        stream = await self._client.get_openai_client().responses.create(
-            model=self._deployment,
-            input=_user_message_input(text),
-            stream=True,
-            **_instructions_param(self._instructions),
-            **self._reasoning,
-        )
-        try:
-            async for event in stream:
-                if getattr(event, "type", None) == "response.output_text.delta":
-                    delta = getattr(event, "delta", "")
-                    if delta:
-                        yield delta
-        finally:
-            _add_model_event("castia.model.final_response.completed", phase="stream")
+        with trace_step(
+            "castia.model.stream",
+            kind="model",
+            attributes={
+                "castia.model.phase": "stream",
+                "gen_ai.request.model": self._deployment,
+            },
+        ):
+            _add_model_event("castia.model.request.started", phase="stream")
+            stream = await self._client.get_openai_client().responses.create(
+                model=self._deployment,
+                input=_user_message_input(text),
+                stream=True,
+                **_instructions_param(self._instructions),
+                **self._reasoning,
+            )
+            chunk_count = 0
+            output_length = 0
+            try:
+                async for event in stream:
+                    if getattr(event, "type", None) == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            chunk_count += 1
+                            output_length += len(delta)
+                            trace_attribute("castia.stream.chunk_count", chunk_count)
+                            yield delta
+            finally:
+                trace_attribute("castia.stream.chunk_count", chunk_count)
+                trace_attribute("castia.model.output_text_length", output_length)
+                _add_model_event(
+                    "castia.model.final_response.completed", phase="stream"
+                )
 
     async def respond_with_tools(
         self,
@@ -159,63 +188,82 @@ class Model:
         client = self._client.get_openai_client()
         conversation: list = _user_message_input(text)
 
-        response = None
-        for iteration in range(max_iterations):
-            _add_model_event(
-                "castia.model.request.started",
-                phase="tool_loop",
-                iteration=iteration + 1,
-            )
-            response = await client.responses.create(
-                model=self._deployment,
-                input=conversation,
-                tools=specs,
-                **_instructions_param(self._instructions),
-                **self._reasoning,
-            )
-            calls = [
-                item
-                for item in response.output
-                if getattr(item, "type", None) == "function_call"
-            ]
-            if not calls:
-                dev_diagnostics.record_response_tool_outputs(response.output)
+        with trace_step(
+            "castia.model.respond_with_tools",
+            kind="model",
+            attributes={
+                "castia.model.phase": "tool_loop",
+                "gen_ai.request.model": self._deployment,
+                "castia.tool.available_count": len(specs),
+            },
+        ):
+            response = None
+            for iteration in range(max_iterations):
+                trace_attribute("castia.model.iteration", iteration + 1)
                 _add_model_event(
-                    "castia.model.final_response.completed",
+                    "castia.model.request.started",
                     phase="tool_loop",
                     iteration=iteration + 1,
                 )
-                return response.output_text
+                response = await client.responses.create(
+                    model=self._deployment,
+                    input=conversation,
+                    tools=specs,
+                    **_instructions_param(self._instructions),
+                    **self._reasoning,
+                )
+                calls = [
+                    item
+                    for item in response.output
+                    if getattr(item, "type", None) == "function_call"
+                ]
+                trace_attribute("castia.model.tool_call_count", len(calls))
+                if not calls:
+                    dev_diagnostics.record_response_tool_outputs(response.output)
+                    output = response.output_text
+                    trace_attribute("castia.model.output_text_length", len(output or ""))
+                    _add_model_event(
+                        "castia.model.final_response.completed",
+                        phase="tool_loop",
+                        iteration=iteration + 1,
+                    )
+                    return output
 
-            _add_model_event(
-                "castia.model.tool_calls.requested",
-                count=len(calls),
-                names=",".join(str(call.name) for call in calls if getattr(call, "name", None)),
-                iteration=iteration + 1,
-            )
-            for call in calls:
-                # Echo the model's function_call, then append our result for it.
-                conversation.append(
-                    {
-                        "type": "function_call",
-                        "call_id": call.call_id,
-                        "name": call.name,
-                        "arguments": call.arguments,
-                    }
+                _add_model_event(
+                    "castia.model.tool_calls.requested",
+                    count=len(calls),
+                    names=",".join(
+                        str(call.name)
+                        for call in calls
+                        if getattr(call, "name", None)
+                    ),
+                    iteration=iteration + 1,
                 )
-                result = await self._run_tool(call, by_name, activity, execute_tool)
-                conversation.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": call.call_id,
-                        "output": json.dumps(result),
-                    }
-                )
+                for call in calls:
+                    # Echo the model's function_call, then append our result for it.
+                    conversation.append(
+                        {
+                            "type": "function_call",
+                            "call_id": call.call_id,
+                            "name": call.name,
+                            "arguments": call.arguments,
+                        }
+                    )
+                    result = await self._run_tool(call, by_name, activity, execute_tool)
+                    conversation.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call.call_id,
+                            "output": json.dumps(result),
+                        }
+                    )
 
         # Exhausted the loop still wanting tools -- return whatever text we have.
-        return (response.output_text if response else "") or (
-            "I couldn't complete that in the allotted steps."
-        )
+            output = (response.output_text if response else "") or (
+                "I couldn't complete that in the allotted steps."
+            )
+            trace_attribute("castia.model.output_text_length", len(output))
+            return output
 
     @staticmethod
     async def _run_tool(call, by_name: dict, activity: object, execute_tool) -> dict:
@@ -224,71 +272,85 @@ class Model:
 
         from castia.observe import dev_diagnostics
 
-        tool = by_name.get(call.name)
-        args: dict = {}
-        diagnostic_call = None
-        if tool is None:
-            diagnostic_call = dev_diagnostics.record_tool_call(
-                name=str(call.name),
-                arguments=getattr(call, "arguments", None),
-                status="error",
-                error_type="unknown_tool",
-                summary=f"unknown tool '{call.name}'",
-            )
-            _add_model_event(
-                "castia.tool.call.completed",
-                tool_name=str(call.name),
-                ok=False,
-                error_type="unknown_tool",
-            )
-            return {"ok": False, "detail": f"unknown tool '{call.name}'"}
-        try:
-            args = json.loads(call.arguments or "{}")
-        except json.JSONDecodeError as exc:
-            dev_diagnostics.record_tool_call(
-                name=str(call.name),
-                arguments=getattr(call, "arguments", None),
-                status="error",
-                error_type="bad_arguments",
-                summary=f"bad tool arguments: {exc}",
-            )
-            _add_model_event(
-                "castia.tool.call.completed",
-                tool_name=str(call.name),
-                ok=False,
-                error_type="bad_arguments",
-            )
-            return {"ok": False, "detail": f"bad tool arguments: {exc}"}
-        try:
-            diagnostic_call = dev_diagnostics.record_tool_call(
-                name=str(call.name),
-                arguments=args,
-                status="running",
-            )
-            _add_model_event("castia.tool.call.started", tool_name=str(call.name))
-            with execute_tool(call.name):
-                result = await tool.run(activity, **args)
-            dev_diagnostics.update_tool_call(
-                diagnostic_call,
-                status="ok",
-                summary=result,
-            )
-            _add_model_event("castia.tool.call.completed", tool_name=str(call.name), ok=True)
-            return result
-        except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
-            dev_diagnostics.update_tool_call(
-                diagnostic_call,
-                status="error",
-                summary=f"{type(exc).__name__}: {exc}",
-                error_type=type(exc).__name__,
-            )
-            _add_model_event(
-                "castia.tool.call.completed",
-                tool_name=str(call.name),
-                ok=False,
-                error_type=type(exc).__name__,
-            )
-            return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        tool_name = str(call.name)
+        with trace_step(
+            "castia.tool.execute",
+            kind="tool",
+            attributes={"gen_ai.tool.name": tool_name},
+        ):
+            tool = by_name.get(call.name)
+            args: dict = {}
+            diagnostic_call = None
+            if tool is None:
+                trace_attribute("castia.tool.status", "error")
+                trace_attribute("castia.tool.error_type", "unknown_tool")
+                dev_diagnostics.record_tool_call(
+                    name=tool_name,
+                    arguments=getattr(call, "arguments", None),
+                    status="error",
+                    error_type="unknown_tool",
+                    summary=f"unknown tool '{call.name}'",
+                )
+                _add_model_event(
+                    "castia.tool.call.completed",
+                    tool_name=tool_name,
+                    ok=False,
+                    error_type="unknown_tool",
+                )
+                return {"ok": False, "detail": f"unknown tool '{call.name}'"}
+            try:
+                args = json.loads(call.arguments or "{}")
+            except json.JSONDecodeError as exc:
+                trace_attribute("castia.tool.status", "error")
+                trace_attribute("castia.tool.error_type", "bad_arguments")
+                dev_diagnostics.record_tool_call(
+                    name=tool_name,
+                    arguments=getattr(call, "arguments", None),
+                    status="error",
+                    error_type="bad_arguments",
+                    summary=f"bad tool arguments: {exc}",
+                )
+                _add_model_event(
+                    "castia.tool.call.completed",
+                    tool_name=tool_name,
+                    ok=False,
+                    error_type="bad_arguments",
+                )
+                return {"ok": False, "detail": f"bad tool arguments: {exc}"}
+            try:
+                trace_attribute("castia.tool.argument_count", len(args))
+                diagnostic_call = dev_diagnostics.record_tool_call(
+                    name=tool_name,
+                    arguments=args,
+                    status="running",
+                )
+                _add_model_event("castia.tool.call.started", tool_name=tool_name)
+                with execute_tool(call.name):
+                    result = await tool.run(activity, **args)
+                dev_diagnostics.update_tool_call(
+                    diagnostic_call,
+                    status="ok",
+                    summary=result,
+                )
+                trace_attribute("castia.tool.status", "ok")
+                _add_model_event("castia.tool.call.completed", tool_name=tool_name, ok=True)
+                return result
+            except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
+                dev_diagnostics.update_tool_call(
+                    diagnostic_call,
+                    status="error",
+                    summary=f"{type(exc).__name__}: {exc}",
+                    error_type=type(exc).__name__,
+                )
+                trace_attribute("castia.tool.status", "error")
+                trace_attribute("castia.tool.error_type", type(exc).__name__)
+                _add_model_event(
+                    "castia.tool.call.completed",
+                    tool_name=tool_name,
+                    ok=False,
+                    error_type=type(exc).__name__,
+                )
+                return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
 
 
 def get_model() -> Model:

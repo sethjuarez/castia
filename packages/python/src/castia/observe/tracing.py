@@ -168,7 +168,8 @@ class _TraceStep:
             duration_ms = round(
                 (time.perf_counter() - active.started_monotonic) * 1000, 3
             )
-            status = "error" if exc is not None else "ok"
+            cancelled = isinstance(exc, (GeneratorExit, asyncio.CancelledError))
+            status = "cancelled" if cancelled else "error" if exc is not None else "ok"
             record = TraceRecord(
                 trace_id=active.trace_id,
                 span_id=active.span_id,
@@ -180,8 +181,8 @@ class _TraceStep:
                 ended_at=ended_at,
                 duration_ms=duration_ms,
                 attributes=_json_clone(active.attributes),
-                error_type=type(exc).__name__ if exc else None,
-                error_message=str(exc) if exc else None,
+                error_type=type(exc).__name__ if exc and not cancelled else None,
+                error_message=str(exc) if exc and not cancelled else None,
             )
         except Exception:
             _logger.debug("Could not build Castia trace record", exc_info=True)
