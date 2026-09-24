@@ -59,12 +59,12 @@ export function createRequestHandler({
     completeInvocationTurn,
     broadcastSnapshot = () => {},
 }) {
-    let pluginVersion;
+    const assetCache = new Map();
     async function handleRequest(req, res, state) {
         try {
             const url = new URL(req.url || "/", "http://127.0.0.1");
             if (req.method === "GET" && url.pathname === "/") {
-                pluginVersion ??= await readPluginVersion(extensionRoot);
+                const pluginVersion = await readPluginVersion(extensionRoot, assetCache);
                 sendHtml(res, renderHtml({ pluginVersion }));
                 return;
             }
@@ -73,7 +73,11 @@ export function createRequestHandler({
                 return;
             }
             if (req.method === "GET" && url.pathname === "/assets/icon-service-AI-Foundry.svg") {
-                const svg = await readFile(join(extensionRoot, "assets", "icon-service-AI-Foundry.svg"), "utf8");
+                const svg = await readCachedText(
+                    assetCache,
+                    "icon-service-AI-Foundry",
+                    join(extensionRoot, "assets", "icon-service-AI-Foundry.svg"),
+                );
                 res.writeHead(200, {
                     "Content-Type": "image/svg+xml; charset=utf-8",
                     "Cache-Control": "no-store",
@@ -82,7 +86,7 @@ export function createRequestHandler({
                 return;
             }
             if (req.method === "GET" && url.pathname === "/assets/icon-teams.svg") {
-                const svg = await readFile(join(extensionRoot, "assets", "icon-teams.svg"), "utf8");
+                const svg = await readCachedText(assetCache, "icon-teams", join(extensionRoot, "assets", "icon-teams.svg"));
                 res.writeHead(200, {
                     "Content-Type": "image/svg+xml; charset=utf-8",
                     "Cache-Control": "no-store",
@@ -91,7 +95,11 @@ export function createRequestHandler({
                 return;
             }
             if (req.method === "GET" && url.pathname === "/assets/icon-a365-agents.svg") {
-                const svg = await readFile(join(extensionRoot, "assets", "icon-a365-agents.svg"), "utf8");
+                const svg = await readCachedText(
+                    assetCache,
+                    "icon-a365-agents",
+                    join(extensionRoot, "assets", "icon-a365-agents.svg"),
+                );
                 res.writeHead(200, {
                     "Content-Type": "image/svg+xml; charset=utf-8",
                     "Cache-Control": "no-store",
@@ -100,7 +108,11 @@ export function createRequestHandler({
                 return;
             }
             if (req.method === "GET" && url.pathname === "/assets/playground-client.js") {
-                const script = await readFile(join(extensionRoot, "renderer", "dist", "playground-client.js"), "utf8");
+                const script = await readCachedText(
+                    assetCache,
+                    "playground-client",
+                    join(extensionRoot, "renderer", "dist", "playground-client.js"),
+                );
                 res.writeHead(200, {
                     "Content-Type": "application/javascript; charset=utf-8",
                     "Cache-Control": "no-store",
@@ -492,8 +504,24 @@ export function createRequestHandler({
     return handleRequest;
 }
 
-async function readPluginVersion(extensionRoot) {
+async function readCachedText(cache, key, path) {
+    if (!cache.has(key)) {
+        const read = readFile(path, "utf8").catch((error) => {
+            cache.delete(key);
+            throw error;
+        });
+        cache.set(key, read);
+    }
+    return cache.get(key);
+}
+
+async function readPluginVersion(extensionRoot, assetCache) {
     if (!extensionRoot) return "";
-    const manifest = JSON.parse(await readFile(join(extensionRoot, "..", "..", "..", "plugin.json"), "utf8"));
+    const text = await readCachedText(
+        assetCache,
+        "plugin-manifest",
+        join(extensionRoot, "..", "..", "..", "plugin.json"),
+    );
+    const manifest = JSON.parse(text);
     return typeof manifest.version === "string" ? manifest.version : "";
 }

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export const PERSISTED_STATE_SCHEMA_VERSION = 1;
+export const PLUGIN_DATA_DIR_NAME = "foundry-agent-starter-kit";
 
 function copilotHome() {
     return process.env.COPILOT_HOME || join(homedir(), ".copilot");
@@ -14,8 +15,27 @@ function safeSegment(value) {
         .replace(/^-+|-+$/g, "") || "default";
 }
 
+export function pluginDataRoot({ root = null } = {}) {
+    return root || join(copilotHome(), "plugin-data", PLUGIN_DATA_DIR_NAME);
+}
+
+export function pluginRuntimeRoot({ root = null } = {}) {
+    return join(pluginDataRoot({ root }), "runtime");
+}
+
 export function sessionStoreRoot(sessionId, { root = null, instanceId = "default" } = {}) {
     if (root) return root;
+    if (!sessionId) return null;
+    return join(
+        pluginDataRoot(),
+        "sessions",
+        safeSegment(sessionId),
+        "foundry-agent-playground",
+        safeSegment(instanceId),
+    );
+}
+
+export function legacySessionStoreRoot(sessionId, { instanceId = "default" } = {}) {
     if (!sessionId) return null;
     return join(
         copilotHome(),
@@ -33,10 +53,13 @@ export function configureRuntimeStore(state, { sessionId, root = null, instanceI
         state.runtimeStore = null;
         return null;
     }
+    const legacyRoot = root ? null : legacySessionStoreRoot(sessionId, { instanceId });
     state.runtimeStore = {
         root: storeRoot,
         statePath: join(storeRoot, "state.json"),
         operationsPath: join(storeRoot, "operations.jsonl"),
+        legacyStatePath: legacyRoot ? join(legacyRoot, "state.json") : null,
+        legacyOperationsPath: legacyRoot ? join(legacyRoot, "operations.jsonl") : null,
         queue: Promise.resolve(),
         writeCounter: 0,
     };
@@ -65,19 +88,22 @@ export async function readStateSnapshot(stateOrStore) {
     const store = stateOrStore?.runtimeStore || stateOrStore;
     const path = store?.statePath;
     if (!path) return { snapshot: null, path: null, error: null };
-    try {
-        const text = await readFile(path, "utf8");
-        const snapshot = JSON.parse(text);
-        if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-            return { snapshot: null, path, error: new Error("Persisted Playground state is not a JSON object.") };
+    for (const candidate of [path, store?.legacyStatePath].filter(Boolean)) {
+        try {
+            const text = await readFile(candidate, "utf8");
+            const snapshot = JSON.parse(text);
+            if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+                return { snapshot: null, path: candidate, error: new Error("Persisted Playground state is not a JSON object.") };
+            }
+            return { snapshot, path: candidate, error: null };
+        } catch (error) {
+            if (error?.code === "ENOENT") {
+                continue;
+            }
+            return { snapshot: null, path: candidate, error };
         }
-        return { snapshot, path, error: null };
-    } catch (error) {
-        if (error?.code === "ENOENT") {
-            return { snapshot: null, path, error: null };
-        }
-        return { snapshot: null, path, error };
     }
+    return { snapshot: null, path, error: null };
 }
 
 export async function appendOperationRecord(state, record) {

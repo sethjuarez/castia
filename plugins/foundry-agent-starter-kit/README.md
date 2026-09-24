@@ -129,3 +129,14 @@ Copy-Item ..\castia\plugins\foundry-agent-starter-kit\skills\* .github\skills\ -
    process state, active operations, raw logs, prompts, and readiness; click
    **Start local** or run `health_check` again to verify current runtime state.
 8. Deploy or publish only after explicit approval.
+
+## Runtime storage and updates
+
+Treat the installed plugin directory as immutable product payload. The
+Playground serves committed browser assets from the plugin folder, but runtime
+assets are cached in memory after first read and runtime state is written
+outside the install directory under
+`%USERPROFILE%\.copilot\plugin-data\foundry-agent-starter-kit`, with legacy
+session snapshots still readable from Copilot session storage. Local agent,
+`azd`, and `.env` operations run against the selected workspace agent root, not
+the installed plugin folder.

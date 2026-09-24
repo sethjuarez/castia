@@ -58,12 +58,18 @@ Deploy cancellation should be phase-aware:
 
 This prevents the canvas from claiming an operation was canceled when Foundry may still be registering or serving a version.
 
-## Session-scoped persistence
+## Runtime storage and session-scoped persistence
 
-Runtime logical state belongs in session-scoped JSON/JSONL files, not repo files:
+The installed plugin directory is treated as immutable product payload. Runtime
+logical state belongs in plugin-scoped per-user JSON/JSONL files, not the plugin
+install directory and not repo source files:
 
 - `state.json` stores the current durable logical snapshot.
 - `operations.jsonl` stores append-only operation history.
+- New snapshots are stored under
+  `%USERPROFILE%\.copilot\plugin-data\foundry-agent-starter-kit\sessions\<session>\foundry-agent-playground\<instance>`.
+- Legacy snapshots are still restored from Copilot session files storage when
+  present, then subsequent writes use the plugin data directory.
 - Runtime handles such as child processes, HTTP servers, SSE clients, and cancellation tokens remain ephemeral and are reattached or marked stale after reload.
 - On provider or app restart, the playground reads `state.json`, restores only
   allowlisted durable UI state, and resets volatile runtime truth. Selected
@@ -72,7 +78,7 @@ Runtime logical state belongs in session-scoped JSON/JSONL files, not repo files
   Local process state, PIDs, raw logs, cancellation handles, active operations,
   project endpoint prompts, and readiness are not restored as current truth.
 
-Committed repo files should only be source/docs/assets. Gitignored `.env` files are allowed for non-secret Foundry values that the user provides through the Start local endpoint dialog.
+Committed repo files should only be source/docs/assets. Gitignored `.env` files are allowed for non-secret Foundry values that the user provides through the Start local endpoint dialog. Long-running local agent processes use the selected workspace agent root as their cwd; helper commands without a workspace cwd use the plugin runtime directory under plugin data.
 
 ## Implementation status
 

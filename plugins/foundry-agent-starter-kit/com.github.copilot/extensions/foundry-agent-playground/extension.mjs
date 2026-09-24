@@ -53,6 +53,7 @@ import {
     appendOperationRecord,
     configureRuntimeStore,
     persistStateSnapshot,
+    pluginRuntimeRoot,
     readStateSnapshot,
 } from "./state/persistence.mjs";
 import { rehydratePlaygroundState } from "./state/rehydration.mjs";
@@ -535,7 +536,14 @@ async function syncLocalBootstrapForStart(state) {
     return { ok: false, source: "missing" };
 }
 
-function runCommand(command, args, { cwd = process.cwd(), onOutput, signal, onChild } = {}) {
+async function commandRuntimeCwd() {
+    const cwd = pluginRuntimeRoot();
+    await mkdir(cwd, { recursive: true });
+    return cwd;
+}
+
+async function runCommand(command, args, { cwd, onOutput, signal, onChild } = {}) {
+    const effectiveCwd = cwd || await commandRuntimeCwd();
     return new Promise((resolve) => {
         if (signal?.aborted) {
             resolve({ code: 130, output: "Command cancelled before start.\n", cancelled: true });
@@ -544,7 +552,7 @@ function runCommand(command, args, { cwd = process.cwd(), onOutput, signal, onCh
         const output = [];
         let cancelled = false;
         const child = spawn(command, args, {
-            cwd,
+            cwd: effectiveCwd,
             shell: process.platform === "win32",
             env: { ...process.env, AZURE_DEV_USER_AGENT: "agent_playground" },
         });
@@ -1017,7 +1025,8 @@ $owners | Where-Object { $_ -and $_ -ne $PID } | ForEach-Object {
     return result.code === 0 && result.output.trim().length > 0;
 }
 
-function runPowerShell(script) {
+async function runPowerShell(script) {
+    const cwd = await commandRuntimeCwd();
     return new Promise((resolve) => {
         const child = spawn("powershell.exe", [
             "-NoProfile",
@@ -1026,7 +1035,7 @@ function runPowerShell(script) {
             "Bypass",
             "-Command",
             script,
-        ], { shell: false });
+        ], { cwd, shell: false });
         const output = [];
         child.stdout.on("data", (chunk) => output.push(chunk.toString()));
         child.stderr.on("data", (chunk) => output.push(chunk.toString()));
