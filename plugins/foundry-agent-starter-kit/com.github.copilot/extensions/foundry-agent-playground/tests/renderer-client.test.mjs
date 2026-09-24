@@ -769,7 +769,8 @@ test("renderer script removes Mermaid render artifacts after failed browser rend
 
 test("renderer script wires panel-local Mermaid diagram expansion", () => {
     assert.match(rendererClientScript, /function openMermaidDiagramLightbox/);
-    assert.match(rendererClientScript, /role="dialog" aria-modal="true" aria-label="Expanded Mermaid diagram"/);
+    assert.match(rendererClientScript, /role="dialog" aria-modal="true" aria-label="Expanded diagram"/);
+    assert.match(rendererClientScript, /<strong>Diagram<\/strong>/);
     assert.match(rendererClientScript, /Drag to pan · Wheel to zoom/);
     assert.match(rendererClientScript, /aria-label="Close expanded diagram"/);
     assert.match(rendererClientScript, /aria-label="Zoom in"/);
