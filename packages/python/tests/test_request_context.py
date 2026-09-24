@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
+
+from openai.types.responses.response import Response as OpenAIResponse
 
 from castia import Agent, current_request_context, toolbox_mcp_tool
 from castia.building import AgentTestHarness
@@ -235,3 +238,102 @@ def test_explicit_headers_do_not_override_fresh_platform_call_id() -> None:
     assert spec is not None
     assert spec["headers"] == {FOUNDRY_CALL_ID_HEADER: "explicit-call"}
     assert public["headers"] == {FOUNDRY_CALL_ID_HEADER: "platform-call"}
+
+
+def test_responses_tool_loop_preserves_context_specs_and_response_shape() -> None:
+    cached_spec = toolbox_mcp_tool("https://x/mcp", token="secret")
+    assert cached_spec is not None
+    seen: list[dict] = []
+    tool_runs: list[dict] = []
+
+    class Tool:
+        name = "lookup_policy"
+
+        def spec(self):
+            return {"type": "function", "function": {"name": self.name}}
+
+        async def run(self, activity, **kwargs):
+            tool_runs.append({"activity": activity, "args": kwargs})
+            return {"policy": kwargs["policy"], "allowed": True}
+
+    class Responses:
+        def __init__(self):
+            self.calls = 0
+
+        async def create(self, **kwargs):
+            self.calls += 1
+            seen.append(kwargs)
+            if self.calls == 1:
+                return SimpleNamespace(
+                    output=[
+                        SimpleNamespace(
+                            type="function_call",
+                            call_id="call-1",
+                            name="lookup_policy",
+                            arguments='{"policy":"travel"}',
+                        )
+                    ],
+                    output_text="",
+                )
+            return SimpleNamespace(
+                output=[SimpleNamespace(type="message")],
+                output_text="policy:travel",
+            )
+
+    async def reply(text: str) -> str:
+        model = Model.__new__(Model)
+        model._deployment = "gpt-4o"
+        model._instructions = None
+        model._tool_definitions = ()
+        model._reasoning = {}
+        responses = Responses()
+        model._client = SimpleNamespace(
+            get_openai_client=lambda: SimpleNamespace(responses=responses)
+        )
+        return await model.respond_with_tools(
+            text,
+            tools=[Tool()],
+            activity=None,
+            extra_specs=[cached_spec],
+        )
+
+    app = Agent()
+    app.responses()(reply)
+
+    async def run() -> None:
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses",
+                json={"input": "Can I travel?"},
+                headers={FOUNDRY_CALL_ID_HEADER: "call-tool-loop"},
+            )
+            assert created.status_code == 200
+            body = created.json()
+            assert body["output_text"] == "policy:travel"
+            OpenAIResponse.model_validate(body)
+
+            stored = await test.client.get(f"/responses/{body['id']}")
+            assert stored.status_code == 200
+            assert stored.json() == body
+
+    asyncio.run(run())
+
+    assert tool_runs == [{"activity": None, "args": {"policy": "travel"}}]
+    assert len(seen) == 2
+    first_tools = seen[0]["tools"]
+    assert first_tools[0] == {"type": "function", "function": {"name": "lookup_policy"}}
+    assert first_tools[1]["type"] == "mcp"
+    assert "Authorization" in first_tools[1]["headers"]
+    assert first_tools[1]["headers"][FOUNDRY_CALL_ID_HEADER] == "call-tool-loop"
+    assert seen[1]["input"][-2] == {
+        "type": "function_call",
+        "call_id": "call-1",
+        "name": "lookup_policy",
+        "arguments": '{"policy":"travel"}',
+    }
+    assert seen[1]["input"][-1]["type"] == "function_call_output"
+    assert seen[1]["input"][-1]["call_id"] == "call-1"
+    assert json.loads(seen[1]["input"][-1]["output"]) == {
+        "policy": "travel",
+        "allowed": True,
+    }
