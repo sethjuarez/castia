@@ -683,6 +683,80 @@ def test_responses_lifecycle_honors_store_false_and_rejects_background():
     asyncio.run(run())
 
 
+def test_responses_lifecycle_evicts_oldest_completed_records(monkeypatch):
+    from castia.hosting import server
+
+    monkeypatch.setattr(server, "_MAX_STORED_RESPONSES", 2)
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return f"answer:{text}"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = []
+            for value in ("one", "two", "three"):
+                response = await test.client.post("/responses", json={"input": value})
+                assert response.status_code == 200
+                created.append(response.json())
+
+            oldest, middle, newest = created
+            assert (await test.client.get(f"/responses/{oldest['id']}")).status_code == 404
+            assert (
+                await test.client.get(f"/responses/{oldest['id']}/input_items")
+            ).status_code == 404
+            assert (
+                await test.client.delete(f"/responses/{oldest['id']}")
+            ).status_code == 404
+
+            middle_get = await test.client.get(f"/responses/{middle['id']}")
+            assert middle_get.status_code == 200
+            assert middle_get.json() == middle
+
+            newest_get = await test.client.get(f"/responses/{newest['id']}")
+            assert newest_get.status_code == 200
+            assert newest_get.json() == newest
+
+    asyncio.run(run())
+
+
+def test_responses_lifecycle_stores_concurrent_completed_records():
+    app = Agent()
+    gate = asyncio.Barrier(3)
+
+    @app.responses()
+    async def reply(text: str):
+        await gate.wait()
+        return f"answer:{text}"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            values = ("one", "two", "three")
+            responses = await asyncio.gather(
+                *[
+                    test.client.post("/responses", json={"input": value})
+                    for value in values
+                ]
+            )
+            bodies = [response.json() for response in responses]
+            assert [body["output_text"] for body in bodies] == [
+                f"answer:{value}" for value in values
+            ]
+            ids = [body["id"] for body in bodies]
+            assert len(set(ids)) == len(ids)
+
+            fetched = await asyncio.gather(
+                *[test.client.get(f"/responses/{response_id}") for response_id in ids]
+            )
+            assert [response.status_code for response in fetched] == [200, 200, 200]
+            assert [response.json() for response in fetched] == bodies
+            for body in bodies:
+                assert_sdk_parseable_response(body)
+
+    asyncio.run(run())
+
+
 def test_responses_body_echoes_safe_request_shape_fields(monkeypatch):
     monkeypatch.delenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", raising=False)
     app = Agent()
