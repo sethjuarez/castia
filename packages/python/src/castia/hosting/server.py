@@ -166,6 +166,13 @@ def _responses_body(
     response_id: str | None = None,
     output_item_id: str | None = None,
     status: str = "completed",
+    created_at: int | None = None,
+    model: str | None = None,
+    instructions: object = None,
+    metadata: dict | None = None,
+    tools: list | None = None,
+    tool_choice: object = None,
+    parallel_tool_calls: bool | None = None,
 ) -> dict:
     """An OpenAI Responses-shaped payload carrying ``text``.
 
@@ -188,9 +195,44 @@ def _responses_body(
     return {
         "id": response_id or f"resp_{uuid4().hex}",
         "object": "response",
+        "created_at": created_at or int(time.time()),
         "status": status,
+        "error": None,
+        "incomplete_details": None,
+        "instructions": instructions,
+        "metadata": metadata or {},
+        "model": model or os.getenv("AZURE_AI_MODEL_DEPLOYMENT_NAME") or "castia-agent",
         "output_text": text,
         "output": [message],
+        "parallel_tool_calls": True
+        if parallel_tool_calls is None
+        else parallel_tool_calls,
+        "tool_choice": "auto" if tool_choice is None else tool_choice,
+        "tools": tools or [],
+        "usage": None
+        if status != "completed"
+        else {
+            "input_tokens": 0,
+            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+            "output_tokens": 0,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 0,
+        },
+    }
+
+
+def _responses_request_options(body: dict) -> dict:
+    return {
+        "model": body.get("model") if isinstance(body.get("model"), str) else None,
+        "instructions": body.get("instructions")
+        if isinstance(body.get("instructions"), str | list)
+        else None,
+        "metadata": body.get("metadata") if isinstance(body.get("metadata"), dict) else {},
+        "tools": body.get("tools") if isinstance(body.get("tools"), list) else [],
+        "tool_choice": body.get("tool_choice"),
+        "parallel_tool_calls": body.get("parallel_tool_calls")
+        if isinstance(body.get("parallel_tool_calls"), bool)
+        else None,
     }
 
 
@@ -343,18 +385,38 @@ def _record_stream_attributes(
 
 
 def _responses_completed_event(
-    text: str, *, response_id: str, output_item_id: str
+    text: str,
+    *,
+    response_id: str,
+    output_item_id: str,
+    created_at: int,
+    response_options: dict,
 ) -> dict:
     body = _responses_body(
         text,
         response_id=response_id,
         output_item_id=output_item_id,
+        created_at=created_at,
+        **response_options,
     )
     return {"type": "response.completed", "response": body, **body}
 
 
-def _streaming_response(text: str, *, response_id: str, status: str) -> dict:
-    body = _responses_body(text, response_id=response_id, status=status)
+def _streaming_response(
+    text: str,
+    *,
+    response_id: str,
+    status: str,
+    created_at: int,
+    response_options: dict,
+) -> dict:
+    body = _responses_body(
+        text,
+        response_id=response_id,
+        status=status,
+        created_at=created_at,
+        **response_options,
+    )
     body["output"] = []
     return body
 
@@ -597,6 +659,7 @@ def _register_wire(
                         param="background",
                     )
                 text = _responses_input(body.get("input"))
+                response_options = _responses_request_options(body)
                 store = body.get("store") is not False
                 if body.get("stream") is True:
 
@@ -626,6 +689,7 @@ def _register_wire(
 
                         response_id = f"resp_{uuid4().hex}"
                         output_item_id = f"msg_{uuid4().hex}"
+                        created_at = int(time.time())
                         input_items = _responses_input_items(
                             body.get("input"), response_id=response_id
                         )
@@ -642,6 +706,8 @@ def _register_wire(
                                             "",
                                             response_id=response_id,
                                             status="in_progress",
+                                            created_at=created_at,
+                                            response_options=response_options,
                                         ),
                                     },
                                 )
@@ -653,6 +719,8 @@ def _register_wire(
                                             "",
                                             response_id=response_id,
                                             status="in_progress",
+                                            created_at=created_at,
+                                            response_options=response_options,
                                         ),
                                     },
                                 )
@@ -749,6 +817,8 @@ def _register_wire(
                                                 output_text,
                                                 response_id=response_id,
                                                 output_item_id=output_item_id,
+                                                created_at=created_at,
+                                                **response_options,
                                             ),
                                             "input_items": input_items,
                                         },
@@ -759,6 +829,8 @@ def _register_wire(
                                         output_text,
                                         response_id=response_id,
                                         output_item_id=output_item_id,
+                                        created_at=created_at,
+                                        response_options=response_options,
                                     ),
                                 )
                                 yield emit_raw(_sse_done())
@@ -777,7 +849,13 @@ def _register_wire(
                     reply = await responses_dispatch(text)
                     dev_diagnostics.record_output(reply)
                 response_id = f"resp_{uuid4().hex}"
-                body_out = _responses_body(reply, response_id=response_id)
+                created_at = int(time.time())
+                body_out = _responses_body(
+                    reply,
+                    response_id=response_id,
+                    created_at=created_at,
+                    **response_options,
+                )
                 if store:
                     _store_completed_response(
                         responses_store,
@@ -787,6 +865,8 @@ def _register_wire(
                                 reply,
                                 response_id=response_id,
                                 output_item_id=f"msg_{uuid4().hex}",
+                                created_at=created_at,
+                                **response_options,
                             ),
                             "input_items": _responses_input_items(
                                 body.get("input"), response_id=response_id

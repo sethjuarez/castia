@@ -44,6 +44,31 @@ def sse_events(text: str):
     return events
 
 
+def assert_responses_object_defaults(body: dict, *, output_text: str) -> None:
+    assert body["object"] == "response"
+    assert isinstance(body["created_at"], int)
+    assert body["error"] is None
+    assert body["incomplete_details"] is None
+    assert body["instructions"] is None
+    assert body["metadata"] == {}
+    assert isinstance(body["model"], str)
+    assert body["model"]
+    assert body["output_text"] == output_text
+    assert body["parallel_tool_calls"] is True
+    assert body["tool_choice"] == "auto"
+    assert body["tools"] == []
+    if body["status"] == "completed":
+        assert body["usage"] == {
+            "input_tokens": 0,
+            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+            "output_tokens": 0,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 0,
+        }
+    else:
+        assert body["usage"] is None
+
+
 def assert_responses_sse_contract(response, *, deltas: list[str], output_text: str):
     assert response.status_code == 200
     assert "text/event-stream" in response.headers["content-type"]
@@ -69,6 +94,9 @@ def assert_responses_sse_contract(response, *, deltas: list[str], output_text: s
     response_id = payloads[0]["response"]["id"]
     output_item_id = payloads[2]["item"]["id"]
     assert payloads[1]["response"]["id"] == response_id
+    assert_responses_object_defaults(payloads[0]["response"], output_text="")
+    assert_responses_object_defaults(payloads[1]["response"], output_text="")
+    assert payloads[1]["response"]["created_at"] == payloads[0]["response"]["created_at"]
     assert payloads[3]["item_id"] == output_item_id
     assert payloads[3]["part"]["logprobs"] == []
 
@@ -99,7 +127,13 @@ def assert_responses_sse_contract(response, *, deltas: list[str], output_text: s
     assert payloads[done_offset + 3]["type"] == "response.completed"
     assert payloads[done_offset + 3]["response"]["id"] == response_id
     assert payloads[done_offset + 3]["response"]["status"] == "completed"
-    assert payloads[done_offset + 3]["response"]["output_text"] == output_text
+    assert_responses_object_defaults(
+        payloads[done_offset + 3]["response"], output_text=output_text
+    )
+    assert (
+        payloads[done_offset + 3]["response"]["created_at"]
+        == payloads[0]["response"]["created_at"]
+    )
     assert payloads[done_offset + 3]["response"]["output"][0]["id"] == output_item_id
     assert (
         payloads[done_offset + 3]["response"]["output"][0]["content"][0]["logprobs"]
@@ -502,8 +536,9 @@ def test_responses_stream_uses_stream_handler_for_sse(monkeypatch):
                 "/responses", json={"input": "hello", "stream": False}
             )
             assert "application/json" in response.headers["content-type"]
-            assert response.json()["output_text"] == "single:hello"
-            assert response.json()["output"][0] == {
+            body = response.json()
+            assert_responses_object_defaults(body, output_text="single:hello")
+            assert body["output"][0] == {
                 "type": "message",
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": "single:hello"}],
@@ -534,8 +569,9 @@ def test_responses_stream_falls_back_to_responses_handler_for_sse():
                 "/responses", json={"input": "hello"}
             )
             assert "application/json" in response.headers["content-type"]
-            assert response.json()["output_text"] == "single:hello"
-            assert response.json()["output"][0] == {
+            body = response.json()
+            assert_responses_object_defaults(body, output_text="single:hello")
+            assert body["output"][0] == {
                 "type": "message",
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": "single:hello"}],
@@ -557,13 +593,14 @@ def test_responses_lifecycle_stores_completed_json_response():
             assert created.status_code == 200
             body = created.json()
             response_id = body["id"]
-            assert body["output_text"] == "answer:hello"
+            assert_responses_object_defaults(body, output_text="answer:hello")
 
             fetched = await test.client.get(f"/responses/{response_id}")
             assert fetched.status_code == 200
             stored = fetched.json()
             assert stored["id"] == body["id"]
-            assert stored["output_text"] == body["output_text"]
+            assert_responses_object_defaults(stored, output_text=body["output_text"])
+            assert stored["created_at"] == body["created_at"]
             assert stored["output"][0]["id"].startswith("msg_")
             assert stored["output"][0]["status"] == "completed"
             assert stored["output"][0]["content"][0]["annotations"] == []
@@ -634,6 +671,51 @@ def test_responses_lifecycle_honors_store_false_and_rejects_background():
     asyncio.run(run())
 
 
+def test_responses_body_echoes_safe_request_shape_fields(monkeypatch):
+    monkeypatch.delenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", raising=False)
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    request_body = {
+        "input": "hello",
+        "model": "request-model",
+        "instructions": "Be concise.",
+        "metadata": {"trace": "abc"},
+        "tools": [{"type": "function", "name": "lookup"}],
+        "tool_choice": "none",
+        "parallel_tool_calls": False,
+    }
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post("/responses", json=request_body)
+            assert created.status_code == 200
+            body = created.json()
+            assert body["model"] == "request-model"
+            assert body["instructions"] == "Be concise."
+            assert body["metadata"] == {"trace": "abc"}
+            assert body["tools"] == [{"type": "function", "name": "lookup"}]
+            assert body["tool_choice"] == "none"
+            assert body["parallel_tool_calls"] is False
+            assert body["usage"]["total_tokens"] == 0
+
+            fetched = await test.client.get(f"/responses/{body['id']}")
+            assert fetched.status_code == 200
+            stored = fetched.json()
+            assert stored["model"] == body["model"]
+            assert stored["instructions"] == body["instructions"]
+            assert stored["metadata"] == body["metadata"]
+            assert stored["tools"] == body["tools"]
+            assert stored["tool_choice"] == body["tool_choice"]
+            assert stored["parallel_tool_calls"] == body["parallel_tool_calls"]
+            assert stored["created_at"] == body["created_at"]
+
+    asyncio.run(run())
+
+
 def test_responses_lifecycle_stores_completed_stream_response():
     app = Agent()
 
@@ -662,7 +744,9 @@ def test_responses_lifecycle_stores_completed_stream_response():
 
             fetched = await test.client.get(f"/responses/{response_id}")
             assert fetched.status_code == 200
-            assert fetched.json()["output_text"] == "stream:hello"
+            assert_responses_object_defaults(
+                fetched.json(), output_text="stream:hello"
+            )
 
     asyncio.run(run())
 
