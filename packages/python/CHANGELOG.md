@@ -5,7 +5,7 @@
 
 ### ⚠ BREAKING CHANGES
 
-* **python:** /responses now returns 400 unsupported_parameter for non-null previous_response_id and conversation instead of accepting and ignoring them. Send full prior turns in input, omit these fields, or send null when using Castia's lightweight process-local Responses runtime.
+* **python:** /responses now returns 400 unsupported_parameter for non-null previous_response_id instead of accepting and ignoring it. Send full prior turns in input, omit the field, or send null when using Castia's lightweight process-local Responses runtime. Hosted Foundry gateway conversation context is accepted and ignored for compatibility.
 
 ### Features
 
