@@ -445,6 +445,39 @@ new hosted deployment.
 - **`responses`** — the OpenAI `responses` wire shape.
 - **`invocations`** — Foundry invoke envelopes (tool execution, agent-to-agent).
 
+### Microsoft 365 publish dry-run
+
+For hosted agents with an Activity handler, Castia can prepare a Microsoft 365
+publish payload without submitting anything to Foundry:
+
+```bash
+python -m castia publish microsoft365 --mode autopilot --dry-run \
+  --project-endpoint https://<account>.services.ai.azure.com/api/projects/<project> \
+  --agent-name contracts \
+  --agent-display-name "Contracts" \
+  --short-description "Reviews contracts." \
+  --full-description "Reviews contracts and prepares evidence-backed reports." \
+  --developer-name "Caldova" \
+  --developer-website-url https://caldova.com \
+  --privacy-url https://caldova.com/privacy \
+  --terms-of-use-url https://caldova.com/terms \
+  --color-icon color.png \
+  --outline-icon outline.png \
+  --blueprint-client-id <agent.blueprint.client_id>
+```
+
+Autopilot mode targets the preview publish API, forces tenant scope, uses the
+digital-worker agentic user template, and requires the blueprint **client id**
+from `azd ai agent show`. Teams mode targets the stable v1 publish API, supports
+`Shared` or `Tenant` scope, and requires `--bot-service-arm-id`.
+
+The command validates that the app registers Activity protocol, metadata URLs
+are HTTPS, the color icon is a PNG exactly `192x192`, and the outline icon is a
+PNG exactly `32x32`. Dry-run output writes a redacted JSON artifact containing
+payload fields plus icon hashes and dimensions; it does not write bearer tokens
+or full icon base64 blobs. Live `--submit` and package download are reserved for
+a later explicit publishing slice.
+
 ## Observability & evaluation
 
 `castia` configures Foundry/Agent 365 telemetry for you when the agent starts.
