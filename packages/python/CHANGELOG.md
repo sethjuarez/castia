@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/sethjuarez/castia/compare/python-v0.10.0...python-v0.11.0) (2026-09-26)
+
+
+### Features
+
+* **python:** add Microsoft 365 publish dry-run ([1b8ed84](https://github.com/sethjuarez/castia/commit/1b8ed84f61696bfc8fdb4d290e667683f39ae804))
+
 ## [0.10.0](https://github.com/sethjuarez/castia/compare/python-v0.9.0...python-v0.10.0) (2026-09-24)
 
 
