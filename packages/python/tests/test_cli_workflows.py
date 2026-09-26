@@ -17,6 +17,7 @@ from castia.building import AgentTestHarness
         ("observe", ("features", "traces", "local-traces", "verify", "suite")),
         ("finetune", ("submit", "status", "results", "handoff")),
         ("optimize", ("run", "status", "cancel", "apply")),
+        ("publish", ("microsoft365",)),
     ],
 )
 def test_root_cli_registers_workflow_commands(command, expected):
