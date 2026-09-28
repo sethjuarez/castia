@@ -75,6 +75,7 @@ class Tool:
     parameters: dict[str, Any]
     impl: ToolImpl
     scopes: tuple[str, ...] = field(default_factory=tuple)
+    kind: str = "function"
 
     def spec(self) -> dict[str, Any]:
         """The OpenAI Responses-API function-tool spec for this tool."""

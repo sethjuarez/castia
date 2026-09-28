@@ -19,6 +19,20 @@ class FakePrompty:
     Tracer = FakeTracer
 
 
+class FakeResponses:
+    def __init__(self) -> None:
+        self.kwargs = {}
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return "response"
+
+
+class FakeOpenAIClient:
+    def __init__(self) -> None:
+        self.responses = FakeResponses()
+
+
 def setup_function():
     FakeTracer.calls.clear()
     clear_trace_sinks()
@@ -26,6 +40,29 @@ def setup_function():
 
 def teardown_function():
     clear_trace_sinks()
+
+
+def test_trace_context_openai_client_injects_headers(monkeypatch):
+    client = FakeOpenAIClient()
+    wrapped = castia_prompty._TraceContextOpenAIClient(client)
+    monkeypatch.setattr(
+        "castia.observe.tracing.trace_context_headers",
+        lambda extra_headers=None: {
+            "traceparent": "00-test",
+            **dict(extra_headers or {}),
+        },
+    )
+
+    result = wrapped.responses.create(
+        model="dep",
+        extra_headers={"x-existing": "1"},
+    )
+
+    assert result == "response"
+    assert client.responses.kwargs["extra_headers"] == {
+        "traceparent": "00-test",
+        "x-existing": "1",
+    }
 
 
 def test_prompty_trace_sink_registration_filters_content_without_opt_in(monkeypatch):

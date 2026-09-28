@@ -17,15 +17,17 @@ import pytest
 from castia.integrations.toolbox import (
     AI_FOUNDRY_SCOPE,
     OPTIMIZER_TOOL_DEFINITIONS_KEY,
+    McpToolboxError,
     ToolboxConfigurationError,
+    ToolboxMcpClient,
     compose_toolbox_endpoint,
     knowledge_base_mcp_tool,
     platform_endpoint_env,
     resolve_toolbox_endpoint,
     toolbox_mcp_tool,
+    toolbox_tools_from_mcp,
     validate_toolbox_endpoint,
 )
-from castia.prompty import McpToolboxError, ToolboxMcpClient
 
 PROJECT = "https://acct.services.ai.azure.com/api/projects/proj"
 
@@ -444,3 +446,102 @@ def test_toolbox_mcp_client_rejects_foundry_endpoint_without_api_version() -> No
             "https://acct.services.ai.azure.com/api/projects/p/toolboxes/t/mcp",
             token_provider=lambda: "TOKEN",
         )
+
+
+def test_toolbox_tools_from_mcp_builds_local_tools_and_calls_remote() -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append((request, payload))
+        assert request.headers["Authorization"] == "Bearer TOKEN"
+        if payload["method"] == "tools/list":
+            return httpx.Response(
+                200,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "lookup",
+                                "description": "Lookup grounded facts.",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {
+                                            "type": "string",
+                                            "description": "Search query.",
+                                        }
+                                    },
+                                    "required": ["query"],
+                                    "additionalProperties": False,
+                                },
+                            }
+                        ]
+                    },
+                },
+            )
+        assert payload["method"] == "tools/call"
+        assert payload["params"] == {
+            "name": "lookup",
+            "arguments": {"query": "travel"},
+        }
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"content": [{"type": "text", "text": "grounded answer"}]},
+            },
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            tools = await toolbox_tools_from_mcp(
+                ("lookup",),
+                endpoint="https://example.test/toolboxes/contracts/mcp?api-version=v1",
+                token_provider=lambda: "TOKEN",
+                client=http,
+            )
+            assert len(tools) == 1
+            tool = tools[0]
+            assert tool.name == "lookup"
+            assert tool.description == "Lookup grounded facts."
+            assert tool.kind == "mcp"
+            assert tool.spec()["parameters"]["properties"]["query"]["type"] == "string"
+            assert await tool.run(None, query="travel") == {
+                "ok": True,
+                "result": "grounded answer",
+            }
+
+    asyncio.run(run())
+    assert [payload["method"] for _, payload in requests] == [
+        "tools/list",
+        "tools/call",
+    ]
+
+
+def test_toolbox_tools_from_mcp_rejects_missing_allowed_tool() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"tools": [{"name": "lookup"}]},
+            },
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            with pytest.raises(McpToolboxError, match="missing"):
+                await toolbox_tools_from_mcp(
+                    ("missing",),
+                    endpoint="https://example.test/mcp",
+                    token_provider=lambda: "TOKEN",
+                    client=http,
+                )
+
+    asyncio.run(run())
