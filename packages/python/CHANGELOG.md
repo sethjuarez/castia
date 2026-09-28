@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/sethjuarez/castia/compare/python-v0.12.0...python-v0.13.0) (2026-09-28)
+
+
+### Features
+
+* **python:** add Teams command routing ([366cd31](https://github.com/sethjuarez/castia/commit/366cd3135cb57a784ca99394e968ea1e0fca2647))
+
 ## [0.12.0](https://github.com/sethjuarez/castia/compare/python-v0.11.0...python-v0.12.0) (2026-09-28)
 
 
