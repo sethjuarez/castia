@@ -157,6 +157,7 @@ class AgentTestHarness:
                 self.app._routes,
                 self.app._wire,
                 self.app._invokes,
+                self.app._commands,
                 agent_name=self.app.name,
                 required_env=self.app._required_env,
             )

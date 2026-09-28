@@ -118,6 +118,29 @@ instead of being buried in the framework. (`Model()` with no argument falls back
 to `AZURE_AI_MODEL_DEPLOYMENT_NAME`; `get_model` / `use_model("gpt-4o")` are
 zero-config conveniences.)
 
+Register targeted Teams / Agent 365 commands with `@app.command(...)` when a
+turn should be handled before the model sees it:
+
+```python
+from castia import Agent, Message, Teams
+
+app = Agent(name="my-agent")
+
+@app.command("version", description="Show deployed version", triggers=("slash",))
+async def version(msg: Message) -> str:
+    return "my-agent 1.2.3"
+
+@app.activity(Teams.direct, Teams.group, Teams.channel_mention)
+async def reply(text: str) -> str:
+    return f"model handles: {text}"
+```
+
+Commands are still Activity messages on the wire, not a new protocol. A Teams
+targeted message such as `/version` is parsed and routed to the command handler
+before any broader `@app.activity(...)` route can call the model. Command
+metadata is available to Microsoft 365 dry-runs for Teams manifest
+discoverability.
+
 `app.run()` binds to `0.0.0.0` and reads `PORT` when no explicit port is
 provided, falling back to `8088`. Set a different `PORT` for each local agent
 when running multiple agents through the playground or canvas. Use
@@ -475,8 +498,13 @@ The command validates that the app registers Activity protocol, metadata URLs
 are HTTPS, the color icon is a PNG exactly `192x192`, and the outline icon is a
 PNG exactly `32x32`. Dry-run output writes a redacted JSON artifact containing
 payload fields plus icon hashes and dimensions; it does not write bearer tokens
-or full icon base64 blobs. Live `--submit` and package download are reserved for
-a later explicit publishing slice.
+or full icon base64 blobs. If the app registers targeted commands, the artifact
+also includes a `teamsManifestPatch` with `bots[].supportsTargetedMessages` and
+`bots[].commandLists[]` metadata for Teams discoverability. Castia records that
+patch for review but does not include it in the live publish payload yet because
+publish-endpoint support for `commandLists` has not been verified in this SDK
+slice. Live `--submit` and package download are reserved for a later explicit
+publishing slice.
 
 ## Observability & evaluation
 

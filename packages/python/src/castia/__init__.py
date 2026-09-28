@@ -73,7 +73,12 @@ from castia.optimizing.config import (
     load_agent_config,
     tools_json,
 )
-from castia.runtime.application import PUBLISHABLE_PROTOCOLS, Agent, Router
+from castia.runtime.application import (
+    PUBLISHABLE_PROTOCOLS,
+    Agent,
+    CommandMetadata,
+    Router,
+)
 from castia.runtime.context import Turn, current_turn, current_turn_or_none
 from castia.runtime.dependencies import Depends
 from castia.runtime.request_context import RequestContext, current_request_context
@@ -83,6 +88,7 @@ __all__ = [
     "Agent",
     "AgentConfig",
     "AgenticIdentityError",
+    "CommandMetadata",
     "Depends",
     "InvokeNames",
     "McpToolboxError",

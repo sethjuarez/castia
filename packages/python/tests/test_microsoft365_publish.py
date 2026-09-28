@@ -34,6 +34,16 @@ def activity_app():
     return app
 
 
+def command_app():
+    app = activity_app()
+
+    @app.command("version", description="Show deployed version", triggers=("slash",))
+    async def version(text: str) -> str:
+        return text
+
+    return app
+
+
 def publish_args(tmp_path):
     return {
         "app": activity_app(),
@@ -165,3 +175,37 @@ def test_redacted_artifact_omits_full_icon_base64(tmp_path):
     assert data["payload"]["colorIconBase64"]["redacted"] is True
     assert data["icons"]["colorIcon"]["width"] == 192
     assert plan.payload["colorIconBase64"] not in artifact.read_text(encoding="utf-8")
+
+
+def test_registered_commands_are_recorded_as_manifest_patch_only(tmp_path):
+    plan = build_publish_plan(
+        **(publish_args(tmp_path) | {"app": command_app()}),
+        mode="teams",
+        bot_service_arm_id="/subscriptions/000/resourceGroups/rg/providers/Microsoft.BotService/botServices/bot",
+    )
+
+    assert "commandLists" not in plan.payload
+    assert plan.teams_manifest_patch == {
+        "bots": [
+            {
+                "supportsTargetedMessages": True,
+                "commandLists": [
+                    {
+                        "scopes": ["personal", "team", "groupChat"],
+                        "triggers": ["slash"],
+                        "commands": [
+                            {
+                                "title": "version",
+                                "description": "Show deployed version",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    artifact = write_redacted_artifact(plan, tmp_path / "commands.json")
+    data = json.loads(artifact.read_text(encoding="utf-8"))
+    assert data["teamsManifestPatch"] == plan.teams_manifest_patch
+    assert "commandLists has not been verified" in data["notes"][0]
