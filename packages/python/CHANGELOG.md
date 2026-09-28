@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/sethjuarez/castia/compare/python-v0.11.0...python-v0.12.0) (2026-09-28)
+
+
+### Features
+
+* **python:** add Castia-owned toolbox telemetry ([affded8](https://github.com/sethjuarez/castia/commit/affded8475cb56126150e707c5709fe2ad945db4))
+
 ## [0.11.0](https://github.com/sethjuarez/castia/compare/python-v0.10.0...python-v0.11.0) (2026-09-26)
 
 
