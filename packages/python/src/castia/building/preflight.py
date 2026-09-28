@@ -168,7 +168,7 @@ def preflight(
             else:
                 from castia.hosting.server import build_app
 
-                build_app(app._routes, app._wire, app._invokes)
+                build_app(app._routes, app._wire, app._invokes, app._commands)
                 add("registration", "pass", "Agent registration and ASGI route compilation succeeded.")
         except (Exception, SystemExit) as exc:  # noqa: BLE001 - report import failures, redact details
             # Import/SDK errors can contain tokens, URLs or environment values.

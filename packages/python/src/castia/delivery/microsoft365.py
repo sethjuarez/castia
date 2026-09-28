@@ -47,9 +47,11 @@ class Microsoft365PublishPlan:
     payload: dict[str, Any]
     redacted_payload: dict[str, Any]
     icon_summaries: dict[str, dict[str, Any]]
+    teams_manifest_patch: dict[str, Any] | None = None
 
     def artifact(self) -> dict[str, Any]:
-        return {
+        notes: list[str] = []
+        artifact = {
             "mode": self.mode,
             "method": self.method,
             "url": self.url,
@@ -57,6 +59,17 @@ class Microsoft365PublishPlan:
             "payload": self.redacted_payload,
             "icons": self.icon_summaries,
         }
+        if self.teams_manifest_patch:
+            artifact["teamsManifestPatch"] = self.teams_manifest_patch
+            notes.append(
+                "Command metadata is recorded as a Teams app manifest patch for "
+                "discoverability. Castia does not include it in the live publish "
+                "payload because Microsoft 365 publish endpoint support for "
+                "commandLists has not been verified in this SDK slice."
+            )
+        if notes:
+            artifact["notes"] = notes
+        return artifact
 
 
 def require_activity_protocol(app: Agent) -> None:
@@ -150,6 +163,40 @@ def _redact_icons(payload: dict[str, Any], *, color: Icon, outline: Icon) -> dic
     return redacted
 
 
+def _command_lists(app: Agent) -> list[dict[str, Any]]:
+    commands = app.registered_commands()
+    if not commands:
+        return []
+
+    groups: dict[tuple[str, ...], list[dict[str, str]]] = {}
+    for command in commands:
+        groups.setdefault(tuple(command.triggers), []).append(
+            {"title": command.name, "description": command.description}
+        )
+    return [
+        {
+            "scopes": ["personal", "team", "groupChat"],
+            "triggers": list(triggers),
+            "commands": items,
+        }
+        for triggers, items in groups.items()
+    ]
+
+
+def _teams_manifest_patch(app: Agent) -> dict[str, Any] | None:
+    command_lists = _command_lists(app)
+    if not command_lists:
+        return None
+    return {
+        "bots": [
+            {
+                "supportsTargetedMessages": True,
+                "commandLists": command_lists,
+            }
+        ]
+    }
+
+
 def build_publish_plan(
     *,
     app: Agent,
@@ -234,6 +281,7 @@ def build_publish_plan(
             "colorIcon": color.summary(),
             "outlineIcon": outline.summary(),
         },
+        teams_manifest_patch=_teams_manifest_patch(app),
     )
 
 

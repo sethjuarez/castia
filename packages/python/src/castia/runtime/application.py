@@ -18,12 +18,14 @@ from __future__ import annotations
 import inspect
 import os
 from collections.abc import Awaitable, Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from castia.messaging.surfaces import Teams
 
 Handler = Callable[..., Awaitable[Any]]
 StartupCheck = Callable[[], Any]
+CommandTrigger = Literal["slash", "mention"]
 
 # Protocols we can publish to Foundry -- i.e. declare in ``azure.yaml`` and expose
 # on the deployed agent. ``chat`` is served locally but is *not* a
@@ -36,6 +38,50 @@ _WIRE_ORDER: tuple[str, ...] = ("responses", "invocations", "chat")
 _INTERNAL_WIRE: tuple[str, ...] = ("responses_stream",)
 _DEFAULT_HOST = "0.0.0.0"
 _DEFAULT_PORT = 8088
+_COMMAND_TRIGGERS: tuple[CommandTrigger, ...] = ("slash", "mention")
+
+
+@dataclass(frozen=True)
+class CommandMetadata:
+    """Discoverable command metadata for Teams / Microsoft 365 manifests."""
+
+    name: str
+    description: str
+    triggers: tuple[CommandTrigger, ...]
+
+
+@dataclass(frozen=True)
+class CommandRoute:
+    """A registered command handler plus its discoverable metadata."""
+
+    metadata: CommandMetadata
+    handler: Handler
+
+
+def _normalize_command_name(name: str) -> str:
+    if not isinstance(name, str):
+        raise TypeError("command name must be a string")
+    cleaned = name.strip().removeprefix("/")
+    if not cleaned or any(char.isspace() for char in cleaned):
+        raise ValueError("command name must be non-empty and contain no whitespace")
+    return cleaned.lower()
+
+
+def _normalize_command_triggers(
+    triggers: tuple[CommandTrigger, ...] | list[CommandTrigger] | None,
+) -> tuple[CommandTrigger, ...]:
+    if triggers is None:
+        triggers = ("slash",)
+    cleaned: list[CommandTrigger] = []
+    for trigger in triggers:
+        if trigger not in _COMMAND_TRIGGERS:
+            allowed = ", ".join(_COMMAND_TRIGGERS)
+            raise ValueError(f"command trigger must be one of: {allowed}")
+        if trigger not in cleaned:
+            cleaned.append(trigger)
+    if not cleaned:
+        raise ValueError("command must declare at least one trigger")
+    return tuple(cleaned)
 
 
 class Router:
@@ -55,6 +101,7 @@ class Router:
         self._routes: list[tuple[tuple[Teams, ...], Handler]] = []
         self._wire: dict[str, Handler] = {}
         self._invokes: dict[str, Handler] = {}
+        self._commands: dict[str, CommandRoute] = {}
         # Zero-arg providers each returning a list of ``castia.inference.tools.Tool`` or
         # optimizer-aware raw specs (for example toolbox MCP specs).
         # Tools are the agent's *outbound* capabilities; declaring them here (as
@@ -109,6 +156,47 @@ class Router:
 
         def decorator(func: Handler) -> Handler:
             self._invokes[name] = func
+            return func
+
+        return decorator
+
+    def command(
+        self,
+        name: str,
+        *,
+        description: str,
+        triggers: tuple[CommandTrigger, ...] | list[CommandTrigger] = ("slash",),
+    ) -> Callable[[Handler], Handler]:
+        """Handle a Teams / Microsoft 365 targeted command before model routing.
+
+        Commands are Activity turns, not a new protocol. Teams delivers a slash
+        command as a normal targeted message such as ``/version``; Castia matches
+        the command name first and invokes the registered handler before any
+        broader ``@app.activity(...)`` route can send the turn to a model. The
+        metadata is also available to publish dry-runs for manifest
+        discoverability.
+        """
+        command_name = _normalize_command_name(name)
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError("command description must be a non-empty string")
+        command_triggers = _normalize_command_triggers(triggers)
+
+        def decorator(func: Handler) -> Handler:
+            existing = self._commands.get(command_name)
+            if existing is not None:
+                raise ValueError(
+                    f"command {command_name!r} already has a handler "
+                    f"({existing.handler.__name__!r}); a command is answered by "
+                    f"exactly one handler, but {func.__name__!r} also registered it."
+                )
+            self._commands[command_name] = CommandRoute(
+                metadata=CommandMetadata(
+                    name=command_name,
+                    description=description.strip(),
+                    triggers=command_triggers,
+                ),
+                handler=func,
+            )
             return func
 
         return decorator
@@ -266,6 +354,16 @@ class Router:
                         "per invoke name."
                     )
                 self._invokes[name] = handler
+            for name, command in router._commands.items():
+                existing = self._commands.get(name)
+                if existing is not None:
+                    raise ValueError(
+                        f"command {name!r} already has a handler "
+                        f"({existing.handler.__name__!r}); a command is answered "
+                        f"by exactly one handler, but {command.handler.__name__!r} "
+                        "also registered it."
+                    )
+                self._commands[name] = command
             self._tool_providers.extend(router._tool_providers)
             self._startup_checks.extend(router._startup_checks)
             self._required_env = tuple(
@@ -280,10 +378,14 @@ class Router:
         only publishable protocols intersects with :data:`PUBLISHABLE_PROTOCOLS`.
         """
         names: list[str] = []
-        if self._routes or self._invokes:
+        if self._routes or self._invokes or self._commands:
             names.append("activity")
         names.extend(protocol for protocol in _WIRE_ORDER if protocol in self._wire)
         return names
+
+    def registered_commands(self) -> list[CommandMetadata]:
+        """Discoverable targeted command metadata in registration order."""
+        return [command.metadata for command in self._commands.values()]
 
 
 def _resolved_host(host: str | None) -> str:
@@ -398,6 +500,7 @@ class Agent(Router):
             self._routes,
             self._wire,
             self._invokes,
+            self._commands,
             host=resolved_host,
             port=resolved_port,
             agent_name=self.name,

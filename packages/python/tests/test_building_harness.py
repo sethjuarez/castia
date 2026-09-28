@@ -373,12 +373,13 @@ def test_agent_run_uses_env_port_and_startup_checks(monkeypatch):
         lambda: calls.append("observability"),
     )
 
-    def fake_serve(routes, wire, invokes, *, host, port, agent_name, required_env):
+    def fake_serve(routes, wire, invokes, commands, *, host, port, agent_name, required_env):
         captured.update(
             host=host,
             port=port,
             agent_name=agent_name,
             required_env=required_env,
+            commands=commands,
         )
 
     monkeypatch.setattr("castia.hosting.server.serve", fake_serve)
@@ -390,6 +391,7 @@ def test_agent_run_uses_env_port_and_startup_checks(monkeypatch):
         "port": 9012,
         "agent_name": "env-agent",
         "required_env": (),
+        "commands": {},
     }
 
 
@@ -409,7 +411,9 @@ def test_agent_run_explicit_port_wins_and_invalid_port_fails(monkeypatch):
         lambda: None,
     )
 
-    def fake_explicit_serve(routes, wire, invokes, *, host, port, agent_name, required_env):
+    def fake_explicit_serve(
+        routes, wire, invokes, commands, *, host, port, agent_name, required_env
+    ):
         captured.update(host=host, port=port)
 
     monkeypatch.setattr(
@@ -486,6 +490,7 @@ def test_readiness_diagnostics_are_loopback_only():
         app._routes,
         app._wire,
         app._invokes,
+        app._commands,
         agent_name=app.name,
         required_env=app._required_env,
     )
@@ -578,6 +583,7 @@ def test_last_turn_diagnostics_are_opt_in_and_loopback_only(monkeypatch):
         app._routes,
         app._wire,
         app._invokes,
+        app._commands,
         agent_name=app.name,
         required_env=app._required_env,
     )
@@ -1435,6 +1441,139 @@ def test_connector_capture_all_verbs_and_streaming_without_auth(monkeypatch):
             assert events[3].body["entities"]
             assert events[-1].body["text"] == "final"
             assert all("headers" not in e.to_dict() for e in events)
+
+    asyncio.run(run())
+
+
+def test_command_routes_before_activity_handler():
+    app = Agent(name="commands-agent")
+    calls = []
+
+    @app.command("version", description="Show deployed version", triggers=("slash",))
+    async def version(msg: Message):
+        calls.append(("command", msg.text))
+        return "commands-agent 1.2.3"
+
+    @app.command("help", description="Show command help", triggers=("mention",))
+    async def help_command(msg: Message):
+        calls.append(("mention-command", msg.text))
+        return "Try /version"
+
+    @app.activity(Teams.direct)
+    async def reply(text: str):
+        calls.append(("activity", text))
+        return f"model:{text}"
+
+    assert app.registered_protocols() == ["activity"]
+    assert [
+        {
+            "name": command.name,
+            "description": command.description,
+            "triggers": command.triggers,
+        }
+        for command in app.registered_commands()
+    ] == [
+        {
+            "name": "version",
+            "description": "Show deployed version",
+            "triggers": ("slash",),
+        },
+        {
+            "name": "help",
+            "description": "Show command help",
+            "triggers": ("mention",),
+        },
+    ]
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            readiness = await test.client.get(
+                "/readiness",
+                headers={"host": "127.0.0.1"},
+            )
+            assert readiness.json()["commands"] == [
+                {
+                    "name": "version",
+                    "description": "Show deployed version",
+                    "triggers": ["slash"],
+                },
+                {
+                    "name": "help",
+                    "description": "Show command help",
+                    "triggers": ["mention"],
+                },
+            ]
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(text="/version"),
+            )
+            assert response.status_code == 200
+            assert calls == [("command", "/version")]
+            assert [event.body["text"] for event in test.egress] == [
+                "commands-agent 1.2.3"
+            ]
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(
+                    text="<at>Commands</at> /version",
+                    conversation={"id": "channel", "conversationType": "channel"},
+                    entities=[
+                        {
+                            "type": "mention",
+                            "mentioned": {"id": "bot", "name": "Commands"},
+                            "text": "<at>Commands</at>",
+                        }
+                    ],
+                ),
+            )
+            assert response.status_code == 200
+            assert calls[-1] == ("command", "<at>Commands</at> /version")
+            assert test.egress[-1].body["text"] == "commands-agent 1.2.3"
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(
+                    text="<at>Commands</at> help",
+                    conversation={"id": "chat", "conversationType": "groupChat"},
+                    entities=[
+                        {
+                            "type": "mention",
+                            "mentioned": {"id": "bot", "name": "Commands"},
+                            "text": "<at>Commands</at>",
+                        }
+                    ],
+                ),
+            )
+            assert response.status_code == 200
+            assert calls[-1] == ("mention-command", "<at>Commands</at> help")
+            assert test.egress[-1].body["text"] == "Try /version"
+
+            egress_count = len(test.egress)
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(type="messageUpdate", text="/version"),
+            )
+            assert response.status_code == 200
+            assert len(test.egress) == egress_count
+            assert calls[-1] == ("mention-command", "<at>Commands</at> help")
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(text="help"),
+            )
+            assert response.status_code == 200
+            assert calls[-1] == ("activity", "help")
+            assert test.egress[-1].body["text"] == "model:help"
+
+            response = await test.client.post(
+                "/activity/messages",
+                json=activity(text="/unknown"),
+            )
+            assert response.status_code == 200
+            assert calls[-1] == ("activity", "/unknown")
+            assert test.egress[-1].body["text"] == "model:/unknown"
 
     asyncio.run(run())
 

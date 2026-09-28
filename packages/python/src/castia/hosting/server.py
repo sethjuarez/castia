@@ -569,6 +569,58 @@ def _invocations_input(body) -> str:
     return ""
 
 
+def _strip_leading_recipient_mentions(activity: Activity) -> tuple[str, bool]:
+    """Remove leading Teams mention markup for this agent from activity text."""
+    text = activity.text or ""
+    recipient_id = activity.recipient.id if activity.recipient else None
+    removed = False
+    if not recipient_id:
+        return text, removed
+
+    mentions = [
+        mention.text or ""
+        for mention in activity.get_mentions()
+        if mention.mentioned is not None and mention.mentioned.id == recipient_id
+    ]
+    while mentions:
+        stripped = text.lstrip()
+        for mention_text in sorted(mentions, key=len, reverse=True):
+            if mention_text and stripped.startswith(mention_text):
+                text = stripped.removeprefix(mention_text)
+                removed = True
+                break
+        else:
+            break
+    return text, removed
+
+
+def _command_text(activity: Activity) -> tuple[str, bool] | None:
+    """Return command text for supported Teams message surfaces."""
+    if teams_direct_message(activity) or teams_group_chat_message(activity):
+        return _strip_leading_recipient_mentions(activity)
+    if teams_tagged_channel_message(activity):
+        return _strip_leading_recipient_mentions(activity)
+    return None
+
+
+def _command_lookup(activity: Activity) -> tuple[str, str] | None:
+    """Return ``(name, trigger)`` for a targeted command Activity."""
+    candidate = _command_text(activity)
+    if candidate is None:
+        return None
+    text, had_mention = candidate
+    if not text:
+        return None
+    stripped = text.strip()
+    if stripped.startswith("/"):
+        token = stripped[1:].split(maxsplit=1)[0].strip().lower()
+        return (token, "slash") if token else None
+    if had_mention:
+        token = stripped.split(maxsplit=1)[0].strip().lower()
+        return (token, "mention") if token else None
+    return None
+
+
 def _build_activity_routes(routes):
     """Compile ``(surfaces, handler)`` pairs into ``(predicate, dispatch)`` pairs."""
     compiled = []
@@ -577,12 +629,20 @@ def _build_activity_routes(routes):
     return compiled
 
 
+def _build_command_routes(commands) -> dict[str, tuple[tuple[str, ...], Callable]]:
+    """Compile command routes into ``{name: (triggers, dispatch)}``."""
+    return {
+        name: (command.metadata.triggers, make_dispatch(command.handler))
+        for name, command in (commands or {}).items()
+    }
+
+
 def _build_invoke_routes(invokes) -> dict[str, Callable]:
     """Compile ``{name: handler}`` into ``{name: invoke-dispatch}``."""
     return {name: make_invoke_dispatch(func) for name, func in (invokes or {}).items()}
 
 
-def _register_activity(app: FastAPI, routes, invokes=None) -> None:
+def _register_activity(app: FastAPI, routes, invokes=None, commands=None) -> None:
     """Serve the Activity Protocol on ``POST /activity/messages``.
 
     The one endpoint carries both halves of the protocol: fire-and-forget
@@ -591,6 +651,7 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
     synchronously in the HTTP body).
     """
     compiled = _build_activity_routes(routes)
+    compiled_commands = _build_command_routes(commands)
     compiled_invokes = _build_invoke_routes(invokes)
 
     @app.post("/activity/messages")
@@ -651,6 +712,17 @@ def _register_activity(app: FastAPI, routes, invokes=None) -> None:
                 # decorations the handler/tools accumulate (AI label, citations, ...)
                 # are still present when the answer message is posted.
                 with turn_scope(activity):
+                    command = _command_lookup(activity)
+                    command_route = (
+                        compiled_commands.get(command[0]) if command else None
+                    )
+                    if command_route is not None and command[1] in command_route[0]:
+                        command_dispatch = command_route[1]
+                        reply = await command_dispatch(activity)
+                        if reply:
+                            await send_reply(activity, reply)
+                        return Response(status_code=200, headers=response_headers)
+
                     for predicate, dispatch in compiled:
                         if predicate(activity):
                             reply = await dispatch(activity)
@@ -1085,9 +1157,9 @@ def _register_wire(
         logger.info("Serving invocations protocol on POST /invocations")
 
 
-def _registered_protocols(routes, wire=None, invokes=None) -> list[str]:
+def _registered_protocols(routes, wire=None, invokes=None, commands=None) -> list[str]:
     protocols: list[str] = []
-    if routes or invokes:
+    if routes or invokes or commands:
         protocols.append("activity")
     protocols.extend(
         protocol
@@ -1101,6 +1173,7 @@ def _readiness_payload(
     routes,
     wire=None,
     invokes=None,
+    commands=None,
     *,
     agent_name: str | None = None,
     required_env: tuple[str, ...] = (),
@@ -1125,7 +1198,7 @@ def _readiness_payload(
     if not diagnostics:
         return payload
 
-    protocols = _registered_protocols(routes, wire, invokes)
+    protocols = _registered_protocols(routes, wire, invokes, commands)
     paths = {"readiness": "/readiness"}
     paths.update({protocol: _ROUTE_PATHS[protocol] for protocol in protocols})
     return payload | {
@@ -1133,6 +1206,14 @@ def _readiness_payload(
         "protocols": protocols,
         "routes": paths,
         "invokes": sorted((invokes or {}).keys()),
+        "commands": [
+            {
+                "name": command.metadata.name,
+                "description": command.metadata.description,
+                "triggers": list(command.metadata.triggers),
+            }
+            for command in (commands or {}).values()
+        ],
         "configuration": {
             "environment": environment,
             "missing_required": missing_required,
@@ -1163,6 +1244,7 @@ def build_app(
     routes,
     wire=None,
     invokes=None,
+    commands=None,
     *,
     agent_name: str | None = None,
     required_env: tuple[str, ...] = (),
@@ -1176,6 +1258,7 @@ def build_app(
             routes,
             wire or {},
             invokes or {},
+            commands or {},
             agent_name=agent_name,
             required_env=required_env,
             diagnostics=_wants_readiness_diagnostics(request),
@@ -1206,7 +1289,7 @@ def build_app(
             status_code=200,
         )
 
-    _register_activity(app, routes, invokes)
+    _register_activity(app, routes, invokes, commands)
     _register_wire(app, wire or {}, OrderedDict())
     return app
 
@@ -1290,6 +1373,7 @@ def serve(
     routes,
     wire=None,
     invokes=None,
+    commands=None,
     *,
     host: str = "0.0.0.0",
     port: int = 8088,
@@ -1304,6 +1388,7 @@ def serve(
             routes,
             wire,
             invokes,
+            commands,
             agent_name=agent_name,
             required_env=required_env,
         ),

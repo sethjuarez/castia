@@ -51,7 +51,9 @@ MODULE_PATHS = {
 }
 
 PUBLIC_EXPORTS = {
-    "runtime.application": ("PUBLISHABLE_PROTOCOLS", "Agent", "Router"),
+    "runtime.application": (
+        "PUBLISHABLE_PROTOCOLS", "Agent", "CommandMetadata", "Router",
+    ),
     "runtime.context": ("Turn", "current_turn", "current_turn_or_none"),
     "runtime.dependencies": ("Depends",),
     "runtime.request_context": ("RequestContext", "current_request_context"),
