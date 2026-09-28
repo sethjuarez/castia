@@ -90,6 +90,18 @@ def test_respond_threads_instructions():
     assert sink["model"] == "dep"
 
 
+def test_respond_injects_trace_context_headers(monkeypatch):
+    monkeypatch.setattr(
+        "castia.inference.model.trace_context_headers",
+        lambda: {"traceparent": "00-test"},
+    )
+    model, sink = _model("be terse")
+
+    asyncio.run(model.respond("hi"))
+
+    assert sink["extra_headers"] == {"traceparent": "00-test"}
+
+
 def test_respond_emits_local_model_trace():
     records = []
     model, _sink = _model("be terse")
@@ -223,7 +235,8 @@ def test_respond_with_tools_keeps_recordable_input_and_emits_phase_events(monkey
     model._client = type("Client", (), {
         "get_openai_client": lambda self: type("OpenAI", (), {"responses": responses})()
     })()
-    monkeypatch.setattr("opentelemetry.trace.get_current_span", lambda: Span())
+    monkeypatch.setattr("opentelemetry.trace.get_current_span", lambda _context=None: Span())
+    monkeypatch.setattr("castia.inference.model.trace_context_headers", dict)
 
     out = asyncio.run(model.respond_with_tools("check travel", tools=[Tool()], activity=object()))
 
@@ -236,6 +249,73 @@ def test_respond_with_tools_keeps_recordable_input_and_emits_phase_events(monkey
     assert "castia.tool.call.started" in event_names
     assert "castia.tool.call.completed" in event_names
     assert "castia.model.final_response.completed" in event_names
+
+
+def test_respond_with_tools_stamps_mcp_tool_type(monkeypatch):
+    execute_calls = []
+
+    class Tool:
+        name = "remote_lookup"
+        kind = "mcp"
+
+        def spec(self):
+            return {"type": "function", "name": self.name, "parameters": {"type": "object"}}
+
+        async def run(self, activity, **kwargs):
+            return {"ok": True, "result": kwargs["query"]}
+
+    class ExecuteTool:
+        def __init__(self, name, **kwargs):
+            execute_calls.append((name, kwargs))
+
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class Responses:
+        def __init__(self):
+            self.count = 0
+
+        async def create(self, **kwargs):
+            self.count += 1
+            if self.count == 1:
+                return type("Response", (), {
+                    "output": [
+                        type("Call", (), {
+                            "type": "function_call",
+                            "call_id": "call-remote-1",
+                            "name": "remote_lookup",
+                            "arguments": '{"query":"policy"}',
+                        })()
+                    ],
+                    "output_text": "",
+                })()
+            return type("Response", (), {"output": [], "output_text": "done"})()
+
+    responses = Responses()
+    model = Model.__new__(Model)
+    model._deployment = "dep"
+    model._instructions = None
+    model._reasoning = {}
+    model._tool_definitions = ()
+    model._client = type("Client", (), {
+        "get_openai_client": lambda self: type("OpenAI", (), {"responses": responses})()
+    })()
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", ExecuteTool)
+
+    out = asyncio.run(
+        model.respond_with_tools("check policy", tools=[Tool()], activity=object())
+    )
+
+    assert out == "done"
+    assert execute_calls == [
+        (
+            "remote_lookup",
+            {"tool_type": "mcp", "call_id": "call-remote-1"},
+        )
+    ]
 
 
 def test_respond_with_tools_emits_local_model_and_tool_traces():

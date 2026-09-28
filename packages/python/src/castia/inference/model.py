@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Callable
 
-from castia.observe.tracing import trace_attribute, trace_step
+from castia.observe.tracing import trace_attribute, trace_context_headers, trace_step
 
 # Reasoning-effort levels accepted by the Responses API for reasoning models
 # (o-series, gpt-5, and their RFT-fine-tuned variants). A plain chat model
@@ -96,6 +96,7 @@ class Model:
                 input=_user_message_input(text),
                 **_instructions_param(self._instructions),
                 **self._reasoning,
+                extra_headers=trace_context_headers(),
             )
             output = response.output_text
             trace_attribute("castia.model.output_text_length", len(output or ""))
@@ -130,6 +131,7 @@ class Model:
                 stream=True,
                 **_instructions_param(self._instructions),
                 **self._reasoning,
+                extra_headers=trace_context_headers(),
             )
             chunk_count = 0
             output_length = 0
@@ -211,6 +213,7 @@ class Model:
                     tools=specs,
                     **_instructions_param(self._instructions),
                     **self._reasoning,
+                    extra_headers=trace_context_headers(),
                 )
                 calls = [
                     item
@@ -325,7 +328,11 @@ class Model:
                     status="running",
                 )
                 _add_model_event("castia.tool.call.started", tool_name=tool_name)
-                with execute_tool(call.name):
+                with execute_tool(
+                    call.name,
+                    tool_type=getattr(tool, "kind", "function"),
+                    call_id=getattr(call, "call_id", None),
+                ):
                     result = await tool.run(activity, **args)
                 dev_diagnostics.update_tool_call(
                     diagnostic_call,

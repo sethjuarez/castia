@@ -481,15 +481,18 @@ a later explicit publishing slice.
 ## Observability & evaluation
 
 `castia` configures Foundry/Agent 365 telemetry for you when the agent starts.
-By default it emits GenAI spans (the `chat {model}` spans the Foundry Traces UI
-keys off) but does **not** record the prompt/response **content** onto them.
+Castia emits client-side GenAI spans by default so the SDK owns an app-level
+trace for every protocol. Hosted Foundry agents can also receive server-side
+Responses spans from the platform (`cloud_RoleName == "responsesapi"`). Treat
+Castia spans as authoritative for SDK behavior; they carry
+`castia.telemetry.source = "castia"` and cover `activity`, `responses`, `chat`,
+`invocations`, and streaming handlers.
 
-Recording content is what makes an agent's traces *evaluable* — trace-based
-evaluators read the input/output text from the GenAI spans, which is only present
-when content recording is enabled. When enabled, the standard Foundry GenAI
-instrumentor records content on the `chat {model}` span as
-`gen_ai.input.messages` and `gen_ai.output.messages`. Turn it on deliberately
-via `configure_observability`:
+Recording content is what makes client-side traces *evaluable* — trace-based
+evaluators read the input/output text from GenAI spans when it is present. When
+enabled, the standard Foundry GenAI instrumentor records content on the
+client-side `chat {model}` span as `gen_ai.input.messages` and
+`gen_ai.output.messages`. Turn it on deliberately via `configure_observability`:
 
 ```python
 from castia.observe.configuration import configure_observability
@@ -497,6 +500,11 @@ from castia.observe.configuration import configure_observability
 # Records prompt/response text onto GenAI spans so traces can be evaluated.
 configure_observability(enable_content_recording=True)
 ```
+
+In hosted Foundry agents, the platform can also emit server-side `responsesapi`
+GenAI spans. Those spans are outside the Castia process, and their content
+recording policy is controlled by Foundry, not by Castia's
+`enable_content_recording` flag.
 
 Resolution order for each flag is **explicit argument > environment variable >
 default**:

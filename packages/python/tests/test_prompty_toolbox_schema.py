@@ -117,13 +117,11 @@ def test_toolbox_prompty_tools_from_mcp_uses_tools_list_schema(monkeypatch):
     assert tools[0].parameters[0].required is True
 
 
-def test_toolbox_preflight_lists_tools_with_ai_foundry_bearer(monkeypatch):
+def test_toolbox_preflight_lists_tools_with_ai_foundry_bearer():
     requests = []
 
     async def fake_token() -> str:
         return "TOKEN"
-
-    monkeypatch.setattr(castia_prompty, "_default_toolbox_token", fake_token)
 
     def handle(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
@@ -143,6 +141,7 @@ def test_toolbox_preflight_lists_tools_with_ai_foundry_bearer(monkeypatch):
             return await toolbox_preflight(
                 ("contracts-kb-mcp___knowledge_base_retrieve",),
                 endpoint="https://example.test/toolboxes/contracts/mcp?api-version=v1",
+                token_provider=fake_token,
                 http_client=http,
             )
 

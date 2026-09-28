@@ -15,7 +15,14 @@ _logger = logging.getLogger("agent")
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
-_MSI_TOKEN_FAST_THRESHOLD_MS = 2000
+_IMDS_NOISE_FAST_THRESHOLD_MS = 2000
+_PORTAL_NOISE_SPAN_PATHS = (
+    "/azmonsdkdynamicconfiguration",
+    "/metadata/instance/compute",
+    "/msi/token",
+)
+_APP_INSIGHTS_CONNECTION_STRING_ENV = "APPLICATIONINSIGHTS_CONNECTION_STRING"
+_AZURE_MONITOR_CONNECTION_STRING_ENV = "AZURE_MONITOR_CONNECTION_STRING"
 
 
 def configure_observability(
@@ -35,10 +42,12 @@ def configure_observability(
         ``AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED`` environment variable
         (``"true"``/``"false"``); otherwise the default (off).
     :param enable_genai_tracing: Whether to enable the Foundry GenAI instrumentor
-        at all (the ``chat {model}`` spans the Foundry Traces UI keys off).
-        Resolution order: this argument (when not ``None``) wins; otherwise the
+        at all. Castia enables client-side GenAI tracing by default so the SDK
+        owns an app-level trace for every protocol, even when hosted Foundry also
+        emits platform-side Responses spans. Resolution order: this argument
+        (when not ``None``) wins; otherwise the
         ``AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING`` environment variable;
-        otherwise the default (on). Passing nothing preserves today's behavior.
+        otherwise the default (on).
     """
     logging.getLogger("agent").setLevel(logging.INFO)
 
@@ -63,14 +72,14 @@ def configure_observability(
     if agent_version:
         attributes["service.version"] = agent_version
 
+    azure_monitor_connection_string = _azure_monitor_connection_string()
     _configure_azure_core_tracing()
     identity_processors = _build_agent_identity_processors()
 
     use_microsoft_opentelemetry(
         resource=Resource.create(attributes),
-        enable_azure_monitor=bool(
-            os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
-        ),
+        enable_azure_monitor=bool(azure_monitor_connection_string),
+        azure_monitor_connection_string=azure_monitor_connection_string,
         enable_a365=True,
         a365_enable_observability_exporter=True,
         span_processors=identity_processors,
@@ -84,6 +93,15 @@ def configure_observability(
     _enable_genai_tracing(
         enable_content_recording=enable_content_recording,
         enable_genai_tracing=enable_genai_tracing,
+    )
+
+
+def _azure_monitor_connection_string() -> str | None:
+    """Return the Azure Monitor connection string, accepting both common env names."""
+    return (
+        os.environ.get(_AZURE_MONITOR_CONNECTION_STRING_ENV)
+        or os.environ.get(_APP_INSIGHTS_CONNECTION_STRING_ENV)
+        or None
     )
 
 
@@ -154,6 +172,7 @@ def _build_agent_identity_processors() -> list[SpanProcessor]:
         )
 
         span_attributes: dict[str, str] = {}
+        span_attributes["castia.telemetry.source"] = "castia"
         if name:
             span_attributes["gen_ai.agent.name"] = name
         if version:
@@ -183,11 +202,13 @@ def _build_agent_identity_processors() -> list[SpanProcessor]:
 
 
 class _AgentIdentitySpanProcessor(SpanProcessor):
-    """Stamp hosted-agent identity onto every span at start.
+    """Stamp hosted-agent identity onto invocation spans at start.
 
     Setting the attributes at ``on_start`` guarantees they are present at export
-    for spans created by any instrumentation on this provider, including the
-    azure-core-bridged ``chat {model}`` span.
+    for spans created while Castia is handling a turn, including the
+    azure-core-bridged ``chat {model}`` span. Spans emitted outside a Castia
+    invocation are left alone so platform probes do not appear as standalone
+    Foundry traces merely because they share the process.
 
     Exported type. The Azure-Monitor *dependency type* is computed at export from
     ``SpanKind`` **plus** the span's attributes and written (once, immutably) into
@@ -222,13 +243,20 @@ class _AgentIdentitySpanProcessor(SpanProcessor):
 
     def on_start(self, span: Any, parent_context: Any = None) -> None:
         try:
+            from castia.observe.tracing import is_agent_invocation_active
+
+            if not is_agent_invocation_active():
+                return
             span.set_attributes(self._attributes)
+            name = str(getattr(span, "name", "") or "")
+            if name.startswith("chat "):
+                span.set_attribute("castia.telemetry.scope", "client_roundtrip")
         except Exception:  # pragma: no cover - telemetry must never break a turn
             _logger.debug("Failed to stamp agent identity on span", exc_info=True)
 
 
 class _MsiTokenFilteringSpanProcessor(SpanProcessor):
-    """Skip export for ordinary successful managed-identity token calls."""
+    """Skip export for ordinary successful Azure SDK metadata noise."""
 
     _castia_msi_filter = True
 
@@ -273,7 +301,9 @@ def _enable_genai_tracing(
     """
     try:
         genai_enabled = _resolve_flag(
-            enable_genai_tracing, "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING", True
+            enable_genai_tracing,
+            "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING",
+            True,
         )
         # Reflect the decision back onto the env var the SDK re-checks at
         # instrument() time, so an explicit argument and the SDK's own gate agree.
@@ -385,16 +415,18 @@ def _install_msi_token_span_filter() -> None:
 
 
 def _should_suppress_msi_token_span(span: Any) -> bool:
-    if not _is_msi_token_export_span(span):
+    if not _is_portal_noise_export_span(span):
+        return False
+    if _span_has_error_evidence(span):
         return False
     status_code = _span_http_status_code(span)
-    if status_code is None or status_code >= 400:
+    if status_code is not None and status_code >= 400:
         return False
     duration_ms = _span_duration_ms(span)
-    return duration_ms is not None and duration_ms <= _MSI_TOKEN_FAST_THRESHOLD_MS
+    return duration_ms is not None and duration_ms <= _IMDS_NOISE_FAST_THRESHOLD_MS
 
 
-def _is_msi_token_export_span(span: Any) -> bool:
+def _is_portal_noise_export_span(span: Any) -> bool:
     name = str(getattr(span, "name", "") or "").lower()
     attributes = getattr(span, "attributes", {}) or {}
     fields = [
@@ -403,7 +435,7 @@ def _is_msi_token_export_span(span: Any) -> bool:
         str(attributes.get("url.full", "") or "").lower(),
         str(attributes.get("http.target", "") or "").lower(),
     ]
-    return any("/msi/token" in field for field in fields)
+    return any(path in field for field in fields for path in _PORTAL_NOISE_SPAN_PATHS)
 
 
 def _span_http_status_code(span: Any) -> int | None:
@@ -417,6 +449,19 @@ def _span_http_status_code(span: Any) -> int | None:
         except (TypeError, ValueError):
             return None
     return None
+
+
+def _span_has_error_evidence(span: Any) -> bool:
+    from opentelemetry.trace import StatusCode
+
+    status_code = getattr(getattr(span, "status", None), "status_code", None)
+    if status_code == StatusCode.ERROR or getattr(status_code, "name", None) == "ERROR":
+        return True
+    attributes = getattr(span, "attributes", {}) or {}
+    if any(str(key).startswith("exception.") for key in attributes):
+        return True
+    events = getattr(span, "events", ()) or ()
+    return any(str(getattr(event, "name", "") or "").lower() == "exception" for event in events)
 
 
 def _span_duration_ms(span: Any) -> float | None:

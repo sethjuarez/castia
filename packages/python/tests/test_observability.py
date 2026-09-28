@@ -20,6 +20,8 @@ _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
+_APP_INSIGHTS_ENV = "APPLICATIONINSIGHTS_CONNECTION_STRING"
+_AZURE_MONITOR_ENV = "AZURE_MONITOR_CONNECTION_STRING"
 
 
 @pytest.mark.parametrize("helper", ["invoke_agent", "execute_tool"])
@@ -126,7 +128,8 @@ def test_genai_tracing_default_instruments_and_sets_env(monkeypatch):
 def test_configure_observability_suppresses_asgi_internal_spans_by_default(monkeypatch):
     monkeypatch.delenv(_TRACE_ASGI_INTERNAL_ENV, raising=False)
     monkeypatch.delenv(_TRACE_ASGI_SEND_ENV, raising=False)
-    monkeypatch.delenv("APPLICATIONINSIGHTS_CONNECTION_STRING", raising=False)
+    monkeypatch.delenv(_APP_INSIGHTS_ENV, raising=False)
+    monkeypatch.delenv(_AZURE_MONITOR_ENV, raising=False)
     with (
         mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,
         mock.patch.object(
@@ -139,6 +142,51 @@ def test_configure_observability_suppresses_asgi_internal_spans_by_default(monke
     options = use_otel.call_args.kwargs["instrumentation_options"]
     assert options["fastapi"] == {"exclude_spans": ["send", "receive"]}
     assert options["openai_agents"] == {"enabled": False}
+    assert use_otel.call_args.kwargs["enable_azure_monitor"] is False
+    assert use_otel.call_args.kwargs["azure_monitor_connection_string"] is None
+
+
+def test_configure_observability_forwards_app_insights_connection_string(monkeypatch):
+    connection_string = "InstrumentationKey=test-key;IngestionEndpoint=https://example.test/"
+    monkeypatch.delenv(_AZURE_MONITOR_ENV, raising=False)
+    monkeypatch.setenv(_APP_INSIGHTS_ENV, connection_string)
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,
+        mock.patch.object(
+            observability, "_build_agent_identity_processors", return_value=[]
+        ),
+        mock.patch.object(observability, "_enable_genai_tracing"),
+    ):
+        observability.configure_observability()
+
+    assert use_otel.call_args.kwargs["enable_azure_monitor"] is True
+    assert (
+        use_otel.call_args.kwargs["azure_monitor_connection_string"]
+        == connection_string
+    )
+
+
+def test_configure_observability_prefers_azure_monitor_connection_string(monkeypatch):
+    monkeypatch.setenv(
+        _APP_INSIGHTS_ENV,
+        "InstrumentationKey=app-insights;IngestionEndpoint=https://example.test/",
+    )
+    connection_string = "InstrumentationKey=azure-monitor;IngestionEndpoint=https://example.test/"
+    monkeypatch.setenv(_AZURE_MONITOR_ENV, connection_string)
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry") as use_otel,
+        mock.patch.object(
+            observability, "_build_agent_identity_processors", return_value=[]
+        ),
+        mock.patch.object(observability, "_enable_genai_tracing"),
+    ):
+        observability.configure_observability()
+
+    assert use_otel.call_args.kwargs["enable_azure_monitor"] is True
+    assert (
+        use_otel.call_args.kwargs["azure_monitor_connection_string"]
+        == connection_string
+    )
 
 
 def test_configure_observability_can_trace_asgi_internal_spans(monkeypatch):
@@ -197,10 +245,11 @@ def _http_span(
     name: str = "GET /msi/token",
     status_code: int = 200,
     duration_ms: int = 371,
+    url: str = "http://100.64.100.2/msi/token",
 ):
     return mock.MagicMock(
         name=name,
-        attributes={"http.status_code": status_code, "url.full": "http://100.64.100.2/msi/token"},
+        attributes={"http.status_code": status_code, "url.full": url},
         start_time=0,
         end_time=duration_ms * 1_000_000,
     )
@@ -216,17 +265,98 @@ def test_msi_token_filter_suppresses_successful_fast_spans(monkeypatch):
     delegate.on_end.assert_not_called()
 
 
+def test_msi_token_filter_suppresses_fast_spans_without_http_status(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    span = mock.MagicMock(
+        name="GET /msi/token",
+        attributes={},
+        start_time=0,
+        end_time=798 * 1_000_000,
+    )
+
+    processor.on_end(span)
+
+    delegate.on_end.assert_not_called()
+
+
+def test_msi_token_filter_suppresses_successful_imds_noise_spans(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    processor.on_end(
+        _http_span(
+            name="GET /metadata/instance/compute",
+            url="http://169.254.169.254/metadata/instance/compute",
+            duration_ms=412,
+        )
+    )
+    processor.on_end(
+        _http_span(
+            name="GET /AzMonSDKDynamicConfiguration",
+            url="https://dc.services.visualstudio.com/AzMonSDKDynamicConfiguration",
+            duration_ms=126,
+        )
+    )
+
+    delegate.on_end.assert_not_called()
+
+
 def test_msi_token_filter_keeps_failures_and_slow_spans(monkeypatch):
+    from opentelemetry.trace import Status, StatusCode
+
     monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
     delegate = mock.MagicMock()
     processor = observability._MsiTokenFilteringSpanProcessor(delegate)
     failed = _http_span(status_code=400, duration_ms=350)
     slow = _http_span(status_code=200, duration_ms=2500)
+    imds_failure = _http_span(
+        name="GET /metadata/instance/compute",
+        status_code=500,
+        url="http://169.254.169.254/metadata/instance/compute",
+        duration_ms=350,
+    )
+    transport_error = mock.MagicMock(
+        name="GET /msi/token",
+        attributes={},
+        events=(),
+        start_time=0,
+        end_time=250 * 1_000_000,
+        status=Status(StatusCode.ERROR, "connection refused"),
+    )
+    exception_attribute = mock.MagicMock(
+        name="GET /AzMonSDKDynamicConfiguration",
+        attributes={"exception.type": "ConnectionError"},
+        events=(),
+        start_time=0,
+        end_time=250 * 1_000_000,
+    )
+    exception_event = mock.MagicMock(
+        name="GET /metadata/instance/compute",
+        attributes={},
+        events=(mock.MagicMock(name="exception"),),
+        start_time=0,
+        end_time=250 * 1_000_000,
+    )
+    exception_event.events[0].name = "exception"
 
     processor.on_end(failed)
     processor.on_end(slow)
+    processor.on_end(imds_failure)
+    processor.on_end(transport_error)
+    processor.on_end(exception_attribute)
+    processor.on_end(exception_event)
 
-    assert delegate.on_end.call_args_list == [mock.call(failed), mock.call(slow)]
+    assert delegate.on_end.call_args_list == [
+        mock.call(failed),
+        mock.call(slow),
+        mock.call(imds_failure),
+        mock.call(transport_error),
+        mock.call(exception_attribute),
+        mock.call(exception_event),
+    ]
 
 
 def test_msi_token_span_filter_wraps_existing_processors(monkeypatch):
@@ -256,6 +386,8 @@ def test_msi_token_span_filter_preserves_operator_opt_in(monkeypatch):
 
 
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
+    from castia.observe.tracing import invoke_agent
+
     monkeypatch.setenv("FOUNDRY_AGENT_NAME", "prompty-agent")
     monkeypatch.setenv("FOUNDRY_AGENT_VERSION", "2")
     monkeypatch.delenv("FOUNDRY_PROJECT_RESOURCE_ID", raising=False)
@@ -267,6 +399,11 @@ def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
     assert len(processors) == 1
     span = mock.MagicMock()
     processors[0].on_start(span)
+    span.set_attributes.assert_not_called()
+
+    with invoke_agent():
+        processors[0].on_start(span)
+
     span.set_attributes.assert_called_once_with(
         {
             "gen_ai.agent.name": "prompty-agent",
@@ -274,7 +411,27 @@ def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
             "gen_ai.agent.id": "prompty-agent:2",
             "microsoft.foundry.project.id": "/subscriptions/123/projects/demo",
             "gen_ai.azure_ai_project.id": "/subscriptions/123/projects/demo",
+            "castia.telemetry.source": "castia",
         }
+    )
+
+
+def test_agent_identity_processor_marks_client_chat_scope(monkeypatch):
+    from castia.observe.tracing import invoke_agent
+
+    processor = observability._AgentIdentitySpanProcessor(
+        {"castia.telemetry.source": "castia"}
+    )
+    span = mock.MagicMock(name="chat gpt-5.5")
+    span.name = "chat gpt-5.5"
+
+    with invoke_agent():
+        processor.on_start(span)
+
+    span.set_attributes.assert_called_once_with({"castia.telemetry.source": "castia"})
+    span.set_attribute.assert_called_once_with(
+        "castia.telemetry.scope",
+        "client_roundtrip",
     )
 
 

@@ -60,6 +60,9 @@ _CURRENT_STEP: ContextVar[_ActiveTraceStep | None] = ContextVar(
 _EMITTING_TRACE_RECORD: ContextVar[bool] = ContextVar(
     "castia_emitting_trace_record", default=False
 )
+_AGENT_INVOCATION_ACTIVE: ContextVar[bool] = ContextVar(
+    "castia_agent_invocation_active", default=False
+)
 
 
 @dataclass(frozen=True)
@@ -325,6 +328,22 @@ def registered_trace_sinks() -> tuple[str, ...]:
         return tuple(_TRACE_SINKS)
 
 
+def trace_context_headers(extra_headers: Any | None = None) -> dict[str, str]:
+    """Return headers carrying the current OpenTelemetry trace context.
+
+    Use when an SDK accepts per-request headers but its transport instrumentation
+    does not produce a complete cross-process parent chain. Caller-supplied
+    headers win for explicit overrides.
+    """
+    from opentelemetry import propagate
+
+    headers: dict[str, str] = {}
+    propagate.inject(headers)
+    if extra_headers:
+        headers.update(dict(extra_headers))
+    return headers
+
+
 def jsonl_trace_sink(path: str | os.PathLike[str]) -> TraceSink:
     """Create a local JSONL sink for completed trace records."""
     destination = Path(path)
@@ -579,12 +598,20 @@ def _identity_attributes(name: str) -> dict[str, str]:
     keeps the helper self-contained (and correct even if reused without that
     processor) and costs nothing -- the values are identical.
     """
-    attributes = {"gen_ai.agent.name": name}
+    attributes = {
+        "gen_ai.agent.name": name,
+        "castia.telemetry.source": "castia",
+    }
     version = os.environ.get("FOUNDRY_AGENT_VERSION")
     if version:
         attributes["gen_ai.agent.id"] = f"{name}:{version}"
         attributes["gen_ai.agent.version"] = version
     return attributes
+
+
+def is_agent_invocation_active() -> bool:
+    """Return whether the current context is inside a Castia agent invocation."""
+    return _AGENT_INVOCATION_ACTIVE.get()
 
 
 @contextmanager
@@ -604,14 +631,24 @@ def invoke_agent(name: str | None = None, *, system: str = PROVIDER) -> Iterator
         **_identity_attributes(agent_name),
     }
     tracer = _get_tracer()
-    with tracer.start_as_current_span(
-        f"{OperationName.INVOKE_AGENT} {agent_name}", attributes=attributes
-    ) as span:
-        yield span
+    token = _AGENT_INVOCATION_ACTIVE.set(True)
+    try:
+        with tracer.start_as_current_span(
+            f"{OperationName.INVOKE_AGENT} {agent_name}", attributes=attributes
+        ) as span:
+            yield span
+    finally:
+        _AGENT_INVOCATION_ACTIVE.reset(token)
 
 
 @contextmanager
-def execute_tool(name: str, *, system: str = PROVIDER) -> Iterator[Any]:
+def execute_tool(
+    name: str,
+    *,
+    system: str = PROVIDER,
+    tool_type: str | None = None,
+    call_id: str | None = None,
+) -> Iterator[Any]:
     """Wrap a tool/function call in an ``execute_tool`` span (labels it **Tool**).
 
     ``name`` is the tool being called; the span is named ``execute_tool {name}``
@@ -622,7 +659,12 @@ def execute_tool(name: str, *, system: str = PROVIDER) -> Iterator[Any]:
         "gen_ai.system": system,
         "gen_ai.provider.name": system,
         "gen_ai.tool.name": name,
+        "castia.telemetry.source": "castia",
     }
+    if tool_type:
+        attributes["gen_ai.tool.type"] = tool_type
+    if call_id:
+        attributes["gen_ai.tool.call.id"] = call_id
     tracer = _get_tracer()
     with tracer.start_as_current_span(
         f"{OperationName.EXECUTE_TOOL} {name}", attributes=attributes

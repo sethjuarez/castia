@@ -4,6 +4,9 @@ For application setup and content-recording controls, start with the
 [consumer guide](AGENTS.md) and [observability configuration](README.md#observability--evaluation).
 For bounded App Insights queries and verification, use
 [the lifecycle guide](LIFECYCLE.md#inspect-traces-and-run-a-drift-suite).
+Azure Monitor export is enabled when either `AZURE_MONITOR_CONNECTION_STRING` or
+the App Insights-compatible `APPLICATIONINSIGHTS_CONNECTION_STRING` is present;
+if both are set, `AZURE_MONITOR_CONNECTION_STRING` wins.
 
 A working reference for the span badges in the trace tree — **In Process**,
 **HTTP**, **Invoke Agent**, **Chat** — and a warning about one badge that lies.
@@ -52,7 +55,8 @@ transport attributes on the request span when available instead:
 
 ## Where the labels come from
 
-Two different things feed the badges, and only one of them is under our control.
+Three different things feed the badges, and only the Castia-owned spans are fully
+under our control.
 
 **1. Our own operation spans — stable, ours to set.** The spans we create in
 `src/castia/observe/tracing.py` (`invoke_agent`, `execute_tool`) carry `gen_ai.operation.name`, a
@@ -74,6 +78,82 @@ Insights. That logic lives in
 | `SpanKind.CLIENT` + `db.system` / messaging / rpc | that system | (its own type) |
 | `SpanKind.SERVER` / `CONSUMER` | — | a Request, not a dependency |
 | `SpanKind.CLIENT` with none of the recognised attributes | *(blank)* | **Other** |
+
+**3. Hosted Responses platform spans — server-side, platform-owned.** Foundry
+hosted agents also receive server-side trace spans from the Responses service
+(`cloud_RoleName == "responsesapi"`), including `invoke_agent {agent}:{version}`
+and `chat {model-version}`. These spans are emitted outside the Castia process.
+Castia cannot filter, re-parent, or change their content policy. Castia therefore
+emits its own app-level telemetry by default and stamps SDK-owned spans with
+`castia.telemetry.source = "castia"`. Use that attribute, or
+`cloud_RoleName != "responsesapi"`, when you want the Castia-authoritative view
+of model/tool behavior. The portal may still count both client and platform chat
+spans if it aggregates every GenAI row in the operation.
+
+These two chat spans are not semantically identical even when they represent the
+same logical model turn. Castia's client-side `chat {model}` span measures the
+SDK call roundtrip from the agent container to the Foundry Responses endpoint,
+including client/network/platform overhead. Castia marks those spans with
+`castia.telemetry.scope = "client_roundtrip"`. The platform
+`responsesapi` `chat {model-version}` span is emitted server-side and measures
+Foundry's internal model step. Compare them as correlated client/server evidence,
+not as duplicate spans with equal duration semantics.
+
+The platform spans are also not reliably parented under the Castia client span.
+In live hosted traces, the `responsesapi` `invoke_agent {agent}:{version}` span
+can have an `operation_ParentId` that is absent from the operation's exported
+requests, dependencies, traces, exceptions, and customEvents. In that shape, the
+platform span is correlated into the same `operation_Id`, but the exported parent
+chain is incomplete:
+
+```text
+castia.prompty-agent prompty turn_async
+  ├─ castia.prompty-agent chat gpt-5.5
+  ├─ castia.prompty-agent execute_tool local_agent_fact
+  └─ castia.prompty-agent chat gpt-5.5
+
+responsesapi invoke_agent prompty-agent:<version>   # parent id missing
+  └─ responsesapi chat gpt-5.5-<version>
+```
+
+That missing parent is platform telemetry Castia cannot repair after export.
+Use `castia.telemetry.source == "castia"` for the SDK-owned hierarchy, and treat
+`responsesapi` rows as correlated infrastructure/server-side evidence rather
+than strict children of Castia's client spans.
+
+Castia propagates the current W3C trace context (`traceparent` / `tracestate`)
+on Responses API calls so downstream services can join the active operation when
+they honor those headers. Live hosted validation with explicit headers confirmed
+operation-level correlation, but the platform `responsesapi` `invoke_agent`
+parents were still internal ids that were not exported in any App Insights table.
+In other words, header propagation is standards-compliant and useful at the
+client boundary, but it does not currently make platform-owned server spans strict
+children of Castia client spans.
+
+To verify whether a suspected parent is actually exported, search all App
+Insights tables for both the missing id and rows parented to it:
+
+```kusto
+let trace_id = "<operation_Id>";
+let missing_parents = dynamic(["<parent-id-1>", "<parent-id-2>"]);
+union isfuzzy=true requests, dependencies, traces, exceptions, customEvents
+| where operation_Id == trace_id
+   or id in (missing_parents)
+   or operation_ParentId in (missing_parents)
+| project timestamp, itemType, operation_Id, id, parent = operation_ParentId,
+          cloud_RoleName, name, type, success, duration
+| order by timestamp asc
+```
+
+If this returns only the `responsesapi` children and no row whose `id` equals the
+missing parent, the exported distributed trace is incomplete across the
+container-to-platform boundary even though the rows share one `operation_Id`.
+
+Do not treat Castia's `enable_content_recording=False` as a hosted-platform
+content switch. It disables content on Castia-owned client telemetry, but
+server-side `responsesapi` spans are emitted by Foundry and can still carry
+`gen_ai.input.messages` / `gen_ai.output.messages` according to the platform's
+own policy.
 
 This exported `type` is written once, is single-valued, and is immutable in App
 Insights. `az monitor app-insights query` returns the correct `HTTP` / `InProc`
@@ -117,28 +197,36 @@ These events carry counts, phase names, iteration numbers, tool names, and statu
 only. They do not duplicate prompt text, tool arguments, or tool output. Payload
 content remains governed by the existing GenAI content-recording opt-in.
 
-For server-side MCP/toolbox calls, Castia cannot safely reparent the platform's
-dependency spans under a separate local `execute_tool` span: the tool execution
-happens inside the Responses service call and is reported by the upstream
-instrumentors. The realistic Castia workaround is the phase events above plus
-proper input/output content recording on the `chat {model}` span.
+For server-side MCP/toolbox calls passed as raw Responses `mcp` specs, Castia
+cannot safely reparent the platform's dependency spans under a separate local
+`execute_tool` span: the tool execution happens inside the Responses service call
+and is reported by the upstream instrumentors. Use this path when you want the
+platform to own MCP execution.
 
-## Auth/MSI dependency spans
+When you need deterministic tool-call telemetry from Castia, build local tools
+from the MCP schema with `toolbox_tools_from_mcp(...)` and pass those tools to
+`Model.respond_with_tools(...)`. Castia then owns the `tools/call` request and
+wraps each remote MCP invocation in the same `execute_tool {name}` span used for
+local functions, with `gen_ai.tool.type = mcp` and the Responses call id when
+available. That is the Castia-owned path for Monitor-countable toolbox calls.
 
-`GET /msi/token` dependency spans come from Azure Identity / Azure SDK HTTP
-instrumentation, not from Castia's agent logic. They are useful when managed
-identity is slow, unavailable, throttled, or denied. Suppressing only
-"successful and fast" token spans would require an end-of-span export filter that
-can inspect status and duration after the request completes. The Microsoft
-OpenTelemetry distro configuration Castia uses exposes coarse instrumentation
-enable/disable switches, not a safe success-only dependency filter.
+## Azure SDK metadata dependency noise
 
-Castia therefore does **not** disable Azure SDK/HTTP instrumentation by default:
-doing so would also hide the auth failures and abnormal latency that operators
-need. Treat successful fast MSI token rows as platform-owned dependency noise;
-keep them when diagnosing auth. Castia still suppresses low-value ASGI
-`send`/`receive` transport spans by default because those are framework internals
-that can be removed without hiding authentication or model-call failures.
+Azure Identity and Azure Monitor can emit standalone dependency spans such as
+`GET /msi/token`, `GET /metadata/instance/compute`, and
+`GET /AzMonSDKDynamicConfiguration`. They are platform authentication/exporter
+probes, not Castia agent executions, and the Foundry portal can promote them into
+one-line "traces" when they carry the same agent/project identity attributes as a
+real run.
+
+Castia keeps Azure SDK/HTTP instrumentation enabled so real authentication,
+exporter, and abnormal-latency failures remain visible. It also installs an
+identity processor that stamps Foundry agent/project identity only while Castia
+is handling an actual agent invocation. Process-level probes emitted outside a
+turn are left unstamped so they do not become standalone Foundry traces. As a
+backstop, Castia also suppresses ordinary fast successful metadata probe spans
+before export. Spans with explicit HTTP 4xx/5xx status, or unusually slow
+metadata probes, remain visible for diagnostics.
 
 ## The badge that lies: portal query is non-deterministic
 
@@ -202,18 +290,21 @@ dependencies
 If those rows are correct but the UI badge reads **Other**, it is the portal
 `any()` query, not the runtime and not our processor.
 
-## Auth/MSI token spans
+## Azure SDK metadata probe spans
 
-Hosted agents can emit `GET /msi/token` dependency spans beneath model calls.
-Those spans come from platform managed-identity token acquisition in the Azure
-SDK transport, not from Castia's agent loop. They make the default trace tree
-noisy, so Castia suppresses ordinary successful/fast `GET /msi/token` spans by
-default before export. Failed token calls and unusually slow calls remain visible
-because they are useful auth and latency diagnostics.
+Hosted agents can emit metadata dependency spans beneath model calls or as
+standalone operations (`GET /msi/token`, `GET /metadata/instance/compute`, and
+`GET /AzMonSDKDynamicConfiguration`). These spans come from platform
+managed-identity, IMDS, and Azure Monitor SDK plumbing, not from Castia's agent
+loop. They make the default trace tree noisy, so Castia suppresses ordinary
+successful/fast metadata probe spans by default before export. Failed calls and
+unusually slow calls remain visible because they are useful auth/exporter and
+latency diagnostics.
 
 Set `CASTIA_OTEL_TRACE_MSI_TOKEN=true` when debugging managed-identity
-authentication or token-acquisition latency. That opt-in restores the normal
-Azure SDK token dependency spans for the process.
+authentication, token-acquisition latency, IMDS probing, or Azure Monitor
+exporter configuration. That opt-in restores these Azure SDK dependency spans for
+the process.
 
 ## Prompty inner spans
 

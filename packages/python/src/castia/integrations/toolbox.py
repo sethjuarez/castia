@@ -62,11 +62,18 @@ container's managed identity, mirroring :func:`castia.hosting.credentials.bot_co
 
 from __future__ import annotations
 
+import json
 import os
 import re
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
+
+from castia.inference.tools import Tool
+
+if TYPE_CHECKING:
+    import httpx
 
 #: The Entra audience the toolbox MCP endpoint authenticates against. Mirrors the
 #: ``azd ai connection create remote-tool ... --audience https://ai.azure.com``
@@ -89,6 +96,8 @@ _FEDERATED_NAME_SEPARATOR = "___"
 # when generating ``.agent_configs/baseline/tools.json``.
 OPTIMIZER_TOOL_DEFINITIONS_KEY = "x-castia-optimizer-tool-definitions"
 _SERVER_DESCRIPTION_KEY = "x-castia-server-description"
+_REFERENCE_PAYLOAD_KEYS = frozenset({"ref_id", "uri", "sourceData", "snippet"})
+TokenProvider = Callable[[], str | Awaitable[str]]
 
 
 class ToolboxConfigurationError(ValueError):
@@ -97,6 +106,175 @@ class ToolboxConfigurationError(ValueError):
 
 class ToolboxAuthenticationError(RuntimeError):
     """Toolbox token acquisition failed."""
+
+
+class McpToolboxError(RuntimeError):
+    """A toolbox MCP JSON-RPC or protocol error."""
+
+
+class ToolboxMcpClient:
+    """Minimal JSON-RPC client for Foundry toolbox MCP endpoints."""
+
+    def __init__(
+        self,
+        endpoint: str | None = None,
+        *,
+        token_provider: TokenProvider | None = None,
+        headers: Mapping[str, str] | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        resolved = endpoint or resolve_toolbox_endpoint()
+        if not resolved:
+            raise ValueError(
+                "A toolbox MCP endpoint is required. Set TOOLBOX_ENDPOINT or "
+                "TOOLBOX_MCP_ENDPOINT, or set FOUNDRY_PROJECT_ENDPOINT and "
+                "TOOLBOX_NAME so Castia can compose it."
+            )
+        validate_toolbox_endpoint(resolved)
+        self.endpoint = resolved
+        self.token_provider = token_provider
+        self.headers = dict(headers or {})
+        self.client = client
+
+    async def list_tools(self) -> list[dict[str, Any]]:
+        result = await self._request("tools/list")
+        tools = result.get("tools") if isinstance(result, dict) else None
+        if not isinstance(tools, list):
+            raise McpToolboxError("tools/list returned no tools array.")
+        if not tools:
+            raise McpToolboxError("tools/list returned zero tools for this toolbox.")
+        return [tool for tool in tools if isinstance(tool, dict)]
+
+    async def call_tool(
+        self, name: str, arguments: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
+        result = await self._request(
+            "tools/call",
+            {"name": name, "arguments": dict(arguments or {})},
+        )
+        if not isinstance(result, dict):
+            raise McpToolboxError("tools/call returned a non-object result.")
+        return result
+
+    async def _request(
+        self, method: str, params: Mapping[str, Any] | None = None
+    ) -> Any:
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            **self.headers,
+        }
+        try:
+            token = await _maybe_await(
+                self.token_provider() if self.token_provider else toolbox_token()
+            )
+        except Exception as exc:
+            raise McpToolboxError(
+                f"Toolbox token acquisition failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        if token:
+            headers["Authorization"] = "Bearer " + token
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": str(uuid4()),
+            "method": method,
+        }
+        if params is not None:
+            payload["params"] = dict(params)
+
+        async def send(client: httpx.AsyncClient) -> httpx.Response:
+            return await client.post(self.endpoint, json=payload, headers=headers)
+
+        if self.client is not None:
+            response = await send(self.client)
+        else:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await send(client)
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise McpToolboxError(
+                f"MCP endpoint returned non-JSON HTTP {response.status_code}."
+            ) from exc
+        if response.status_code >= 400:
+            raise McpToolboxError(
+                f"MCP endpoint returned HTTP {response.status_code}: {_safe_json(data)}"
+            )
+        if isinstance(data, dict) and data.get("error"):
+            raise McpToolboxError(_mcp_json_rpc_error_message(method, data["error"]))
+        if not isinstance(data, dict) or "result" not in data:
+            raise McpToolboxError(f"MCP response for {method} did not include result.")
+        return data["result"]
+
+
+async def toolbox_tools_from_mcp(
+    allowed_tools: Sequence[str] | None = None,
+    *,
+    endpoint: str | None = None,
+    token_provider: TokenProvider | None = None,
+    headers: Mapping[str, str] | None = None,
+    descriptions: Mapping[str, str] | None = None,
+    client: httpx.AsyncClient | None = None,
+    mcp_client: ToolboxMcpClient | None = None,
+) -> list[Tool]:
+    """Build local Castia tools from a Foundry toolbox MCP ``tools/list`` schema.
+
+    Unlike :func:`toolbox_mcp_tool`, these are ordinary local
+    :class:`castia.inference.tools.Tool` objects. ``Model.respond_with_tools``
+    executes them client-side through ``tools/call``, so every remote toolbox
+    invocation is wrapped in Castia's ``execute_tool`` telemetry span.
+    """
+    resolved_client = mcp_client or ToolboxMcpClient(
+        endpoint,
+        token_provider=token_provider,
+        headers=headers,
+        client=client,
+    )
+    return toolbox_tools_from_schema(
+        await resolved_client.list_tools(),
+        allowed_tools=allowed_tools,
+        descriptions=descriptions,
+        client=resolved_client,
+    )
+
+
+def toolbox_tools_from_schema(
+    tools: Sequence[Mapping[str, Any]],
+    *,
+    allowed_tools: Sequence[str] | None = None,
+    descriptions: Mapping[str, str] | None = None,
+    client: ToolboxMcpClient,
+) -> list[Tool]:
+    """Create local Castia tools from MCP tool schema entries."""
+    selected = _select_mcp_tools(tools, allowed_tools)
+    out: list[Tool] = []
+    for schema in selected:
+        name = str(schema.get("name") or "")
+        parameters = schema.get("inputSchema")
+        if not isinstance(parameters, dict):
+            parameters = {"type": "object", "properties": {}, "additionalProperties": True}
+        description = (descriptions or {}).get(name)
+        if description is None and isinstance(schema.get("description"), str):
+            description = schema["description"]
+
+        async def _call(_activity: object, _name: str = name, **arguments: Any) -> dict:
+            result = await client.call_tool(_name, arguments)
+            return {"ok": True, "result": serialize_mcp_result(result)}
+
+        out.append(
+            Tool(
+                name=name,
+                description=description or f"Call the remote toolbox tool {name}.",
+                parameters=dict(parameters),
+                impl=_call,
+                kind="mcp",
+            )
+        )
+    return out
 
 
 def platform_endpoint_env(name: str) -> str:
@@ -514,6 +692,192 @@ def _merge_parameter_descriptions(current: object, optimized: object | None) -> 
     if not changed:
         return current
     return {**current, "properties": merged_props}
+
+
+def _select_mcp_tools(
+    tools: Sequence[Mapping[str, Any]],
+    allowed_tools: Sequence[str] | None,
+) -> list[Mapping[str, Any]]:
+    named = {
+        str(tool.get("name")): tool
+        for tool in tools
+        if isinstance(tool.get("name"), str)
+    }
+    if allowed_tools is None:
+        return list(named.values())
+    missing = [name for name in allowed_tools if name not in named]
+    if missing:
+        available = ", ".join(sorted(named)) or "<none>"
+        raise McpToolboxError(
+            "Requested toolbox tools are not present in MCP tools/list: "
+            f"{', '.join(missing)}. Available tools: {available}."
+        )
+    return [named[name] for name in allowed_tools]
+
+
+def serialize_mcp_result(result: Mapping[str, Any]) -> str:
+    """Serialize MCP ``tools/call`` output into safe text for a model loop."""
+    if result.get("isError"):
+        raise McpToolboxError(_mcp_error_message(result))
+    content = result.get("content")
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        references: list[Mapping[str, Any]] = []
+        for item in content:
+            if (
+                not isinstance(item, dict)
+                or item.get("type") != "text"
+                or not isinstance(item.get("text"), str)
+            ):
+                continue
+            parsed_reference = _reference_from_text(item["text"])
+            if parsed_reference is not None:
+                references.append(parsed_reference)
+            else:
+                text_parts.append(item["text"])
+        if text_parts or references:
+            return _format_mcp_text(text_parts, references)
+    return _safe_json(result)
+
+
+def _mcp_json_rpc_error_message(method: str, error: object) -> str:
+    text = _safe_json(error)
+    lowered = text.lower()
+    if "consent_required" in lowered:
+        return f"CONSENT_REQUIRED from toolbox {method}: {text}"
+    if "not found" in lowered or "unknown tool" in lowered:
+        return f"Tool not found during toolbox {method}: {text}"
+    if "schema" in lowered or "invalid" in lowered or "argument" in lowered:
+        return f"Toolbox schema/tool-call error from {method}: {text}"
+    return f"MCP error from {method}: {text}"
+
+
+def _mcp_error_message(result: Mapping[str, Any]) -> str:
+    content = result.get("content")
+    if isinstance(content, list):
+        messages: list[str] = []
+        for item in content:
+            if (
+                not isinstance(item, dict)
+                or item.get("type") != "text"
+                or not isinstance(item.get("text"), str)
+            ):
+                continue
+            text = item["text"].strip()
+            parsed = _loads_json_object(text)
+            if parsed is not None:
+                message = _string_at(parsed, ("message", "errorMessage", "detail"))
+                error = parsed.get("error")
+                if message:
+                    messages.append(message)
+                elif isinstance(error, Mapping):
+                    messages.append(
+                        _string_at(error, ("message", "detail")) or _safe_json(error)
+                    )
+                elif isinstance(error, str):
+                    messages.append(error)
+                else:
+                    messages.append(_safe_json(parsed))
+            elif text:
+                messages.append(text)
+        if messages:
+            return "\n".join(messages)
+    return _safe_json(result)
+
+
+def _format_mcp_text(
+    text_parts: Sequence[str], references: Sequence[Mapping[str, Any]]
+) -> str:
+    parts = [part for part in (_compact_text(text) for text in text_parts) if part]
+    if references:
+        reference_lines = [
+            _format_reference(reference, index)
+            for index, reference in enumerate(references, start=1)
+        ]
+        parts.append("References:\n" + "\n".join(reference_lines))
+    return "\n\n".join(parts)
+
+
+def _format_reference(reference: Mapping[str, Any], index: int) -> str:
+    source_data = reference.get("sourceData")
+    source = source_data if isinstance(source_data, Mapping) else {}
+    label = _compact_text(
+        _string_at(reference, ("ref_id", "id", "referenceId")) or str(index),
+        limit=80,
+    )
+    title = _compact_text(
+        _string_at(reference, ("title", "name", "source", "sourceName"))
+        or _string_at(
+            source, ("title", "name", "source", "sourceName", "fileName", "displayName")
+        ),
+        limit=160,
+    )
+    uri = _compact_text(
+        _string_at(reference, ("uri", "url"))
+        or _string_at(source, ("uri", "url", "sourceUrl", "webUrl")),
+        limit=240,
+    )
+    snippet = _compact_text(
+        _string_at(reference, ("snippet", "text", "content", "excerpt"))
+        or _string_at(source, ("snippet", "text", "content", "excerpt", "summary")),
+        limit=500,
+    )
+
+    summary = title or uri or "reference"
+    if uri and uri != summary:
+        summary = f"{summary} - {uri}"
+    line = f"- [{label}] {summary}"
+    if snippet:
+        line += f"\n  Snippet: {snippet}"
+    return line
+
+
+def _reference_from_text(text: str) -> Mapping[str, Any] | None:
+    parsed = _loads_json_object(text.strip())
+    if parsed is None:
+        return None
+    if parsed.get("kind") == "reference" and _REFERENCE_PAYLOAD_KEYS.intersection(
+        parsed
+    ):
+        return parsed
+    return None
+
+
+def _loads_json_object(text: str) -> Mapping[str, Any] | None:
+    if not text.startswith("{") or not text.endswith("}"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, Mapping) else None
+
+
+def _string_at(mapping: Mapping[str, Any], keys: Sequence[str]) -> str | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _compact_text(text: str | None, *, limit: int | None = None) -> str:
+    if text is None:
+        return ""
+    compact = " ".join(text.split())
+    if limit is not None and len(compact) > limit:
+        return compact[: max(0, limit - 3)].rstrip() + "..."
+    return compact
+
+
+async def _maybe_await(value: str | Awaitable[str]) -> str:
+    if hasattr(value, "__await__"):
+        return await value  # type: ignore[misc]
+    return value
+
+
+def _safe_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
 
 
 async def toolbox_token(scope: str = AI_FOUNDRY_SCOPE) -> str:
