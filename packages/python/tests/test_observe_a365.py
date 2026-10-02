@@ -279,6 +279,7 @@ def test_permanent_token_failure_does_not_persist_or_storm(tmp_path):
     exporter = _Agent365Exporter(
         token_resolver=resolver, use_s2s_endpoint=True, storage_directory=tmp_path
     )
+    exporter._replay_started = True  # no background replay thread; run_once drives it
     enricher = a365.build_agent_id_enricher(_IDENTITY, foundry_agent_id="contracts:17")
     try:
         with mock.patch.object(exporter._session, "post") as ingest:
@@ -301,6 +302,7 @@ def test_transient_token_failure_persists_without_storm(tmp_path):
     exporter = _Agent365Exporter(
         token_resolver=resolver, use_s2s_endpoint=True, storage_directory=tmp_path
     )
+    exporter._replay_started = True  # no background replay thread; run_once drives it
     enricher = a365.build_agent_id_enricher(_IDENTITY, foundry_agent_id="contracts:17")
     try:
         with mock.patch.object(exporter._session, "post") as ingest:
