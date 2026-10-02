@@ -396,6 +396,108 @@ def test_register_toolbox_function_dispatches_through_prompty_registry():
     clear_tools()
 
 
+def _toolbox_echo_client(http):
+    return ToolboxMcpClient("https://example.test/mcp", token_provider=lambda: "TOKEN", client=http)
+
+
+def _toolbox_echo_handler(request: httpx.Request) -> httpx.Response:
+    payload = json.loads(request.content)
+    query = payload["params"]["arguments"].get("query", "")
+    return httpx.Response(
+        200,
+        json={"jsonrpc": "2.0", "id": payload["id"], "result": {"content": [{"type": "text", "text": f"found {query}"}]}},
+    )
+
+
+def _recording_execute_tool(spans):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fake_execute_tool(name, **kwargs):
+        span = FakeSpan(f"execute_tool {name}", {"tool_type": kwargs.get("tool_type")})
+        spans.append(span)
+        yield span
+
+    return fake_execute_tool
+
+
+def test_register_toolbox_function_traces_global_registry_dispatch(monkeypatch):
+    from prompty.core.tool_dispatch import clear_tools, dispatch_tool_async
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def run():
+        clear_tools()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_toolbox_echo_handler)) as http:
+            register_toolbox_function("kb_retrieve", client=_toolbox_echo_client(http))
+            return await dispatch_tool_async("kb_retrieve", '{"query":"travel"}', {}, None, {})
+
+    try:
+        assert asyncio.run(run()) == "found travel"
+    finally:
+        clear_tools()
+    assert [span.name for span in spans] == ["execute_tool kb_retrieve"]
+    assert spans[0].attributes["tool_type"] == "toolbox"
+    assert spans[0].attributes["castia.tool.status"] == "ok"
+
+
+def test_toolbox_function_in_tool_functions_is_traced_once(monkeypatch):
+    from prompty.core.tool_dispatch import clear_tools
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def run():
+        clear_tools()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_toolbox_echo_handler)) as http:
+            callback = register_toolbox_function("kb_retrieve", client=_toolbox_echo_client(http))
+            traced = castia_prompty._traced_tool_functions({"kb_retrieve": callback})
+            assert traced["kb_retrieve"] is callback
+            return await traced["kb_retrieve"](query="fees")
+
+    try:
+        assert asyncio.run(run()) == "found fees"
+    finally:
+        clear_tools()
+    assert len(spans) == 1
+
+
+def test_traced_tool_preserves_signature_and_rewraps_on_identity_change(monkeypatch):
+    import inspect
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def lookup(*, query: str) -> str:
+        return query
+
+    first = castia_prompty._traced_tool("lookup", lookup, tool_type="toolbox")
+    assert inspect.signature(first) == inspect.signature(lookup)
+    assert inspect.iscoroutinefunction(first)
+    assert castia_prompty._traced_tool("lookup", first, tool_type="toolbox") is first
+
+    renamed = castia_prompty._traced_tool("search", first)
+    assert asyncio.run(renamed(query="x")) == "x"
+    assert [(span.name, span.attributes["tool_type"]) for span in spans] == [("execute_tool search", None)]
+
+
+def test_toolbox_tool_handler_traces_kind_dispatch(monkeypatch):
+    from types import SimpleNamespace
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_toolbox_echo_handler)) as http:
+            handler = castia_prompty.ToolboxToolHandler(_toolbox_echo_client(http))
+            return await handler.execute_tool_async(SimpleNamespace(name="kb_retrieve"), {"query": "travel"}, None, {})
+
+    assert asyncio.run(run()) == "found travel"
+    assert [span.name for span in spans] == ["execute_tool kb_retrieve"]
+    assert spans[0].attributes["tool_type"] == "toolbox"
+
+
 def test_toolbox_prompty_tools_create_function_tools_for_model_wire():
     tools = toolbox_prompty_tools(
         ("contracts-kb-mcp___knowledge_base_retrieve",),

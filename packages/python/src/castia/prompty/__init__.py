@@ -8,6 +8,7 @@ helpers let an app opt into Prompty as a runtime/eval harness while keeping
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ DEFAULT_TOOLBOX_CONNECTION = "contract-toolbox"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _TRACE_INTERNAL_ENV = "CASTIA_PROMPTY_TRACE_INTERNAL"
 _DEFAULT_PROMPTY_SPANS = {"turn_async", "run_async"}
+_TOOLBOX_TOOL_TYPE = "toolbox"
 _NO_TOOLBOX_ENDPOINT_DIAGNOSTIC = (
     "No toolbox MCP endpoint was resolved. Set TOOLBOX_ENDPOINT, "
     "TOOLBOX_MCP_ENDPOINT, TOOLBOX_NAME with its platform endpoint variable, "
@@ -543,47 +545,73 @@ class PromptyRunner:
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
 
 
+_TRACED_TOOL_MARKER = "__castia_traced_tool__"
+
+
 def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> dict[str, Callable[..., Awaitable[Any]]]:
-    from castia.observe.tracing import execute_tool
+    return {
+        name: _traced_tool(name, tool_function, tool_type=_traced_tool_type(tool_function))
+        for name, tool_function in tool_functions.items()
+    }
 
-    traced = {}
-    for name, tool_function in tool_functions.items():
 
-        async def call_tool(*args: Any, _name: str = name, _tool_function: Callable[..., Any] = tool_function, **kwargs: Any) -> Any:
-            timeline = _CURRENT_TIMELINE.get()
-            event = _tool_timeline_event(timeline, _name, args, kwargs)
-            diagnostic_call = dev_diagnostics.record_tool_call(
-                name=_name,
-                arguments=_tool_arguments(args, kwargs),
-                status="running",
-                kind="prompty",
-            )
-            with execute_tool(_name) as span:
-                _set_tool_span_start_attributes(span, event, _name, args, kwargs)
-                try:
-                    result = _tool_function(*args, **kwargs)
-                    if isawaitable(result):
-                        result = await result
-                except Exception as exc:
-                    _set_tool_span_error_attributes(span, event, exc)
-                    dev_diagnostics.update_tool_call(
-                        diagnostic_call,
-                        status="error",
-                        summary=f"{type(exc).__name__}: {exc}",
-                        error_type=type(exc).__name__,
-                    )
-                    raise
-                else:
-                    _set_tool_span_success_attributes(span, event, result)
-                    dev_diagnostics.update_tool_call(
-                        diagnostic_call,
-                        status="ok",
-                        summary=result,
-                    )
-                    return result
+def _traced_tool_type(tool_function: Callable[..., Any]) -> str | None:
+    marker = getattr(tool_function, _TRACED_TOOL_MARKER, None)
+    return marker[1] if marker is not None else None
 
-        traced[name] = call_tool
-    return traced
+
+def _traced_tool(
+    name: str,
+    tool_function: Callable[..., Any],
+    *,
+    tool_type: str | None = None,
+) -> Callable[..., Awaitable[Any]]:
+    """Wrap one Prompty tool callback in an ``execute_tool`` span (idempotent)."""
+    marker = getattr(tool_function, _TRACED_TOOL_MARKER, None)
+    if marker is not None:
+        if marker[:2] == (name, tool_type):
+            return tool_function
+        tool_function = marker[2]
+
+    @functools.wraps(tool_function)
+    async def call_tool(*args: Any, **kwargs: Any) -> Any:
+        from castia.observe.tracing import execute_tool
+
+        timeline = _CURRENT_TIMELINE.get()
+        event = _tool_timeline_event(timeline, name, args, kwargs)
+        diagnostic_call = dev_diagnostics.record_tool_call(
+            name=name,
+            arguments=_tool_arguments(args, kwargs),
+            status="running",
+            kind="prompty",
+        )
+        span_cm = execute_tool(name, tool_type=tool_type) if tool_type else execute_tool(name)
+        with span_cm as span:
+            _set_tool_span_start_attributes(span, event, name, args, kwargs)
+            try:
+                result = tool_function(*args, **kwargs)
+                if isawaitable(result):
+                    result = await result
+            except Exception as exc:
+                _set_tool_span_error_attributes(span, event, exc)
+                dev_diagnostics.update_tool_call(
+                    diagnostic_call,
+                    status="error",
+                    summary=f"{type(exc).__name__}: {exc}",
+                    error_type=type(exc).__name__,
+                )
+                raise
+            else:
+                _set_tool_span_success_attributes(span, event, result)
+                dev_diagnostics.update_tool_call(
+                    diagnostic_call,
+                    status="ok",
+                    summary=result,
+                )
+                return result
+
+    setattr(call_tool, _TRACED_TOOL_MARKER, (name, tool_type, tool_function))
+    return call_tool
 
 
 def _tool_timeline_event(
@@ -696,8 +724,12 @@ class ToolboxToolHandler:
         raise NotImplementedError("Use async Prompty execution for toolbox MCP tools.")
 
     async def execute_tool_async(self, tool: Any, args: dict[str, Any], agent: Any, parent_inputs: dict[str, Any]) -> str:
-        result = await self.client.call_tool(getattr(tool, "name", ""), args)
-        return serialize_mcp_result(result)
+        name = str(getattr(tool, "name", "") or "")
+
+        async def _call(**arguments: Any) -> str:
+            return serialize_mcp_result(await self.client.call_tool(name, arguments))
+
+        return await _traced_tool(name, _call, tool_type=_TOOLBOX_TOOL_TYPE)(**args)
 
 
 def register_toolbox_tool_handler(
@@ -721,7 +753,12 @@ def register_toolbox_function(
     *,
     client: ToolboxMcpClient | None = None,
 ) -> Callable[..., Awaitable[str]]:
-    """Register one toolbox MCP tool as a Prompty function callback."""
+    """Register one toolbox MCP tool as a Prompty function callback.
+
+    The registered (and returned) callback is already wrapped in an
+    ``execute_tool`` span, so it is traced whether Prompty resolves it from its
+    global registry or the app also passes it in ``tool_functions``.
+    """
     _prompty()
     from prompty.core.tool_dispatch import (  # type: ignore[import-not-found]
         register_tool,
@@ -732,8 +769,9 @@ def register_toolbox_function(
     async def _call(**arguments: Any) -> str:
         return serialize_mcp_result(await resolved_client.call_tool(name, arguments))
 
-    register_tool(name, _call)
-    return _call
+    traced = _traced_tool(name, _call, tool_type=_TOOLBOX_TOOL_TYPE)
+    register_tool(name, traced)
+    return traced
 
 
 def toolbox_prompty_tools(
