@@ -125,6 +125,65 @@ def test_genai_tracing_default_instruments_and_sets_env(monkeypatch):
     assert observability.os.environ[_GENAI_ENV] == "true"
 
 
+@pytest.mark.parametrize(
+    ("arg", "env", "expected"),
+    [(None, None, "true"), (False, None, "false"), (None, "false", "false"), (True, "false", "true")],
+)
+def test_genai_flag_published_before_distro_setup(monkeypatch, arg, env, expected):
+    """The distro instruments azure-ai-projects inside its own setup; the env
+    flag must already reflect Castia's decision then, or the SDK warns."""
+    monkeypatch.delenv(_APP_INSIGHTS_ENV, raising=False)
+    monkeypatch.delenv(_AZURE_MONITOR_ENV, raising=False)
+    if env is None:
+        monkeypatch.delenv(_GENAI_ENV, raising=False)
+    else:
+        monkeypatch.setenv(_GENAI_ENV, env)
+    seen = {}
+
+    def fake_distro(**_kwargs):
+        seen["flag"] = observability.os.environ.get(_GENAI_ENV)
+
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry", side_effect=fake_distro),
+        mock.patch.object(observability, "_build_agent_identity_processors", return_value=[]),
+        mock.patch.object(observability, "_enable_genai_tracing"),
+    ):
+        observability.configure_observability(enable_genai_tracing=arg)
+    assert seen["flag"] == expected
+
+
+def test_distro_failure_never_breaks_startup(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.delenv(_APP_INSIGHTS_ENV, raising=False)
+    monkeypatch.delenv(_AZURE_MONITOR_ENV, raising=False)
+    with (
+        mock.patch.object(observability, "use_microsoft_opentelemetry", side_effect=RuntimeError("boom")),
+        mock.patch.object(observability, "_build_agent_identity_processors", return_value=[]),
+        mock.patch.object(observability, "_enable_genai_tracing") as genai,
+        caplog.at_level(logging.WARNING, logger="agent"),
+    ):
+        observability.configure_observability()
+    genai.assert_not_called()
+    assert "OpenTelemetry setup failed" in caplog.text
+    assert not logging.getLogger(observability._AI_PROJECT_INSTRUMENTOR_LOGGER).filters
+
+
+def test_sdk_genai_disabled_warning_filtered_only_during_distro_setup(caplog):
+    import logging
+
+    sdk_logger = logging.getLogger(observability._AI_PROJECT_INSTRUMENTOR_LOGGER)
+    noise = "GenAI tracing is not enabled. Set environment variable ..."
+    with caplog.at_level(logging.WARNING):
+        with observability._quiet_genai_disabled_warning():
+            sdk_logger.warning(noise)
+            sdk_logger.warning("some other SDK warning")
+        sdk_logger.warning(noise)
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages == ["some other SDK warning", noise]
+    assert not sdk_logger.filters
+
+
 def test_configure_observability_suppresses_asgi_internal_spans_by_default(monkeypatch):
     monkeypatch.delenv(_TRACE_ASGI_INTERNAL_ENV, raising=False)
     monkeypatch.delenv(_TRACE_ASGI_SEND_ENV, raising=False)
