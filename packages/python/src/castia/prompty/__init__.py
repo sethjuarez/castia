@@ -32,6 +32,7 @@ from castia.integrations.toolbox import (
 )
 from castia.observe import dev_diagnostics
 from castia.optimizing.config import AgentConfig, load_agent_config
+from castia.runtime.usage import record_response_usage
 
 DEFAULT_FOUNDRY_CONNECTION = "foundry-default"
 DEFAULT_TOOLBOX_CONNECTION = "contract-toolbox"
@@ -452,10 +453,22 @@ class _TraceContextResponses:
         from castia.observe.tracing import trace_context_headers
 
         kwargs["extra_headers"] = trace_context_headers(kwargs.get("extra_headers"))
-        return self._responses.create(*args, **kwargs)
+        result = self._responses.create(*args, **kwargs)
+        if kwargs.get("stream"):
+            return result
+        if isawaitable(result):
+            return _record_usage_after(result)
+        record_response_usage(result)
+        return result
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._responses, name)
+
+
+async def _record_usage_after(pending: Awaitable[Any]) -> Any:
+    response = await pending
+    record_response_usage(response)
+    return response
 
 
 class _TraceContextOpenAIClient:
