@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/sethjuarez/castia/compare/python-v0.13.0...python-v0.13.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **observe:** export Agent 365 spans with S2S token for hosted agents ([#101](https://github.com/sethjuarez/castia/issues/101)) ([244148b](https://github.com/sethjuarez/castia/commit/244148b67ead5aeb99eb55e2aa025ebff50ebc6c))
+
 ## [0.13.0](https://github.com/sethjuarez/castia/compare/python-v0.12.0...python-v0.13.0) (2026-09-28)
 
 
