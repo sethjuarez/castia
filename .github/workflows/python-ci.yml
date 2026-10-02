@@ -53,7 +53,7 @@ jobs:
       - name: Create venv and install lifecycle test dependencies
         run: |
           uv venv --python ${{ matrix.python }}
-          uv pip install -e ".[deploy,optimize,test]"
+          uv pip install -e ".[deploy,optimize,test,prompty]"
 
       - name: Ruff
         run: uvx ruff check .
@@ -77,7 +77,7 @@ jobs:
         run: |
           uv venv .wheel-venv --python ${{ matrix.python }}
           wheel=$(find "$PWD/dist" -maxdepth 1 -name '*.whl' -print -quit)
-          uv pip install --python .wheel-venv/bin/python "castia[deploy,optimize,test] @ file://$wheel"
+          uv pip install --python .wheel-venv/bin/python "castia[deploy,optimize,test,prompty] @ file://$wheel"
           uv pip check --python .wheel-venv/bin/python
           .wheel-venv/bin/python -I -W error scripts/check_distribution.py
           .wheel-venv/bin/python -I -m pytest -q -W error tests/test_package_architecture.py tests/test_building_harness.py

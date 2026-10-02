@@ -38,7 +38,7 @@ flow.
 ## Python package conventions
 
 - Tooling is `uv` + `hatchling`. There is no `pip` in the venvs — use `uv pip`.
-- Validate from `packages/python`: `uv pip install -e ".[deploy,optimize,test]"`,
+- Validate from `packages/python`: `uv pip install -e ".[deploy,optimize,test,prompty]"`,
   then `.venv/bin/python -m pytest -q -W error`, `uvx ruff check .`,
   `uv build`, and `git --no-pager diff --check`.
 - Keep `import castia` cheap: heavy Azure/OpenAI imports stay lazy, inside the
