@@ -558,6 +558,30 @@ Set `CASTIA_OTEL_TRACE_ASGI_INTERNAL=true` only when debugging the ASGI transpor
 itself. `CASTIA_OTEL_TRACE_ASGI_SEND=true` remains accepted as a compatibility
 alias.
 
+### Agent 365 export
+
+Hosted Foundry agents export GenAI spans to Agent 365 with the S2S flow; no
+client secret or extra configuration is needed. Castia mints the token in two
+steps: first a blueprint managed-identity assertion, then an app-only
+client-credentials grant as the agent instance for
+`api://9b975845-388f-4429-889e-eab1ef63949c/.default`. Tokens are cached until
+five minutes before expiry. On the Agent 365 export path only, Castia rewrites
+`gen_ai.agent.id` to the instance client id and `microsoft.tenant.id` to the
+agent tenant. Azure Monitor and the Foundry Traces UI keep `<name>:<version>`.
+Token failures back off from 30 s to 15 min. Permanent failures (token
+endpoint 4xx, managed identity unavailable) drop the batch; transient ones
+queue it for the distro's durable replay.
+
+| Environment variable | Purpose |
+| --- | --- |
+| `FOUNDRY_AGENT_TENANT_ID`, `FOUNDRY_AGENT_BLUEPRINT_CLIENT_ID` | Platform-injected; required for S2S export |
+| `FOUNDRY_AGENT_DEFAULT_INSTANCE_CLIENT_ID` | Platform-injected agent instance id (falls back to `FOUNDRY_AGENT_INSTANCE_CLIENT_ID`) |
+| `CASTIA_A365_AGENT_INSTANCE_ID` | Optional override for the instance id |
+| `CASTIA_A365_EXPORT` | `false` turns export off (overriding `ENABLE_A365_OBSERVABILITY_EXPORTER`); `true` without hosted identity uses the distro default resolver |
+
+Without the hosted identity (local runs), Agent 365 export is off, so local runs
+log no token warnings.
+
 Local Castia trace records can also be redirected into the active OpenTelemetry
 pipeline. Register `otel_trace_sink()` after configuring observability when you
 want the same runtime/model/tool/Prompty local records to appear in App
