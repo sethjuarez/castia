@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import os
+from collections.abc import Iterator
 from typing import Any
 
 from microsoft.opentelemetry import use_microsoft_opentelemetry
@@ -23,6 +25,7 @@ _PORTAL_NOISE_SPAN_PATHS = (
 )
 _APP_INSIGHTS_CONNECTION_STRING_ENV = "APPLICATIONINSIGHTS_CONNECTION_STRING"
 _AZURE_MONITOR_CONNECTION_STRING_ENV = "AZURE_MONITOR_CONNECTION_STRING"
+_DISTRO_A365_EXPORT_ENV = "ENABLE_A365_OBSERVABILITY_EXPORTER"
 
 
 def configure_observability(
@@ -75,25 +78,72 @@ def configure_observability(
     azure_monitor_connection_string = _azure_monitor_connection_string()
     _configure_azure_core_tracing()
     identity_processors = _build_agent_identity_processors()
+    a365_plan = _plan_a365_export()
 
-    use_microsoft_opentelemetry(
-        resource=Resource.create(attributes),
-        enable_azure_monitor=bool(azure_monitor_connection_string),
-        azure_monitor_connection_string=azure_monitor_connection_string,
-        enable_a365=True,
-        a365_enable_observability_exporter=True,
-        span_processors=identity_processors,
-        instrumentation_options={
-            "fastapi": _fastapi_instrumentation_options(),
-            "openai_agents": {"enabled": False},
-        },
-    )
+    with _masked_env(_DISTRO_A365_EXPORT_ENV if a365_plan.mask_distro_env else None):
+        use_microsoft_opentelemetry(
+            resource=Resource.create(attributes),
+            enable_azure_monitor=bool(azure_monitor_connection_string),
+            azure_monitor_connection_string=azure_monitor_connection_string,
+            enable_a365=True,
+            span_processors=identity_processors,
+            instrumentation_options={
+                "fastapi": _fastapi_instrumentation_options(),
+                "openai_agents": {"enabled": False},
+            },
+            **a365_plan.options,
+        )
+    _install_a365_agent_id_enricher(a365_plan, agent_version)
     _install_msi_token_span_filter()
 
     _enable_genai_tracing(
         enable_content_recording=enable_content_recording,
         enable_genai_tracing=enable_genai_tracing,
     )
+
+
+@contextlib.contextmanager
+def _masked_env(name: str | None) -> Iterator[None]:
+    """Hide one environment variable for the duration of the block."""
+    saved = os.environ.pop(name, None) if name else None
+    try:
+        yield
+    finally:
+        if name and saved is not None:
+            os.environ[name] = saved
+
+
+def _plan_a365_export() -> Any:
+    """Choose A365 exporter options; fall back to exporter-off on any error."""
+    from castia.observe.a365 import A365ExportPlan, plan_a365_export
+
+    try:
+        plan = plan_a365_export()
+    except Exception:  # pragma: no cover - telemetry must never break startup
+        _logger.warning("Failed to configure Agent 365 export", exc_info=True)
+        return A365ExportPlan(
+            {"a365_enable_observability_exporter": False}, mask_distro_env=True
+        )
+    if plan.identity is not None:
+        _logger.info(
+            "Agent 365 S2S export enabled (agent instance %s)",
+            plan.identity.instance_client_id,
+        )
+    return plan
+
+
+def _install_a365_agent_id_enricher(plan: Any, agent_version: str | None) -> None:
+    """Map Castia spans to the A365 S2S agent id on the A365 export path only."""
+    if plan.identity is None:
+        return
+    try:
+        from castia.observe.a365 import install_agent_id_enricher
+
+        name = os.environ.get("FOUNDRY_AGENT_NAME", "castia-agent")
+        foundry_agent_id = f"{name}:{agent_version}" if name and agent_version else None
+        install_agent_id_enricher(plan.identity, foundry_agent_id=foundry_agent_id)
+    except Exception:  # pragma: no cover - telemetry must never break startup
+        _logger.warning("Failed to install Agent 365 agent-id enricher", exc_info=True)
 
 
 def _azure_monitor_connection_string() -> str | None:
