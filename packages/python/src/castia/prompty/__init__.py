@@ -8,6 +8,7 @@ helpers let an app opt into Prompty as a runtime/eval harness while keeping
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import logging
@@ -798,6 +799,149 @@ def configured_prompty_runner(
     )
 
 
+class ToolboxRuntimeConfigError(PromptyIntegrationError):
+    """The configured Foundry toolbox failed preflight before any model call."""
+
+
+def prompty_runner_provider(
+    config: AgentConfig | str | os.PathLike[str] | None = None,
+    *,
+    prompty_path: str | os.PathLike[str] | None = None,
+    tools: Sequence[object] = (),
+    toolbox: bool | Sequence[str] | None = None,
+    toolbox_descriptions: Mapping[str, str] | None = None,
+    connection_name: str = DEFAULT_FOUNDRY_CONNECTION,
+    max_iterations: int = 10,
+    enable_otel: bool | None = None,
+) -> Callable[[], Awaitable[PromptyRunner]]:
+    """Return an async provider that builds (once) and caches a Prompty runner.
+
+    The first call registers the Foundry connection, loads ``config`` (an
+    ``AgentConfig`` or a ``.agent_configs`` directory; ``None`` uses the
+    default), optionally preflights the toolbox, and builds the runner with
+    :func:`configured_prompty_runner`. Later calls return the cached runner;
+    failures are not cached, so the next call retries.
+
+    ``toolbox``: ``None`` uses the toolbox when an endpoint resolves from the
+    environment, ``True`` requires it, ``False`` disables it, and a sequence
+    requires exactly those tool names. Toolbox definitions come from MCP
+    ``tools/list``, with descriptions taken from ``toolbox_descriptions`` or
+    the config's optimizer ``tool_definitions``. A failed preflight raises
+    :class:`ToolboxRuntimeConfigError` with its diagnostics. ``tools`` may mix
+    Castia ``Tool`` objects and Prompty tool definitions.
+    """
+    cached: list[PromptyRunner] = []
+    lock = asyncio.Lock()
+
+    async def provider() -> PromptyRunner:
+        if cached:
+            return cached[0]
+        async with lock:
+            if cached:
+                return cached[0]
+            runner = await _build_prompty_runner(
+                config,
+                prompty_path=prompty_path,
+                tools=tools,
+                toolbox=toolbox,
+                toolbox_descriptions=toolbox_descriptions,
+                connection_name=connection_name,
+                max_iterations=max_iterations,
+                enable_otel=enable_otel,
+            )
+            cached.append(runner)
+            return runner
+
+    return provider
+
+
+async def _build_prompty_runner(
+    config: AgentConfig | str | os.PathLike[str] | None,
+    *,
+    prompty_path: str | os.PathLike[str] | None,
+    tools: Sequence[object],
+    toolbox: bool | Sequence[str] | None,
+    toolbox_descriptions: Mapping[str, str] | None,
+    connection_name: str,
+    max_iterations: int,
+    enable_otel: bool | None,
+) -> PromptyRunner:
+    resolved_config = config if isinstance(config, AgentConfig) else load_agent_config(config)
+    toolbox_defs: list[object] = []
+    toolbox_functions: dict[str, Callable[..., Any]] = {}
+    use_toolbox = bool(resolve_toolbox_endpoint()) if toolbox is None else toolbox is not False
+    if use_toolbox:
+        allowed = None if isinstance(toolbox, bool) or toolbox is None else tuple(toolbox)
+        preflight = await toolbox_preflight(allowed)
+        if not preflight.ok:
+            raise ToolboxRuntimeConfigError(
+                " ".join(preflight.diagnostics or ("Foundry toolbox preflight failed.",))
+            )
+        optimized = _optimized_tool_functions(resolved_config.tool_definitions)
+        descriptions = dict(toolbox_descriptions or {})
+        descriptions.update({name: fn["description"] for name, fn in optimized.items() if fn.get("description")})
+        toolbox_defs = toolbox_prompty_tools_from_schema(
+            preflight.tools,
+            allowed_tools=allowed,
+            descriptions=descriptions,
+        )
+        for definition in toolbox_defs:
+            _apply_optimized_parameter_descriptions(definition, optimized.get(getattr(definition, "name", None)))
+        client = ToolboxMcpClient(preflight.endpoint)
+        toolbox_functions = {
+            definition.name: _toolbox_function(definition.name, client) for definition in toolbox_defs
+        }
+    _reject_duplicate_tool_names([*toolbox_defs, *tools])
+    register_foundry_default_connection(name=connection_name)
+    return configured_prompty_runner(
+        resolved_config,
+        prompty_path=prompty_path,
+        connection_name=connection_name,
+        tools=[*toolbox_defs, *tools],
+        tool_functions=toolbox_functions,
+        max_iterations=max_iterations,
+        enable_otel=enable_otel,
+    )
+
+
+def _optimized_tool_functions(definitions: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+    out: dict[str, Mapping[str, Any]] = {}
+    for item in definitions or ():
+        if not isinstance(item, Mapping):
+            continue
+        func = item.get("function") if isinstance(item.get("function"), Mapping) else item
+        if isinstance(func.get("name"), str) and func["name"]:
+            out[func["name"]] = func
+    return out
+
+
+def _apply_optimized_parameter_descriptions(definition: object, optimized: Mapping[str, Any] | None) -> None:
+    parameters = optimized.get("parameters") if optimized else None
+    properties = parameters.get("properties") if isinstance(parameters, Mapping) else None
+    if not isinstance(properties, Mapping):
+        return
+    for prop in getattr(definition, "parameters", None) or ():
+        schema = properties.get(getattr(prop, "name", None))
+        if isinstance(schema, Mapping) and isinstance(schema.get("description"), str) and schema["description"]:
+            prop.description = schema["description"]
+
+
+def _reject_duplicate_tool_names(tools: Sequence[object]) -> None:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for tool in tools:
+        name = getattr(tool, "name", None)
+        if not isinstance(name, str):
+            continue
+        if name in seen and name not in duplicates:
+            duplicates.append(name)
+        seen.add(name)
+    if duplicates:
+        raise PromptyIntegrationError(
+            "Duplicate Prompty tool names (toolbox and app tools must not overlap): " + ", ".join(duplicates)
+        )
+
+
 class ToolboxToolHandler:
     """Prompty tool handler that executes a selected toolbox MCP tool locally."""
 
@@ -848,14 +992,16 @@ def register_toolbox_function(
         register_tool,
     )
 
-    resolved_client = client or ToolboxMcpClient()
-
-    async def _call(**arguments: Any) -> str:
-        return serialize_mcp_result(await resolved_client.call_tool(name, arguments))
-
-    traced = _traced_tool(name, _call, tool_type=_TOOLBOX_TOOL_TYPE)
+    traced = _toolbox_function(name, client or ToolboxMcpClient())
     register_tool(name, traced)
     return traced
+
+
+def _toolbox_function(name: str, client: ToolboxMcpClient) -> Callable[..., Awaitable[str]]:
+    async def _call(**arguments: Any) -> str:
+        return serialize_mcp_result(await client.call_tool(name, arguments))
+
+    return _traced_tool(name, _call, tool_type=_TOOLBOX_TOOL_TYPE)
 
 
 def toolbox_prompty_tools(
@@ -1158,10 +1304,12 @@ __all__ = [
     "PromptyRunner",
     "ToolboxMcpClient",
     "ToolboxPreflightResult",
+    "ToolboxRuntimeConfigError",
     "ToolboxToolHandler",
     "configured_prompty_runner",
     "load_prompty_agent",
     "prompty_agent_from_config",
+    "prompty_runner_provider",
     "prompty_tools_from_castia",
     "register_foundry_default_connection",
     "register_prompty_otel_tracing",

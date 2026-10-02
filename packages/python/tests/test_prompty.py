@@ -780,3 +780,124 @@ def test_serialize_mcp_result_uses_actual_json_error_message():
 
     with pytest.raises(McpToolboxError, match="FoundryIQ denied access"):
         serialize_mcp_result(result)
+
+
+def _provider_fakes(monkeypatch, *, ok=True):
+    from castia.prompty import ToolboxPreflightResult
+
+    events = []
+    monkeypatch.setattr(
+        castia_prompty,
+        "register_foundry_default_connection",
+        lambda **kwargs: events.append(("connection", kwargs["name"])),
+    )
+
+    async def fake_preflight(allowed=None, **_kwargs):
+        events.append(("preflight", allowed))
+        if not ok:
+            return ToolboxPreflightResult(ok=False, endpoint=None, diagnostics=("Set TOOLBOX_NAME.",))
+        return ToolboxPreflightResult(
+            ok=True,
+            endpoint="https://example.test/toolboxes/kb/mcp?api-version=v1",
+            tool_names=("kb_retrieve",),
+            tools=(
+                {
+                    "name": "kb_retrieve",
+                    "description": "Upstream.",
+                    "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+                },
+            ),
+        )
+
+    monkeypatch.setattr(castia_prompty, "toolbox_preflight", fake_preflight)
+    return events
+
+
+def test_prompty_runner_provider_builds_once_with_toolbox_and_castia_tools(monkeypatch):
+    events = _provider_fakes(monkeypatch)
+    monkeypatch.setattr(castia_prompty, "resolve_toolbox_endpoint", lambda env=None: "https://example.test/x")
+    config = AgentConfig(
+        "gpt-4o",
+        "Use tools.",
+        "default",
+        tool_definitions=(
+            {
+                "type": "function",
+                "function": {
+                    "name": "kb_retrieve",
+                    "description": "Optimized.",
+                    "parameters": {"type": "object", "properties": {"q": {"description": "Optimized q."}}},
+                },
+            },
+        ),
+    )
+    from prompty.core import tool_dispatch
+
+    registry_before = dict(tool_dispatch._name_registry)
+    provider = castia_prompty.prompty_runner_provider(
+        config,
+        tools=[_castia_lookup_tool([])],
+        toolbox_descriptions={"kb_retrieve": "Baseline."},
+        enable_otel=False,
+    )
+
+    async def run():
+        return await asyncio.gather(provider(), provider())
+
+    first, second = asyncio.run(run())
+    third = asyncio.run(provider())
+
+    assert first is second is third
+    assert events == [("preflight", None), ("connection", "foundry-default")]
+    assert [(tool.name, tool.description) for tool in first.agent.tools] == [
+        ("kb_retrieve", "Optimized."),
+        ("lookup", "Look something up."),
+    ]
+    assert first.agent.tools[0].parameters[0].description == "Optimized q."
+    assert dict(tool_dispatch._name_registry) == registry_before
+    assert set(first.tool_functions) == {"kb_retrieve", "lookup"}
+    assert castia_prompty._traced_tool_type(first.tool_functions["kb_retrieve"]) == "toolbox"
+    assert castia_prompty._traced_tool_type(first.tool_functions["lookup"]) == "graph_iq"
+
+
+def test_prompty_runner_provider_skips_toolbox_without_endpoint(monkeypatch):
+    events = _provider_fakes(monkeypatch)
+    monkeypatch.setattr(castia_prompty, "resolve_toolbox_endpoint", lambda env=None: None)
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"), enable_otel=False
+    )
+
+    runner = asyncio.run(provider())
+
+    assert events == [("connection", "foundry-default")]
+    assert list(runner.agent.tools or []) == []
+
+
+def test_prompty_runner_provider_raises_and_retries_failed_preflight(monkeypatch):
+    events = _provider_fakes(monkeypatch, ok=False)
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"), toolbox=["kb_retrieve"], enable_otel=False
+    )
+
+    for _ in range(2):
+        with pytest.raises(castia_prompty.ToolboxRuntimeConfigError, match="Set TOOLBOX_NAME."):
+            asyncio.run(provider())
+
+    assert events.count(("preflight", ("kb_retrieve",))) == 2
+
+
+def test_prompty_runner_provider_rejects_duplicate_tool_names(monkeypatch):
+    events = _provider_fakes(monkeypatch)
+    tool = _castia_lookup_tool([])
+    from dataclasses import replace
+
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"),
+        tools=[replace(tool, name="kb_retrieve")],
+        toolbox=True,
+        enable_otel=False,
+    )
+
+    with pytest.raises(castia_prompty.PromptyIntegrationError, match="kb_retrieve"):
+        asyncio.run(provider())
+    assert ("connection", "foundry-default") not in events
