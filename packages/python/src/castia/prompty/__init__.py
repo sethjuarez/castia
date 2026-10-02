@@ -68,6 +68,12 @@ _CURRENT_TIMELINE: ContextVar[_TurnTimeline | None] = ContextVar(
 )
 
 
+_CURRENT_ACTIVITY: ContextVar[object | None] = ContextVar(
+    "castia_prompty_activity",
+    default=None,
+)
+
+
 class PromptyIntegrationError(RuntimeError):
     """Raised when optional Prompty integration dependencies are unavailable."""
 
@@ -528,11 +534,19 @@ class PromptyRunner:
     tool_functions: Mapping[str, Callable[..., Any]] | None = None
     max_iterations: int = 10
 
-    async def turn(self, text: str, **inputs: object) -> str:
-        """Run one external user turn through Prompty and return text."""
+    async def turn(self, text: str, *, activity: object | None = None, **inputs: object) -> str:
+        """Run one external user turn through Prompty and return text.
+
+        ``activity`` is the identity-bearing turn activity handed to Castia
+        :class:`~castia.inference.tools.Tool` impls (for example
+        ``graph_tools()``), matching ``Model.respond_with_tools(activity=...)``.
+        When omitted, the ambient Activity turn is used if there is one.
+        ``activity`` is reserved and is never sent as a Prompty input.
+        """
         prompty = _prompty()
         timeline = _TurnTimeline(include_content=_content_recording_enabled(), events=[])
         token = _CURRENT_TIMELINE.set(timeline)
+        activity_token = _CURRENT_ACTIVITY.set(activity if activity is not None else _ambient_activity())
         try:
             result = await prompty.turn_async(
                 self.agent,
@@ -541,8 +555,62 @@ class PromptyRunner:
                 max_iterations=self.max_iterations,
             )
         finally:
+            _CURRENT_ACTIVITY.reset(activity_token)
             _CURRENT_TIMELINE.reset(token)
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _ambient_activity() -> object | None:
+    from castia.runtime.context import current_turn_or_none
+
+    turn = current_turn_or_none()
+    return turn.activity if turn is not None else None
+
+
+def prompty_tools_from_castia(
+    tools: Sequence[Any],
+) -> tuple[list[object], dict[str, Callable[..., Awaitable[str]]]]:
+    """Project Castia :class:`~castia.inference.tools.Tool` s into Prompty.
+
+    Returns ``(function_tools, tool_functions)`` for
+    :func:`configured_prompty_runner`. Each callback runs ``Tool.run`` with the
+    turn's ``activity`` (see :meth:`PromptyRunner.turn`), inside an
+    ``execute_tool`` span whose ``gen_ai.tool.type`` is ``Tool.kind``. Results
+    are JSON-encoded, as on the ``Model.respond_with_tools`` path.
+    """
+    prompty = _prompty()
+    function_tools: list[object] = []
+    tool_functions: dict[str, Callable[..., Awaitable[str]]] = {}
+    for tool in tools:
+        function_tools.append(
+            prompty.FunctionTool(
+                name=tool.name,
+                description=tool.description,
+                parameters=_prompty_parameters_from_input_schema(prompty, tool.parameters),
+            )
+        )
+        tool_functions[tool.name] = _traced_tool(
+            tool.name,
+            _castia_tool_callback(tool),
+            tool_type=getattr(tool, "kind", None) or "function",
+        )
+    return function_tools, tool_functions
+
+
+def _castia_tool_callback(tool: Any) -> Callable[..., Awaitable[str]]:
+    async def call(**arguments: Any) -> str:
+        result = await tool.run(_CURRENT_ACTIVITY.get(), **arguments)
+        return result if isinstance(result, str) else _safe_json(result)
+
+    call.__name__ = tool.name
+    call.__doc__ = tool.description
+    return call
+
+
+def _is_castia_tool(value: object) -> bool:
+    from castia.inference.tools import Tool
+
+    return isinstance(value, Tool)
 
 
 _TRACED_TOOL_MARKER = "__castia_traced_tool__"
@@ -699,17 +767,33 @@ def configured_prompty_runner(
     Use ``prompty_path`` to load a sidecar ``.prompty`` file, or omit it to build
     an in-memory agent from Castia ``AgentConfig``. ``.agent_configs`` remains
     the optimizer contract either way.
+
+    ``tools`` accepts Prompty tool definitions and Castia
+    :class:`~castia.inference.tools.Tool` s (such as ``graph_tools()``) in any
+    mix; Castia tools are projected with :func:`prompty_tools_from_castia`.
+    Explicit ``tool_functions`` win on a name clash.
     """
     if enable_otel is not None:
         register_prompty_otel_tracing(enable_content_recording=enable_otel)
-    agent = (
-        load_prompty_agent(prompty_path)
-        if prompty_path is not None
-        else prompty_agent_from_config(config, connection_name=connection_name, tools=tools)
-    )
+    castia_tools = [tool for tool in tools if _is_castia_tool(tool)]
+    prompty_tools = [tool for tool in tools if not _is_castia_tool(tool)]
+    functions: dict[str, Callable[..., Any]] = {}
+    if castia_tools:
+        castia_defs, castia_functions = prompty_tools_from_castia(castia_tools)
+        prompty_tools.extend(castia_defs)
+        functions.update(castia_functions)
+    functions.update(tool_functions or {})
+    if prompty_path is not None:
+        agent = load_prompty_agent(prompty_path)
+        if prompty_tools:
+            existing = list(getattr(agent, "tools", None) or [])
+            names = {getattr(tool, "name", None) for tool in existing}
+            agent.tools = [*existing, *(tool for tool in prompty_tools if getattr(tool, "name", None) not in names)]
+    else:
+        agent = prompty_agent_from_config(config, connection_name=connection_name, tools=prompty_tools)
     return PromptyRunner(
         agent,
-        tool_functions=dict(tool_functions or {}),
+        tool_functions=functions,
         max_iterations=max_iterations,
     )
 
@@ -958,20 +1042,24 @@ def _prompty_property_from_schema(
         "description": prop_schema.get("description") if isinstance(prop_schema.get("description"), str) else None,
         "required": required,
     }
-    if "enum" in prop_schema:
-        kwargs["enum"] = prop_schema["enum"]
+    if isinstance(prop_schema.get("enum"), list):
+        kwargs["enum_values"] = list(prop_schema["enum"])
     if "default" in prop_schema:
         kwargs["default"] = prop_schema["default"]
-    if kind == "array" and isinstance(prop_schema.get("items"), Mapping):
-        kwargs["items"] = _prompty_schema_shape(prompty, prop_schema["items"])
+    factory = prompty.Property
+    if kind == "array":
+        factory = getattr(prompty, "ArrayProperty", prompty.Property)
+        if isinstance(prop_schema.get("items"), Mapping):
+            kwargs["items"] = _prompty_schema_shape(prompty, prop_schema["items"])
     if kind == "object":
+        factory = getattr(prompty, "ObjectProperty", prompty.Property)
         nested = _prompty_parameters_from_input_schema(prompty, prop_schema)
         if nested:
             kwargs["properties"] = nested
         if "additionalProperties" in prop_schema:
             kwargs["additionalProperties"] = prop_schema["additionalProperties"]
             kwargs["additional_properties"] = prop_schema["additionalProperties"]
-    return _construct_prompty_object(prompty.Property, kwargs)
+    return _construct_prompty_object(factory, kwargs)
 
 
 def _prompty_schema_shape(prompty: Any, schema: Mapping[str, Any]) -> object:
@@ -1074,6 +1162,7 @@ __all__ = [
     "configured_prompty_runner",
     "load_prompty_agent",
     "prompty_agent_from_config",
+    "prompty_tools_from_castia",
     "register_foundry_default_connection",
     "register_prompty_otel_tracing",
     "register_prompty_trace_sinks",
