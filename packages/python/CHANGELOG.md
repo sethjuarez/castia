@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/sethjuarez/castia/compare/python-v0.13.1...python-v0.14.0) (2026-10-03)
+
+
+### Features
+
+* **python:** Prompty runner provider, Castia tool adapter, turn usage, and quiet telemetry startup ([#104](https://github.com/sethjuarez/castia/issues/104)) ([e8dd4ee](https://github.com/sethjuarez/castia/commit/e8dd4ee4da52edb4896d282e6c7fa5991c685405))
+
 ## [0.13.1](https://github.com/sethjuarez/castia/compare/python-v0.13.0...python-v0.13.1) (2026-10-02)
 
 
