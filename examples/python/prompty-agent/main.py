@@ -107,128 +107,92 @@ def local_review_checkpoint(topic: str = "trace", previous: str = "none") -> str
     )
 
 
-def local_function_tools() -> list[object]:
-    import prompty
+def _string_params(**descriptions: str) -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            name: {"type": "string", "description": text}
+            for name, text in descriptions.items()
+        },
+        "required": [],
+    }
+
+
+def local_tools() -> list[object]:
+    """Castia tools run host-side by the Prompty loop; ``kind`` -> gen_ai.tool.type."""
+    from castia.inference.tools import Tool
+
+    async def fact(activity, *, topic: str = "prompty") -> dict:
+        return {"result": local_agent_fact(topic)}
+
+    async def trace(activity, *, topic: str = "trace", stage: str = "follow-up") -> dict:
+        return {"result": local_trace_marker(topic, stage)}
+
+    async def review(activity, *, topic: str = "trace", previous: str = "none") -> dict:
+        return {"result": local_review_checkpoint(topic, previous)}
 
     return [
-        prompty.FunctionTool(
+        Tool(
             name=LOCAL_FACT_TOOL,
             description=(
                 "Return a deterministic local fact proving the Prompty loop can "
                 "call host-side Python functions."
             ),
-            parameters=[
-                prompty.Property(
-                    name="topic",
-                    kind="string",
-                    description="Short topic label to include in the local function result.",
-                    required=False,
-                )
-            ],
+            parameters=_string_params(
+                topic="Short topic label to include in the local function result.",
+            ),
+            impl=fact,
+            kind="local_example",
         ),
-        prompty.FunctionTool(
+        Tool(
             name=LOCAL_TRACE_TOOL,
             description=(
                 "Return a deterministic trace marker proving the Prompty loop can "
                 "execute multiple host-side Python functions in one turn."
             ),
-            parameters=[
-                prompty.Property(
-                    name="topic",
-                    kind="string",
-                    description="Short topic label to include in the trace marker.",
-                    required=False,
-                ),
-                prompty.Property(
-                    name="stage",
-                    kind="string",
-                    description="Short stage label for this trace marker.",
-                    required=False,
-                ),
-            ],
+            parameters=_string_params(
+                topic="Short topic label to include in the trace marker.",
+                stage="Short stage label for this trace marker.",
+            ),
+            impl=trace,
+            kind="local_example",
         ),
-        prompty.FunctionTool(
+        Tool(
             name=LOCAL_REVIEW_TOOL,
             description=(
                 "Return a deterministic review checkpoint proving the Prompty loop can "
                 "continue with another host-side Python function after earlier tool results."
             ),
-            parameters=[
-                prompty.Property(
-                    name="topic",
-                    kind="string",
-                    description="Short topic label to include in the review checkpoint.",
-                    required=False,
-                ),
-                prompty.Property(
-                    name="previous",
-                    kind="string",
-                    description="Short label for the prior tool result being reviewed.",
-                    required=False,
-                ),
-            ],
+            parameters=_string_params(
+                topic="Short topic label to include in the review checkpoint.",
+                previous="Short label for the prior tool result being reviewed.",
+            ),
+            impl=review,
+            kind="local_example",
         ),
     ]
 
 
-def register_local_functions() -> None:
-    from prompty.core.tool_dispatch import register_tool
-
-    register_tool(LOCAL_FACT_TOOL, local_agent_fact)
-    register_tool(LOCAL_TRACE_TOOL, local_trace_marker)
-    register_tool(LOCAL_REVIEW_TOOL, local_review_checkpoint)
-
-
-def toolbox_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
-    if not tool_names:
-        return []
-    from castia.prompty import toolbox_prompty_tools
-
-    return toolbox_prompty_tools(
-        tool_names,
-        descriptions={
-            name: "Call the configured Foundry toolbox MCP tool."
-            for name in tool_names
-        },
-        param_guidance={
-            name: {"query": "A concise search or retrieval query."}
-            for name in tool_names
-        },
-    )
-
-
-def prompty_tool_definitions(tool_names: tuple[str, ...]) -> list[object]:
-    return [*local_function_tools(), *toolbox_tool_definitions(tool_names)]
-
-
-def runner_provider():
-    from castia.prompty import (
-        ToolboxMcpClient,
-        configured_prompty_runner,
-        register_foundry_default_connection,
-        register_toolbox_function,
-    )
-
-    register_foundry_default_connection()
-    register_local_functions()
+def build_runner_provider():
+    """One cached provider: Foundry connection, config, toolbox, and runner."""
+    from castia.prompty import prompty_runner_provider
 
     tool_names = allowed_tool_names()
-    tools = prompty_tool_definitions(tool_names)
-    tool_functions = {
-        LOCAL_FACT_TOOL: local_agent_fact,
-        LOCAL_TRACE_TOOL: local_trace_marker,
-        LOCAL_REVIEW_TOOL: local_review_checkpoint,
-    }
-    if tool_names:
-        client = ToolboxMcpClient()
-        for name in tool_names:
-            tool_functions[name] = register_toolbox_function(name, client=client)
-
-    return configured_prompty_runner(
-        resolved_agent_config(),
-        tools=tools,
-        tool_functions=tool_functions,
+    return prompty_runner_provider(
+        CONFIG_ROOT,
+        tools=local_tools(),
+        toolbox=list(tool_names) if tool_names else False,
     )
+
+
+_providers: list = []
+
+
+async def runner_provider():
+    # Built on first turn, after startup checks have loaded .env.
+    if not _providers:
+        _providers.append(build_runner_provider())
+    return await _providers[0]()
 
 
 RunnerDependency = Depends(runner_provider)

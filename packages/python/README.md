@@ -350,44 +350,69 @@ uv pip install "castia[prompty]"
 
 `.agent_configs` remains the Foundry Agent Optimizer contract. The Prompty helper
 projects the resolved Castia config into an in-memory Prompty agent instead of
-replacing optimizer files:
+replacing optimizer files. For hosted agents, `prompty_runner_provider` does the
+whole setup once (Foundry connection, config load, optional toolbox preflight,
+runner build) and caches the result; failures are not cached, so the next turn
+retries:
 
 ```python
 from pathlib import Path
 
-from castia import Agent, load_agent_config
-from castia.prompty import (
-    configured_prompty_runner,
-    register_foundry_default_connection,
-    register_prompty_otel_tracing,
-    register_prompty_trace_sinks,
-)
+from castia import Agent, Teams
+from castia.inference.tools import graph_tools
+from castia.prompty import ToolboxRuntimeConfigError, prompty_runner_provider
+from castia.protocols.activity import Activity
 
 app = Agent(name="contracts-agent")
-config = load_agent_config(Path(__file__).parent / ".agent_configs")
-
-register_foundry_default_connection()
-register_prompty_trace_sinks()  # optional: Prompty spans into local Castia sinks
-register_prompty_otel_tracing()  # no-op unless content recording is enabled
-runner = configured_prompty_runner(config)
+runner = prompty_runner_provider(
+    Path(__file__).parent / ".agent_configs",
+    tools=[*graph_tools()],  # Castia Tool objects and Prompty tool defs mix
+)
 
 
-@app.responses()
-async def reply(text: str) -> str:
-    return await runner.turn(text)
+@app.activity(Teams.direct)
+async def reply(text: str, activity: Activity) -> str:
+    try:
+        return await (await runner()).turn(text, activity=activity)
+    except ToolboxRuntimeConfigError as error:
+        return f"Toolbox is not configured: {error}"
 ```
 
-For sidecar-first experiments, pass `prompty_path="agent.prompty"` to
-`configured_prompty_runner(...)` and keep `.agent_configs` beside it for
-optimizer baselines/candidates.
+| Argument | Behavior |
+| --- | --- |
+| `config` | `AgentConfig`, a `.agent_configs` path, or `None` for the default. |
+| `prompty_path` | Sidecar `.prompty` file; extra `tools` are appended unless the file already defines that name. |
+| `tools` | Castia `Tool` objects (run host-side with the turn's activity) and Prompty tool definitions. Duplicate names raise `PromptyIntegrationError`. |
+| `toolbox` | `None` uses the toolbox when `TOOLBOX_*` env resolves, `True` requires it, `False` disables it, a list requires exactly those names. A failed preflight raises `ToolboxRuntimeConfigError`. |
+| `toolbox_descriptions` | Description overrides; optimizer `tool_definitions` in the config win. |
 
-Prompty's OTel tracer is gated by the same privacy switch Castia uses for GenAI
-content recording:
-`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`. Without that opt-in,
-`register_prompty_otel_tracing()` does not register the backend because Prompty's
-generic trace attributes can include inputs and results. When Castia
-observability is configured, the same agent-identity span processor stamps
-Prompty OTel spans with Foundry agent/project metadata.
+`PromptyRunner.turn(text, *, activity=None, **inputs)` passes `activity` to
+Castia tools that accept it (for example agentic-user Graph tools); without it,
+the ambient Activity turn is used. `activity` is reserved and is not a template
+input. `@app.responses()` handlers cannot take an `Activity`; there, call
+`turn(text)` and tools see no activity. Use `prompty_tools_from_castia(tools)` to get the Prompty definitions and
+callables yourself, or `configured_prompty_runner(config, tools=...)` for the
+lower-level, uncached builder.
+
+Telemetry matches the `Model` path:
+
+- Each Castia or toolbox tool call emits an `execute_tool` span; `Tool.kind`
+  becomes `gen_ai.tool.type` (default `function`; set `kind`, such as
+  `graph_iq`, on your own tools to classify them).
+- Token usage is summed across the tool loop and returned in the Responses
+  `usage` object (both `Model` and Prompty paths).
+- Hosting-layer `invoke_agent`, `execute_tool`, and model spans go to Agent 365
+  like the `Model` path. Prompty's own pipeline spans (`turn_async`, `run_async`)
+  are not A365 GenAI spans; they appear only in App Insights and local sinks.
+- `turn()` called outside a hosted request has no Foundry agent identity on its
+  spans.
+
+`register_prompty_otel_tracing()` registers Prompty's OTel backend. Prompty's
+`inputs` and `result` attributes are dropped unless
+`AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true` (or
+`enable_content_recording=True`), because they can carry prompts and tool
+results. When Castia observability is configured, the agent-identity span
+processor stamps Prompty spans with Foundry agent/project metadata.
 
 For local development, register a Castia sink (for example
 `register_trace_sink("jsonl", jsonl_trace_sink(".castia/traces/live.jsonl"))`)
@@ -449,10 +474,13 @@ real MCP schema. `toolbox_preflight(...)` resolves the endpoint, mints the same
 `https://ai.azure.com/.default` bearer Castia uses at runtime, calls
 `tools/list`, and reports missing allowed tool names with diagnostics.
 
-This Prompty path is experimental. It provides connection/tracing registration,
-config projection, sidecar loading, schema-derived toolbox function tools, and a
-toolbox MCP JSON-RPC executor. It does not replace `Model.respond_with_tools`,
-and server-side Foundry MCP execution remains the validated default path.
+`prompty_runner_provider` does the preflight and schema projection above and
+wires toolbox callbacks into the runner directly (no global
+`register_toolbox_function`); use these pieces only for custom wiring.
+
+This Prompty path is experimental. It does not replace
+`Model.respond_with_tools`, and server-side Foundry MCP execution remains the
+validated default path.
 
 The newer [issue #13 consumer proof](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#what-has-been-verified-live)
 verified direct and applied-candidate web guidance from a local process against

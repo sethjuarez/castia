@@ -8,6 +8,8 @@ helpers let an app opt into Prompty as a runtime/eval harness while keeping
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
 import logging
 import os
@@ -30,12 +32,14 @@ from castia.integrations.toolbox import (
 )
 from castia.observe import dev_diagnostics
 from castia.optimizing.config import AgentConfig, load_agent_config
+from castia.runtime.usage import record_response_usage
 
 DEFAULT_FOUNDRY_CONNECTION = "foundry-default"
 DEFAULT_TOOLBOX_CONNECTION = "contract-toolbox"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _TRACE_INTERNAL_ENV = "CASTIA_PROMPTY_TRACE_INTERNAL"
 _DEFAULT_PROMPTY_SPANS = {"turn_async", "run_async"}
+_TOOLBOX_TOOL_TYPE = "toolbox"
 _NO_TOOLBOX_ENDPOINT_DIAGNOSTIC = (
     "No toolbox MCP endpoint was resolved. Set TOOLBOX_ENDPOINT, "
     "TOOLBOX_MCP_ENDPOINT, TOOLBOX_NAME with its platform endpoint variable, "
@@ -62,6 +66,12 @@ class _TurnTimeline:
 
 _CURRENT_TIMELINE: ContextVar[_TurnTimeline | None] = ContextVar(
     "castia_prompty_timeline",
+    default=None,
+)
+
+
+_CURRENT_ACTIVITY: ContextVar[object | None] = ContextVar(
+    "castia_prompty_activity",
     default=None,
 )
 
@@ -443,10 +453,22 @@ class _TraceContextResponses:
         from castia.observe.tracing import trace_context_headers
 
         kwargs["extra_headers"] = trace_context_headers(kwargs.get("extra_headers"))
-        return self._responses.create(*args, **kwargs)
+        result = self._responses.create(*args, **kwargs)
+        if kwargs.get("stream"):
+            return result
+        if isawaitable(result):
+            return _record_usage_after(result)
+        record_response_usage(result)
+        return result
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._responses, name)
+
+
+async def _record_usage_after(pending: Awaitable[Any]) -> Any:
+    response = await pending
+    record_response_usage(response)
+    return response
 
 
 class _TraceContextOpenAIClient:
@@ -526,11 +548,19 @@ class PromptyRunner:
     tool_functions: Mapping[str, Callable[..., Any]] | None = None
     max_iterations: int = 10
 
-    async def turn(self, text: str, **inputs: object) -> str:
-        """Run one external user turn through Prompty and return text."""
+    async def turn(self, text: str, *, activity: object | None = None, **inputs: object) -> str:
+        """Run one external user turn through Prompty and return text.
+
+        ``activity`` is the identity-bearing turn activity handed to Castia
+        :class:`~castia.inference.tools.Tool` impls (for example
+        ``graph_tools()``), matching ``Model.respond_with_tools(activity=...)``.
+        When omitted, the ambient Activity turn is used if there is one.
+        ``activity`` is reserved and is never sent as a Prompty input.
+        """
         prompty = _prompty()
         timeline = _TurnTimeline(include_content=_content_recording_enabled(), events=[])
         token = _CURRENT_TIMELINE.set(timeline)
+        activity_token = _CURRENT_ACTIVITY.set(activity if activity is not None else _ambient_activity())
         try:
             result = await prompty.turn_async(
                 self.agent,
@@ -539,51 +569,131 @@ class PromptyRunner:
                 max_iterations=self.max_iterations,
             )
         finally:
+            _CURRENT_ACTIVITY.reset(activity_token)
             _CURRENT_TIMELINE.reset(token)
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
 
 
-def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> dict[str, Callable[..., Awaitable[Any]]]:
-    from castia.observe.tracing import execute_tool
+def _ambient_activity() -> object | None:
+    from castia.runtime.context import current_turn_or_none
 
-    traced = {}
-    for name, tool_function in tool_functions.items():
+    turn = current_turn_or_none()
+    return turn.activity if turn is not None else None
 
-        async def call_tool(*args: Any, _name: str = name, _tool_function: Callable[..., Any] = tool_function, **kwargs: Any) -> Any:
-            timeline = _CURRENT_TIMELINE.get()
-            event = _tool_timeline_event(timeline, _name, args, kwargs)
-            diagnostic_call = dev_diagnostics.record_tool_call(
-                name=_name,
-                arguments=_tool_arguments(args, kwargs),
-                status="running",
-                kind="prompty",
+
+def prompty_tools_from_castia(
+    tools: Sequence[Any],
+) -> tuple[list[object], dict[str, Callable[..., Awaitable[str]]]]:
+    """Project Castia :class:`~castia.inference.tools.Tool` s into Prompty.
+
+    Returns ``(function_tools, tool_functions)`` for
+    :func:`configured_prompty_runner`. Each callback runs ``Tool.run`` with the
+    turn's ``activity`` (see :meth:`PromptyRunner.turn`), inside an
+    ``execute_tool`` span whose ``gen_ai.tool.type`` is ``Tool.kind``. Results
+    are JSON-encoded, as on the ``Model.respond_with_tools`` path.
+    """
+    prompty = _prompty()
+    function_tools: list[object] = []
+    tool_functions: dict[str, Callable[..., Awaitable[str]]] = {}
+    for tool in tools:
+        function_tools.append(
+            prompty.FunctionTool(
+                name=tool.name,
+                description=tool.description,
+                parameters=_prompty_parameters_from_input_schema(prompty, tool.parameters),
             )
-            with execute_tool(_name) as span:
-                _set_tool_span_start_attributes(span, event, _name, args, kwargs)
-                try:
-                    result = _tool_function(*args, **kwargs)
-                    if isawaitable(result):
-                        result = await result
-                except Exception as exc:
-                    _set_tool_span_error_attributes(span, event, exc)
-                    dev_diagnostics.update_tool_call(
-                        diagnostic_call,
-                        status="error",
-                        summary=f"{type(exc).__name__}: {exc}",
-                        error_type=type(exc).__name__,
-                    )
-                    raise
-                else:
-                    _set_tool_span_success_attributes(span, event, result)
-                    dev_diagnostics.update_tool_call(
-                        diagnostic_call,
-                        status="ok",
-                        summary=result,
-                    )
-                    return result
+        )
+        tool_functions[tool.name] = _traced_tool(
+            tool.name,
+            _castia_tool_callback(tool),
+            tool_type=getattr(tool, "kind", None) or "function",
+        )
+    return function_tools, tool_functions
 
-        traced[name] = call_tool
-    return traced
+
+def _castia_tool_callback(tool: Any) -> Callable[..., Awaitable[str]]:
+    async def call(**arguments: Any) -> str:
+        result = await tool.run(_CURRENT_ACTIVITY.get(), **arguments)
+        return result if isinstance(result, str) else _safe_json(result)
+
+    call.__name__ = tool.name
+    call.__doc__ = tool.description
+    return call
+
+
+def _is_castia_tool(value: object) -> bool:
+    from castia.inference.tools import Tool
+
+    return isinstance(value, Tool)
+
+
+_TRACED_TOOL_MARKER = "__castia_traced_tool__"
+
+
+def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> dict[str, Callable[..., Awaitable[Any]]]:
+    return {
+        name: _traced_tool(name, tool_function, tool_type=_traced_tool_type(tool_function))
+        for name, tool_function in tool_functions.items()
+    }
+
+
+def _traced_tool_type(tool_function: Callable[..., Any]) -> str | None:
+    marker = getattr(tool_function, _TRACED_TOOL_MARKER, None)
+    return marker[1] if marker is not None else None
+
+
+def _traced_tool(
+    name: str,
+    tool_function: Callable[..., Any],
+    *,
+    tool_type: str | None = None,
+) -> Callable[..., Awaitable[Any]]:
+    """Wrap one Prompty tool callback in an ``execute_tool`` span (idempotent)."""
+    marker = getattr(tool_function, _TRACED_TOOL_MARKER, None)
+    if marker is not None:
+        if marker[:2] == (name, tool_type):
+            return tool_function
+        tool_function = marker[2]
+
+    @functools.wraps(tool_function)
+    async def call_tool(*args: Any, **kwargs: Any) -> Any:
+        from castia.observe.tracing import execute_tool
+
+        timeline = _CURRENT_TIMELINE.get()
+        event = _tool_timeline_event(timeline, name, args, kwargs)
+        diagnostic_call = dev_diagnostics.record_tool_call(
+            name=name,
+            arguments=_tool_arguments(args, kwargs),
+            status="running",
+            kind="prompty",
+        )
+        span_cm = execute_tool(name, tool_type=tool_type) if tool_type else execute_tool(name)
+        with span_cm as span:
+            _set_tool_span_start_attributes(span, event, name, args, kwargs)
+            try:
+                result = tool_function(*args, **kwargs)
+                if isawaitable(result):
+                    result = await result
+            except Exception as exc:
+                _set_tool_span_error_attributes(span, event, exc)
+                dev_diagnostics.update_tool_call(
+                    diagnostic_call,
+                    status="error",
+                    summary=f"{type(exc).__name__}: {exc}",
+                    error_type=type(exc).__name__,
+                )
+                raise
+            else:
+                _set_tool_span_success_attributes(span, event, result)
+                dev_diagnostics.update_tool_call(
+                    diagnostic_call,
+                    status="ok",
+                    summary=result,
+                )
+                return result
+
+    setattr(call_tool, _TRACED_TOOL_MARKER, (name, tool_type, tool_function))
+    return call_tool
 
 
 def _tool_timeline_event(
@@ -671,19 +781,178 @@ def configured_prompty_runner(
     Use ``prompty_path`` to load a sidecar ``.prompty`` file, or omit it to build
     an in-memory agent from Castia ``AgentConfig``. ``.agent_configs`` remains
     the optimizer contract either way.
+
+    ``tools`` accepts Prompty tool definitions and Castia
+    :class:`~castia.inference.tools.Tool` s (such as ``graph_tools()``) in any
+    mix; Castia tools are projected with :func:`prompty_tools_from_castia`.
+    Explicit ``tool_functions`` win on a name clash.
     """
     if enable_otel is not None:
         register_prompty_otel_tracing(enable_content_recording=enable_otel)
-    agent = (
-        load_prompty_agent(prompty_path)
-        if prompty_path is not None
-        else prompty_agent_from_config(config, connection_name=connection_name, tools=tools)
-    )
+    castia_tools = [tool for tool in tools if _is_castia_tool(tool)]
+    prompty_tools = [tool for tool in tools if not _is_castia_tool(tool)]
+    functions: dict[str, Callable[..., Any]] = {}
+    if castia_tools:
+        castia_defs, castia_functions = prompty_tools_from_castia(castia_tools)
+        prompty_tools.extend(castia_defs)
+        functions.update(castia_functions)
+    functions.update(tool_functions or {})
+    if prompty_path is not None:
+        agent = load_prompty_agent(prompty_path)
+        if prompty_tools:
+            existing = list(getattr(agent, "tools", None) or [])
+            names = {getattr(tool, "name", None) for tool in existing}
+            agent.tools = [*existing, *(tool for tool in prompty_tools if getattr(tool, "name", None) not in names)]
+    else:
+        agent = prompty_agent_from_config(config, connection_name=connection_name, tools=prompty_tools)
     return PromptyRunner(
         agent,
-        tool_functions=dict(tool_functions or {}),
+        tool_functions=functions,
         max_iterations=max_iterations,
     )
+
+
+class ToolboxRuntimeConfigError(PromptyIntegrationError):
+    """The configured Foundry toolbox failed preflight before any model call."""
+
+
+def prompty_runner_provider(
+    config: AgentConfig | str | os.PathLike[str] | None = None,
+    *,
+    prompty_path: str | os.PathLike[str] | None = None,
+    tools: Sequence[object] = (),
+    toolbox: bool | Sequence[str] | None = None,
+    toolbox_descriptions: Mapping[str, str] | None = None,
+    connection_name: str = DEFAULT_FOUNDRY_CONNECTION,
+    max_iterations: int = 10,
+    enable_otel: bool | None = None,
+) -> Callable[[], Awaitable[PromptyRunner]]:
+    """Return an async provider that builds (once) and caches a Prompty runner.
+
+    The first call registers the Foundry connection, loads ``config`` (an
+    ``AgentConfig`` or a ``.agent_configs`` directory; ``None`` uses the
+    default), optionally preflights the toolbox, and builds the runner with
+    :func:`configured_prompty_runner`. Later calls return the cached runner;
+    failures are not cached, so the next call retries.
+
+    ``toolbox``: ``None`` uses the toolbox when an endpoint resolves from the
+    environment, ``True`` requires it, ``False`` disables it, and a sequence
+    requires exactly those tool names. Toolbox definitions come from MCP
+    ``tools/list``, with descriptions taken from ``toolbox_descriptions`` or
+    the config's optimizer ``tool_definitions``. A failed preflight raises
+    :class:`ToolboxRuntimeConfigError` with its diagnostics. ``tools`` may mix
+    Castia ``Tool`` objects and Prompty tool definitions.
+    """
+    cached: list[PromptyRunner] = []
+    lock = asyncio.Lock()
+
+    async def provider() -> PromptyRunner:
+        if cached:
+            return cached[0]
+        async with lock:
+            if cached:
+                return cached[0]
+            runner = await _build_prompty_runner(
+                config,
+                prompty_path=prompty_path,
+                tools=tools,
+                toolbox=toolbox,
+                toolbox_descriptions=toolbox_descriptions,
+                connection_name=connection_name,
+                max_iterations=max_iterations,
+                enable_otel=enable_otel,
+            )
+            cached.append(runner)
+            return runner
+
+    return provider
+
+
+async def _build_prompty_runner(
+    config: AgentConfig | str | os.PathLike[str] | None,
+    *,
+    prompty_path: str | os.PathLike[str] | None,
+    tools: Sequence[object],
+    toolbox: bool | Sequence[str] | None,
+    toolbox_descriptions: Mapping[str, str] | None,
+    connection_name: str,
+    max_iterations: int,
+    enable_otel: bool | None,
+) -> PromptyRunner:
+    resolved_config = config if isinstance(config, AgentConfig) else load_agent_config(config)
+    toolbox_defs: list[object] = []
+    toolbox_functions: dict[str, Callable[..., Any]] = {}
+    use_toolbox = bool(resolve_toolbox_endpoint()) if toolbox is None else toolbox is not False
+    if use_toolbox:
+        allowed = None if isinstance(toolbox, bool) or toolbox is None else tuple(toolbox)
+        preflight = await toolbox_preflight(allowed)
+        if not preflight.ok:
+            raise ToolboxRuntimeConfigError(
+                " ".join(preflight.diagnostics or ("Foundry toolbox preflight failed.",))
+            )
+        optimized = _optimized_tool_functions(resolved_config.tool_definitions)
+        descriptions = dict(toolbox_descriptions or {})
+        descriptions.update({name: fn["description"] for name, fn in optimized.items() if fn.get("description")})
+        toolbox_defs = toolbox_prompty_tools_from_schema(
+            preflight.tools,
+            allowed_tools=allowed,
+            descriptions=descriptions,
+        )
+        for definition in toolbox_defs:
+            _apply_optimized_parameter_descriptions(definition, optimized.get(getattr(definition, "name", None)))
+        client = ToolboxMcpClient(preflight.endpoint)
+        toolbox_functions = {
+            definition.name: _toolbox_function(definition.name, client) for definition in toolbox_defs
+        }
+    _reject_duplicate_tool_names([*toolbox_defs, *tools])
+    register_foundry_default_connection(name=connection_name)
+    return configured_prompty_runner(
+        resolved_config,
+        prompty_path=prompty_path,
+        connection_name=connection_name,
+        tools=[*toolbox_defs, *tools],
+        tool_functions=toolbox_functions,
+        max_iterations=max_iterations,
+        enable_otel=enable_otel,
+    )
+
+
+def _optimized_tool_functions(definitions: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+    out: dict[str, Mapping[str, Any]] = {}
+    for item in definitions or ():
+        if not isinstance(item, Mapping):
+            continue
+        func = item.get("function") if isinstance(item.get("function"), Mapping) else item
+        if isinstance(func.get("name"), str) and func["name"]:
+            out[func["name"]] = func
+    return out
+
+
+def _apply_optimized_parameter_descriptions(definition: object, optimized: Mapping[str, Any] | None) -> None:
+    parameters = optimized.get("parameters") if optimized else None
+    properties = parameters.get("properties") if isinstance(parameters, Mapping) else None
+    if not isinstance(properties, Mapping):
+        return
+    for prop in getattr(definition, "parameters", None) or ():
+        schema = properties.get(getattr(prop, "name", None))
+        if isinstance(schema, Mapping) and isinstance(schema.get("description"), str) and schema["description"]:
+            prop.description = schema["description"]
+
+
+def _reject_duplicate_tool_names(tools: Sequence[object]) -> None:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for tool in tools:
+        name = getattr(tool, "name", None)
+        if not isinstance(name, str):
+            continue
+        if name in seen and name not in duplicates:
+            duplicates.append(name)
+        seen.add(name)
+    if duplicates:
+        raise PromptyIntegrationError(
+            "Duplicate Prompty tool names (toolbox and app tools must not overlap): " + ", ".join(duplicates)
+        )
 
 
 class ToolboxToolHandler:
@@ -696,8 +965,12 @@ class ToolboxToolHandler:
         raise NotImplementedError("Use async Prompty execution for toolbox MCP tools.")
 
     async def execute_tool_async(self, tool: Any, args: dict[str, Any], agent: Any, parent_inputs: dict[str, Any]) -> str:
-        result = await self.client.call_tool(getattr(tool, "name", ""), args)
-        return serialize_mcp_result(result)
+        name = str(getattr(tool, "name", "") or "")
+
+        async def _call(**arguments: Any) -> str:
+            return serialize_mcp_result(await self.client.call_tool(name, arguments))
+
+        return await _traced_tool(name, _call, tool_type=_TOOLBOX_TOOL_TYPE)(**args)
 
 
 def register_toolbox_tool_handler(
@@ -721,19 +994,27 @@ def register_toolbox_function(
     *,
     client: ToolboxMcpClient | None = None,
 ) -> Callable[..., Awaitable[str]]:
-    """Register one toolbox MCP tool as a Prompty function callback."""
+    """Register one toolbox MCP tool as a Prompty function callback.
+
+    The registered (and returned) callback is already wrapped in an
+    ``execute_tool`` span, so it is traced whether Prompty resolves it from its
+    global registry or the app also passes it in ``tool_functions``.
+    """
     _prompty()
     from prompty.core.tool_dispatch import (  # type: ignore[import-not-found]
         register_tool,
     )
 
-    resolved_client = client or ToolboxMcpClient()
+    traced = _toolbox_function(name, client or ToolboxMcpClient())
+    register_tool(name, traced)
+    return traced
 
+
+def _toolbox_function(name: str, client: ToolboxMcpClient) -> Callable[..., Awaitable[str]]:
     async def _call(**arguments: Any) -> str:
-        return serialize_mcp_result(await resolved_client.call_tool(name, arguments))
+        return serialize_mcp_result(await client.call_tool(name, arguments))
 
-    register_tool(name, _call)
-    return _call
+    return _traced_tool(name, _call, tool_type=_TOOLBOX_TOOL_TYPE)
 
 
 def toolbox_prompty_tools(
@@ -920,20 +1201,24 @@ def _prompty_property_from_schema(
         "description": prop_schema.get("description") if isinstance(prop_schema.get("description"), str) else None,
         "required": required,
     }
-    if "enum" in prop_schema:
-        kwargs["enum"] = prop_schema["enum"]
+    if isinstance(prop_schema.get("enum"), list):
+        kwargs["enum_values"] = list(prop_schema["enum"])
     if "default" in prop_schema:
         kwargs["default"] = prop_schema["default"]
-    if kind == "array" and isinstance(prop_schema.get("items"), Mapping):
-        kwargs["items"] = _prompty_schema_shape(prompty, prop_schema["items"])
+    factory = prompty.Property
+    if kind == "array":
+        factory = getattr(prompty, "ArrayProperty", prompty.Property)
+        if isinstance(prop_schema.get("items"), Mapping):
+            kwargs["items"] = _prompty_schema_shape(prompty, prop_schema["items"])
     if kind == "object":
+        factory = getattr(prompty, "ObjectProperty", prompty.Property)
         nested = _prompty_parameters_from_input_schema(prompty, prop_schema)
         if nested:
             kwargs["properties"] = nested
         if "additionalProperties" in prop_schema:
             kwargs["additionalProperties"] = prop_schema["additionalProperties"]
             kwargs["additional_properties"] = prop_schema["additionalProperties"]
-    return _construct_prompty_object(prompty.Property, kwargs)
+    return _construct_prompty_object(factory, kwargs)
 
 
 def _prompty_schema_shape(prompty: Any, schema: Mapping[str, Any]) -> object:
@@ -1032,10 +1317,13 @@ __all__ = [
     "PromptyRunner",
     "ToolboxMcpClient",
     "ToolboxPreflightResult",
+    "ToolboxRuntimeConfigError",
     "ToolboxToolHandler",
     "configured_prompty_runner",
     "load_prompty_agent",
     "prompty_agent_from_config",
+    "prompty_runner_provider",
+    "prompty_tools_from_castia",
     "register_foundry_default_connection",
     "register_prompty_otel_tracing",
     "register_prompty_trace_sinks",

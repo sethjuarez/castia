@@ -20,6 +20,7 @@ import os
 from collections.abc import AsyncIterator, Callable
 
 from castia.observe.tracing import trace_attribute, trace_context_headers, trace_step
+from castia.runtime.usage import record_response_usage
 
 # Reasoning-effort levels accepted by the Responses API for reasoning models
 # (o-series, gpt-5, and their RFT-fine-tuned variants). A plain chat model
@@ -98,6 +99,7 @@ class Model:
                 **self._reasoning,
                 extra_headers=trace_context_headers(),
             )
+            record_response_usage(response)
             output = response.output_text
             trace_attribute("castia.model.output_text_length", len(output or ""))
             _add_model_event("castia.model.final_response.completed", phase="single")
@@ -137,6 +139,8 @@ class Model:
             output_length = 0
             try:
                 async for event in stream:
+                    if getattr(event, "type", None) == "response.completed":
+                        record_response_usage(getattr(event, "response", None))
                     if getattr(event, "type", None) == "response.output_text.delta":
                         delta = getattr(event, "delta", "")
                         if delta:
@@ -215,6 +219,7 @@ class Model:
                     **self._reasoning,
                     extra_headers=trace_context_headers(),
                 )
+                record_response_usage(response)
                 calls = [
                     item
                     for item in response.output

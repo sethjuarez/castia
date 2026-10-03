@@ -79,20 +79,29 @@ def configure_observability(
     _configure_azure_core_tracing()
     identity_processors = _build_agent_identity_processors()
     a365_plan = _plan_a365_export()
+    # The distro instruments azure-ai-projects during setup; publish the GenAI
+    # flag first so that call agrees with Castia's decision instead of warning.
+    _publish_genai_tracing_flag(enable_genai_tracing)
 
-    with _masked_env(_DISTRO_A365_EXPORT_ENV if a365_plan.mask_distro_env else None):
-        use_microsoft_opentelemetry(
-            resource=Resource.create(attributes),
-            enable_azure_monitor=bool(azure_monitor_connection_string),
-            azure_monitor_connection_string=azure_monitor_connection_string,
-            enable_a365=True,
-            span_processors=identity_processors,
-            instrumentation_options={
-                "fastapi": _fastapi_instrumentation_options(),
-                "openai_agents": {"enabled": False},
-            },
-            **a365_plan.options,
-        )
+    try:
+        with _masked_env(
+            _DISTRO_A365_EXPORT_ENV if a365_plan.mask_distro_env else None
+        ), _quiet_genai_disabled_warning():
+            use_microsoft_opentelemetry(
+                resource=Resource.create(attributes),
+                enable_azure_monitor=bool(azure_monitor_connection_string),
+                azure_monitor_connection_string=azure_monitor_connection_string,
+                enable_a365=True,
+                span_processors=identity_processors,
+                instrumentation_options={
+                    "fastapi": _fastapi_instrumentation_options(),
+                    "openai_agents": {"enabled": False},
+                },
+                **a365_plan.options,
+            )
+    except Exception:  # telemetry must never break startup
+        _logger.warning("OpenTelemetry setup failed; continuing without telemetry", exc_info=True)
+        return
     _install_a365_agent_id_enricher(a365_plan, agent_version)
     _install_msi_token_span_filter()
 
@@ -111,6 +120,38 @@ def _masked_env(name: str | None) -> Iterator[None]:
     finally:
         if name and saved is not None:
             os.environ[name] = saved
+
+
+_GENAI_TRACING_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
+_AI_PROJECT_INSTRUMENTOR_LOGGER = "azure.ai.projects.telemetry._ai_project_instrumentor"
+
+
+def _publish_genai_tracing_flag(explicit: bool | None) -> bool:
+    """Resolve the GenAI tracing flag (arg > env > on) and write it to the env."""
+    enabled = _resolve_flag(explicit, _GENAI_TRACING_ENV, True)
+    os.environ[_GENAI_TRACING_ENV] = "true" if enabled else "false"
+    return enabled
+
+
+class _GenAIDisabledWarningFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not str(record.msg).startswith("GenAI tracing is not enabled")
+
+
+@contextlib.contextmanager
+def _quiet_genai_disabled_warning() -> Iterator[None]:
+    """Drop the SDK's "GenAI tracing is not enabled" warning during distro setup.
+
+    Castia owns that decision (and logs it); when it is off by choice the SDK's
+    warning on the distro's own ``instrument()`` call is noise.
+    """
+    sdk_logger = logging.getLogger(_AI_PROJECT_INSTRUMENTOR_LOGGER)
+    log_filter = _GenAIDisabledWarningFilter()
+    sdk_logger.addFilter(log_filter)
+    try:
+        yield
+    finally:
+        sdk_logger.removeFilter(log_filter)
 
 
 def _plan_a365_export() -> Any:
@@ -350,16 +391,9 @@ def _enable_genai_tracing(
     take down startup or a turn.
     """
     try:
-        genai_enabled = _resolve_flag(
-            enable_genai_tracing,
-            "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING",
-            True,
-        )
         # Reflect the decision back onto the env var the SDK re-checks at
         # instrument() time, so an explicit argument and the SDK's own gate agree.
-        os.environ["AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"] = (
-            "true" if genai_enabled else "false"
-        )
+        genai_enabled = _publish_genai_tracing_flag(enable_genai_tracing)
         if not genai_enabled:
             _logger.info("GenAI tracing instrumentor disabled")
             return

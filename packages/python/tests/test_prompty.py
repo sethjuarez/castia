@@ -106,6 +106,188 @@ def test_prompty_runner_wraps_tool_functions_in_tool_spans(monkeypatch):
     assert events == [("enter", "local_tool"), ("call", "canvas"), ("exit", "local_tool")]
 
 
+def _castia_lookup_tool(calls, *, kind="graph_iq"):
+    from castia.inference.tools import Tool
+
+    async def impl(activity, *, query: str, limit: int = 3) -> dict:
+        calls.append((activity, query, limit))
+        return {"ok": True, "query": query}
+
+    return Tool(
+        name="lookup",
+        description="Look something up.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to find."},
+                "limit": {"type": "integer"},
+            },
+            "required": ["query"],
+        },
+        impl=impl,
+        kind=kind,
+    )
+
+
+def test_prompty_tools_from_castia_projects_schema_activity_and_kind(monkeypatch):
+    from prompty.core.tool_dispatch import dispatch_tool_async
+
+    calls, spans = [], []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+    tool = _castia_lookup_tool(calls)
+
+    definitions, functions = castia_prompty.prompty_tools_from_castia([tool])
+
+    assert [d.name for d in definitions] == ["lookup"]
+    assert definitions[0].description == "Look something up."
+    params = {p.name: p for p in definitions[0].parameters}
+    assert params["query"].kind == "string" and params["query"].required is True
+    assert params["limit"].kind == "integer" and params["limit"].required is False
+
+    activity = object()
+
+    async def run():
+        token = castia_prompty._CURRENT_ACTIVITY.set(activity)
+        try:
+            return await dispatch_tool_async("lookup", '{"query":"fees"}', functions, None, {})
+        finally:
+            castia_prompty._CURRENT_ACTIVITY.reset(token)
+
+    assert json.loads(asyncio.run(run())) == {"ok": True, "query": "fees"}
+    assert calls == [(activity, "fees", 3)]
+    assert [(s.name, s.attributes["tool_type"]) for s in spans] == [("execute_tool lookup", "graph_iq")]
+
+
+def test_prompty_runner_turn_passes_activity_to_castia_tools(monkeypatch):
+    calls = []
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Use tools.", "default"),
+        tools=[_castia_lookup_tool(calls)],
+        enable_otel=False,
+    )
+    assert [tool.name for tool in runner.agent.tools] == ["lookup"]
+
+    async def fake_turn_async(agent, inputs, **kwargs):
+        assert "activity" not in inputs
+        return await kwargs["tools"]["lookup"](query="travel")
+
+    monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
+    activity = object()
+
+    assert json.loads(asyncio.run(runner.turn("hi", activity=activity))) == {"ok": True, "query": "travel"}
+    assert calls == [(activity, "travel", 3)]
+    assert castia_prompty._CURRENT_ACTIVITY.get() is None
+
+
+def test_prompty_runner_turn_defaults_to_ambient_activity(monkeypatch):
+    from castia.runtime.context import turn_scope
+
+    calls = []
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Use tools.", "default"),
+        tools=[_castia_lookup_tool(calls)],
+        enable_otel=False,
+    )
+
+    async def fake_turn_async(agent, inputs, **kwargs):
+        return await kwargs["tools"]["lookup"](query="x")
+
+    monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
+    activity = object()
+
+    async def run():
+        with turn_scope(activity):
+            return await runner.turn("hi")
+
+    asyncio.run(run())
+    assert calls[0][0] is activity
+
+
+def test_prompty_tools_from_castia_keeps_enum_array_and_object_schema():
+    from prompty.providers.openai.executor import _schema_to_wire
+
+    from castia.inference.tools import Tool
+
+    async def impl(activity, **kwargs):
+        return {}
+
+    tool = Tool(
+        name="search",
+        description="Search.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["fast", "deep"]},
+                "tags": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}},
+                "filter": {
+                    "type": "object",
+                    "properties": {"owner": {"type": "string"}},
+                    "required": ["owner"],
+                },
+            },
+            "required": ["mode"],
+        },
+        impl=impl,
+    )
+
+    definitions, _ = castia_prompty.prompty_tools_from_castia([tool])
+    wire = _schema_to_wire(definitions[0].parameters)
+
+    assert wire["required"] == ["mode"]
+    assert wire["properties"]["mode"] == {"type": "string", "enum": ["fast", "deep"]}
+    assert wire["properties"]["tags"]["items"] == {"type": "string", "enum": ["a", "b"]}
+    assert wire["properties"]["filter"]["properties"] == {"owner": {"type": "string"}}
+    assert wire["properties"]["filter"]["required"] == ["owner"]
+
+
+def test_configured_prompty_runner_appends_tools_to_prompty_file(tmp_path):
+    path = tmp_path / "agent.prompty"
+    path.write_text(
+        """---
+name: sidecar
+model:
+  id: gpt-4o
+  provider: foundry
+  connection:
+    kind: reference
+    name: default
+tools:
+  - name: lookup
+    kind: function
+    description: From file.
+---
+system:
+Hi.
+""",
+        encoding="utf-8",
+    )
+    extra = prompty.FunctionTool(name="other", description="Other.", parameters=[])
+
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "x", "default"),
+        tools=[extra, _castia_lookup_tool([])],
+        prompty_path=path,
+        enable_otel=False,
+    )
+
+    assert [tool.name for tool in runner.agent.tools] == ["lookup", "other"]
+    assert runner.agent.tools[0].description == "From file."
+    assert "lookup" in runner.tool_functions
+
+
+def test_configured_prompty_runner_explicit_tool_functions_win(monkeypatch):
+    async def override(**_kwargs):
+        return "override"
+
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Use tools.", "default"),
+        tools=[_castia_lookup_tool([])],
+        tool_functions={"lookup": override},
+        enable_otel=False,
+    )
+    assert runner.tool_functions["lookup"] is override
+
+
 def test_prompty_otel_registration_filters_content_without_opt_in(monkeypatch):
     calls = []
     provider = FakeProvider()
@@ -396,6 +578,108 @@ def test_register_toolbox_function_dispatches_through_prompty_registry():
     clear_tools()
 
 
+def _toolbox_echo_client(http):
+    return ToolboxMcpClient("https://example.test/mcp", token_provider=lambda: "TOKEN", client=http)
+
+
+def _toolbox_echo_handler(request: httpx.Request) -> httpx.Response:
+    payload = json.loads(request.content)
+    query = payload["params"]["arguments"].get("query", "")
+    return httpx.Response(
+        200,
+        json={"jsonrpc": "2.0", "id": payload["id"], "result": {"content": [{"type": "text", "text": f"found {query}"}]}},
+    )
+
+
+def _recording_execute_tool(spans):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fake_execute_tool(name, **kwargs):
+        span = FakeSpan(f"execute_tool {name}", {"tool_type": kwargs.get("tool_type")})
+        spans.append(span)
+        yield span
+
+    return fake_execute_tool
+
+
+def test_register_toolbox_function_traces_global_registry_dispatch(monkeypatch):
+    from prompty.core.tool_dispatch import clear_tools, dispatch_tool_async
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def run():
+        clear_tools()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_toolbox_echo_handler)) as http:
+            register_toolbox_function("kb_retrieve", client=_toolbox_echo_client(http))
+            return await dispatch_tool_async("kb_retrieve", '{"query":"travel"}', {}, None, {})
+
+    try:
+        assert asyncio.run(run()) == "found travel"
+    finally:
+        clear_tools()
+    assert [span.name for span in spans] == ["execute_tool kb_retrieve"]
+    assert spans[0].attributes["tool_type"] == "toolbox"
+    assert spans[0].attributes["castia.tool.status"] == "ok"
+
+
+def test_toolbox_function_in_tool_functions_is_traced_once(monkeypatch):
+    from prompty.core.tool_dispatch import clear_tools
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def run():
+        clear_tools()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_toolbox_echo_handler)) as http:
+            callback = register_toolbox_function("kb_retrieve", client=_toolbox_echo_client(http))
+            traced = castia_prompty._traced_tool_functions({"kb_retrieve": callback})
+            assert traced["kb_retrieve"] is callback
+            return await traced["kb_retrieve"](query="fees")
+
+    try:
+        assert asyncio.run(run()) == "found fees"
+    finally:
+        clear_tools()
+    assert len(spans) == 1
+
+
+def test_traced_tool_preserves_signature_and_rewraps_on_identity_change(monkeypatch):
+    import inspect
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def lookup(*, query: str) -> str:
+        return query
+
+    first = castia_prompty._traced_tool("lookup", lookup, tool_type="toolbox")
+    assert inspect.signature(first) == inspect.signature(lookup)
+    assert inspect.iscoroutinefunction(first)
+    assert castia_prompty._traced_tool("lookup", first, tool_type="toolbox") is first
+
+    renamed = castia_prompty._traced_tool("search", first)
+    assert asyncio.run(renamed(query="x")) == "x"
+    assert [(span.name, span.attributes["tool_type"]) for span in spans] == [("execute_tool search", None)]
+
+
+def test_toolbox_tool_handler_traces_kind_dispatch(monkeypatch):
+    from types import SimpleNamespace
+
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_toolbox_echo_handler)) as http:
+            handler = castia_prompty.ToolboxToolHandler(_toolbox_echo_client(http))
+            return await handler.execute_tool_async(SimpleNamespace(name="kb_retrieve"), {"query": "travel"}, None, {})
+
+    assert asyncio.run(run()) == "found travel"
+    assert [span.name for span in spans] == ["execute_tool kb_retrieve"]
+    assert spans[0].attributes["tool_type"] == "toolbox"
+
+
 def test_toolbox_prompty_tools_create_function_tools_for_model_wire():
     tools = toolbox_prompty_tools(
         ("contracts-kb-mcp___knowledge_base_retrieve",),
@@ -496,3 +780,124 @@ def test_serialize_mcp_result_uses_actual_json_error_message():
 
     with pytest.raises(McpToolboxError, match="FoundryIQ denied access"):
         serialize_mcp_result(result)
+
+
+def _provider_fakes(monkeypatch, *, ok=True):
+    from castia.prompty import ToolboxPreflightResult
+
+    events = []
+    monkeypatch.setattr(
+        castia_prompty,
+        "register_foundry_default_connection",
+        lambda **kwargs: events.append(("connection", kwargs["name"])),
+    )
+
+    async def fake_preflight(allowed=None, **_kwargs):
+        events.append(("preflight", allowed))
+        if not ok:
+            return ToolboxPreflightResult(ok=False, endpoint=None, diagnostics=("Set TOOLBOX_NAME.",))
+        return ToolboxPreflightResult(
+            ok=True,
+            endpoint="https://example.test/toolboxes/kb/mcp?api-version=v1",
+            tool_names=("kb_retrieve",),
+            tools=(
+                {
+                    "name": "kb_retrieve",
+                    "description": "Upstream.",
+                    "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+                },
+            ),
+        )
+
+    monkeypatch.setattr(castia_prompty, "toolbox_preflight", fake_preflight)
+    return events
+
+
+def test_prompty_runner_provider_builds_once_with_toolbox_and_castia_tools(monkeypatch):
+    events = _provider_fakes(monkeypatch)
+    monkeypatch.setattr(castia_prompty, "resolve_toolbox_endpoint", lambda env=None: "https://example.test/x")
+    config = AgentConfig(
+        "gpt-4o",
+        "Use tools.",
+        "default",
+        tool_definitions=(
+            {
+                "type": "function",
+                "function": {
+                    "name": "kb_retrieve",
+                    "description": "Optimized.",
+                    "parameters": {"type": "object", "properties": {"q": {"description": "Optimized q."}}},
+                },
+            },
+        ),
+    )
+    from prompty.core import tool_dispatch
+
+    registry_before = dict(tool_dispatch._name_registry)
+    provider = castia_prompty.prompty_runner_provider(
+        config,
+        tools=[_castia_lookup_tool([])],
+        toolbox_descriptions={"kb_retrieve": "Baseline."},
+        enable_otel=False,
+    )
+
+    async def run():
+        return await asyncio.gather(provider(), provider())
+
+    first, second = asyncio.run(run())
+    third = asyncio.run(provider())
+
+    assert first is second is third
+    assert events == [("preflight", None), ("connection", "foundry-default")]
+    assert [(tool.name, tool.description) for tool in first.agent.tools] == [
+        ("kb_retrieve", "Optimized."),
+        ("lookup", "Look something up."),
+    ]
+    assert first.agent.tools[0].parameters[0].description == "Optimized q."
+    assert dict(tool_dispatch._name_registry) == registry_before
+    assert set(first.tool_functions) == {"kb_retrieve", "lookup"}
+    assert castia_prompty._traced_tool_type(first.tool_functions["kb_retrieve"]) == "toolbox"
+    assert castia_prompty._traced_tool_type(first.tool_functions["lookup"]) == "graph_iq"
+
+
+def test_prompty_runner_provider_skips_toolbox_without_endpoint(monkeypatch):
+    events = _provider_fakes(monkeypatch)
+    monkeypatch.setattr(castia_prompty, "resolve_toolbox_endpoint", lambda env=None: None)
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"), enable_otel=False
+    )
+
+    runner = asyncio.run(provider())
+
+    assert events == [("connection", "foundry-default")]
+    assert list(runner.agent.tools or []) == []
+
+
+def test_prompty_runner_provider_raises_and_retries_failed_preflight(monkeypatch):
+    events = _provider_fakes(monkeypatch, ok=False)
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"), toolbox=["kb_retrieve"], enable_otel=False
+    )
+
+    for _ in range(2):
+        with pytest.raises(castia_prompty.ToolboxRuntimeConfigError, match="Set TOOLBOX_NAME."):
+            asyncio.run(provider())
+
+    assert events.count(("preflight", ("kb_retrieve",))) == 2
+
+
+def test_prompty_runner_provider_rejects_duplicate_tool_names(monkeypatch):
+    events = _provider_fakes(monkeypatch)
+    tool = _castia_lookup_tool([])
+    from dataclasses import replace
+
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"),
+        tools=[replace(tool, name="kb_retrieve")],
+        toolbox=True,
+        enable_otel=False,
+    )
+
+    with pytest.raises(castia_prompty.PromptyIntegrationError, match="kb_retrieve"):
+        asyncio.run(provider())
+    assert ("connection", "foundry-default") not in events

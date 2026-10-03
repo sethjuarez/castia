@@ -67,6 +67,7 @@ from castia.runtime.request_context import (
     reset_request_context,
     set_request_context,
 )
+from castia.runtime.usage import TurnUsage, usage_scope
 
 logger = logging.getLogger(__name__)
 # The root logger sits at WARNING, so INFO records (including the unknown-invoke
@@ -175,6 +176,7 @@ def _responses_body(
     tools: list | None = None,
     tool_choice: object = None,
     parallel_tool_calls: bool | None = None,
+    usage: TurnUsage | None = None,
 ) -> dict:
     """An OpenAI Responses-shaped payload carrying ``text``.
 
@@ -213,13 +215,7 @@ def _responses_body(
         "tools": tools or [],
         "usage": None
         if status != "completed"
-        else {
-            "input_tokens": 0,
-            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
-            "output_tokens": 0,
-            "output_tokens_details": {"reasoning_tokens": 0},
-            "total_tokens": 0,
-        },
+        else (usage or TurnUsage()).to_responses_usage(),
     }
 
 
@@ -410,12 +406,14 @@ def _responses_completed_event(
     output_item_id: str,
     created_at: int,
     response_options: dict,
+    usage: TurnUsage | None = None,
 ) -> dict:
     body = _responses_body(
         text,
         response_id=response_id,
         output_item_id=output_item_id,
         created_at=created_at,
+        usage=usage,
         **response_options,
     )
     return {"type": "response.completed", "response": body, **body}
@@ -842,7 +840,7 @@ def _register_wire(
                         try:
                             with _request_scope(request), dev_diagnostics.turn(
                                 "responses", text
-                            ):
+                            ), usage_scope() as turn_usage:
                                 yield emit(
                                     "response.created",
                                     {
@@ -963,6 +961,7 @@ def _register_wire(
                                                 response_id=response_id,
                                                 output_item_id=output_item_id,
                                                 created_at=created_at,
+                                                usage=turn_usage,
                                                 **response_options,
                                             ),
                                             "input_items": input_items,
@@ -976,6 +975,7 @@ def _register_wire(
                                         output_item_id=output_item_id,
                                         created_at=created_at,
                                         response_options=response_options,
+                                        usage=turn_usage,
                                     ),
                                 )
                                 terminal_status = "completed"
@@ -1018,7 +1018,7 @@ def _register_wire(
 
                     return StreamingResponse(events(), media_type="text/event-stream")
 
-                with dev_diagnostics.turn("responses", text):
+                with dev_diagnostics.turn("responses", text), usage_scope() as turn_usage:
                     reply = await responses_dispatch(text)
                     dev_diagnostics.record_output(reply)
                 response_id = f"resp_{uuid4().hex}"
@@ -1029,6 +1029,7 @@ def _register_wire(
                     response_id=response_id,
                     output_item_id=output_item_id,
                     created_at=created_at,
+                    usage=turn_usage,
                     **response_options,
                 )
                 if store:
