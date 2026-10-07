@@ -122,6 +122,7 @@ class ToolboxMcpClient:
         token_provider: TokenProvider | None = None,
         headers: Mapping[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
+        trace_requests: bool = True,
     ) -> None:
         resolved = endpoint or resolve_toolbox_endpoint()
         if not resolved:
@@ -135,6 +136,7 @@ class ToolboxMcpClient:
         self.token_provider = token_provider
         self.headers = dict(headers or {})
         self.client = client
+        self.trace_requests = trace_requests
 
     async def list_tools(self) -> list[dict[str, Any]]:
         result = await self._request("tools/list")
@@ -184,7 +186,27 @@ class ToolboxMcpClient:
             payload["params"] = dict(params)
 
         async def send(client: httpx.AsyncClient) -> httpx.Response:
-            return await client.post(self.endpoint, json=payload, headers=headers)
+            if not self.trace_requests:
+                return await client.post(self.endpoint, json=payload, headers=headers)
+            from castia.observe.tracing import http_client_span
+
+            with http_client_span(
+                "POST",
+                self.endpoint,
+                headers=headers,
+                attributes={
+                    "castia.telemetry.scope": "toolbox_mcp_http",
+                    "castia.toolbox.mcp": True,
+                    "castia.toolbox.mcp.method": method,
+                },
+            ) as outbound:
+                response = await client.post(
+                    self.endpoint,
+                    json=payload,
+                    headers=outbound.headers,
+                )
+                outbound.set_response(response.status_code)
+                return response
 
         if self.client is not None:
             response = await send(self.client)
@@ -220,6 +242,7 @@ async def toolbox_tools_from_mcp(
     descriptions: Mapping[str, str] | None = None,
     client: httpx.AsyncClient | None = None,
     mcp_client: ToolboxMcpClient | None = None,
+    trace_requests: bool = True,
 ) -> list[Tool]:
     """Build local Castia tools from a Foundry toolbox MCP ``tools/list`` schema.
 
@@ -233,6 +256,7 @@ async def toolbox_tools_from_mcp(
         token_provider=token_provider,
         headers=headers,
         client=client,
+        trace_requests=trace_requests,
     )
     return toolbox_tools_from_schema(
         await resolved_client.list_tools(),
