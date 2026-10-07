@@ -210,6 +210,25 @@ wraps each remote MCP invocation in the same `execute_tool {name}` span used for
 local functions, with `gen_ai.tool.type = mcp` and the Responses call id when
 available. That is the Castia-owned path for Monitor-countable toolbox calls.
 
+For local MCP toolbox calls, Castia also creates an explicit outbound HTTP client
+span around the JSON-RPC POST. The span is named from the request path, for
+example `POST /api/projects/<project>/toolboxes/<toolbox>/mcp`, and is a child of
+the active `execute_tool <name>` span. Castia injects that POST span's W3C
+`traceparent` plus `leaf_customer_span_id` before sending the request, then
+suppresses automatic HTTPX instrumentation inside the manual span so downstream
+Foundry toolbox telemetry parents to the visible POST dependency instead of to a
+hidden auto-instrumented HTTP span. The span carries marker attributes such as
+`castia.toolbox.mcp` and `castia.telemetry.scope = "toolbox_mcp_http"` for
+filtering; it deliberately avoids blanket `gen_ai.system` /
+`gen_ai.provider.name` attributes so Azure Monitor keeps classifying it as an
+HTTP dependency.
+
+If an agent needs to bypass this Castia-owned POST span, construct local toolbox
+tools with `toolbox_tools_from_mcp(..., trace_requests=False)` or pass
+`trace_requests=False` to `ToolboxMcpClient`. The raw Responses `mcp` spec path
+is unaffected: those toolbox calls are executed by the model service, not by the
+Castia process, so Castia cannot wrap or reparent their outbound POSTs.
+
 ## Azure SDK metadata dependency noise
 
 Azure Identity and Azure Monitor can emit standalone dependency spans such as

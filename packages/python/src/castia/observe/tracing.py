@@ -35,13 +35,14 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
+from urllib.parse import urlparse
 
 #: ``gen_ai.provider.name`` / ``gen_ai.system`` value for Foundry-hosted models.
 #: Matches what the model call's own ``chat`` span carries, so parent and child
@@ -249,6 +250,97 @@ class _TraceStep:
         return wrapper
 
 
+@dataclass(frozen=True)
+class HttpClientSpan:
+    """Active outbound HTTP span state and headers derived from that span."""
+
+    span: Any
+    headers: dict[str, str]
+
+    def set_response(self, status_code: int | None) -> None:
+        if status_code is None:
+            return
+        try:
+            self.span.set_attribute("http.status_code", status_code)
+            self.span.set_attribute("http.response.status_code", status_code)
+        except Exception:
+            _logger.debug("Could not attach HTTP response status", exc_info=True)
+
+
+@contextmanager
+def http_client_span(
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    attributes: dict[str, Any] | None = None,
+    suppress_auto_instrumentation: bool = True,
+) -> Iterator[HttpClientSpan]:
+    """Create a manual outbound HTTP client span and derived propagation headers.
+
+    The yielded headers carry the W3C context for this span, not its parent. When
+    an upstream Foundry toolbox honors ``leaf_customer_span_id`` it should parent
+    its remote work to this explicit POST dependency.
+    """
+    from opentelemetry import propagate, trace
+    from opentelemetry.trace import SpanKind
+
+    normalized_method = str(method or "HTTP").upper()
+    parsed = urlparse(url)
+    path = parsed.path or "/"
+    span_name = f"{normalized_method} {path}"
+    span_attributes: dict[str, Any] = {
+        "http.method": normalized_method,
+        "http.request.method": normalized_method,
+        "http.url": url,
+        "url.full": url,
+        "url.path": path,
+        "castia.telemetry.source": "castia",
+    }
+    if parsed.scheme:
+        span_attributes["url.scheme"] = parsed.scheme
+    if parsed.hostname:
+        span_attributes["server.address"] = parsed.hostname
+    if parsed.port:
+        span_attributes["server.port"] = parsed.port
+    if attributes:
+        span_attributes.update(attributes)
+
+    tracer = trace.get_tracer(_TRACER_NAME)
+    with tracer.start_as_current_span(
+        span_name,
+        kind=SpanKind.CLIENT,
+        attributes=_otel_span_attributes(span_attributes),
+    ) as span:
+        carrier: dict[str, str] = {}
+        propagate.inject(carrier)
+        injected = dict(headers or {})
+        injected.update(carrier)
+        traceparent = carrier.get("traceparent")
+        if traceparent:
+            injected["leaf_customer_span_id"] = traceparent
+        with _maybe_suppress_auto_instrumentation(suppress_auto_instrumentation):
+            yield HttpClientSpan(span=span, headers=injected)
+
+
+@contextmanager
+def _maybe_suppress_auto_instrumentation(enabled: bool) -> Iterator[None]:
+    if not enabled:
+        yield
+        return
+    try:
+        from opentelemetry import context
+        from opentelemetry.instrumentation.utils import _SUPPRESS_INSTRUMENTATION_KEY
+    except (AttributeError, ImportError):
+        yield
+        return
+    token = context.attach(context.set_value(_SUPPRESS_INSTRUMENTATION_KEY, True))
+    try:
+        yield
+    finally:
+        context.detach(token)
+
+
 def trace_step(
     name: str | Any | None = None,
     *,
@@ -439,6 +531,14 @@ def _otel_record_attributes(record: TraceRecord) -> dict[str, Any]:
         if key not in attributes:
             attributes[key] = _otel_attribute_value(value)
     return {key: value for key, value in attributes.items() if value is not None}
+
+
+def _otel_span_attributes(values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): _otel_attribute_value(value)
+        for key, value in values.items()
+        if value is not None
+    }
 
 
 def _otel_attribute_value(value: Any) -> Any:

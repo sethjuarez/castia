@@ -440,6 +440,140 @@ def test_toolbox_mcp_client_reports_token_failure() -> None:
     asyncio.run(run())
 
 
+def test_toolbox_mcp_client_traces_mcp_post_and_injects_leaf_header(monkeypatch) -> None:
+    import opentelemetry.context as otel_context
+    import opentelemetry.trace as otel_trace
+    from opentelemetry import propagate
+    from opentelemetry.trace import SpanKind
+
+    class FakeSpan:
+        def __init__(self) -> None:
+            self.attributes: dict[str, object] = {}
+            self.active = False
+
+        def set_attribute(self, key: str, value: object) -> None:
+            self.attributes[key] = value
+
+    class FakeSpanContext:
+        def __init__(self, span: FakeSpan) -> None:
+            self.span = span
+
+        def __enter__(self) -> FakeSpan:
+            self.span.active = True
+            return self.span
+
+        def __exit__(self, *_exc: object) -> None:
+            self.span.active = False
+
+    class FakeTracer:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+            self.span = FakeSpan()
+
+        def start_as_current_span(self, name: str, **kwargs: object) -> FakeSpanContext:
+            self.calls.append({"name": name, **kwargs})
+            self.span.attributes.update(kwargs.get("attributes", {}))
+            return FakeSpanContext(self.span)
+
+    tracer = FakeTracer()
+    suppressed = False
+
+    def fake_inject(headers: dict[str, str]) -> None:
+        assert tracer.span.active
+        headers["traceparent"] = "00-11111111111111111111111111111111-2222222222222222-01"
+
+    def fake_attach(_context: object) -> object:
+        nonlocal suppressed
+        suppressed = True
+        return object()
+
+    def fake_detach(_token: object) -> None:
+        nonlocal suppressed
+        suppressed = False
+
+    monkeypatch.setattr(otel_trace, "get_tracer", lambda _name: tracer)
+    monkeypatch.setattr(propagate, "inject", fake_inject)
+    monkeypatch.setattr(otel_context, "attach", fake_attach)
+    monkeypatch.setattr(otel_context, "detach", fake_detach)
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert suppressed is True
+        assert request.headers["traceparent"] == (
+            "00-11111111111111111111111111111111-2222222222222222-01"
+        )
+        assert request.headers["leaf_customer_span_id"] == request.headers["traceparent"]
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"content": [{"type": "text", "text": "grounded"}]},
+            },
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            client = ToolboxMcpClient(
+                "https://acct.services.ai.azure.com/api/projects/proj/toolboxes/contracts/mcp?api-version=v1",
+                token_provider=lambda: "TOKEN",
+                client=http,
+            )
+            assert await client.call_tool("lookup", {"query": "contracts"}) == {
+                "content": [{"type": "text", "text": "grounded"}]
+            }
+
+    asyncio.run(run())
+
+    assert suppressed is False
+    assert len(tracer.calls) == 1
+    call = tracer.calls[0]
+    assert call["name"] == "POST /api/projects/proj/toolboxes/contracts/mcp"
+    assert call["kind"] is SpanKind.CLIENT
+    attrs = call["attributes"]
+    assert attrs["castia.telemetry.scope"] == "toolbox_mcp_http"
+    assert attrs["castia.toolbox.mcp"] is True
+    assert attrs["castia.toolbox.mcp.method"] == "tools/call"
+    assert attrs["http.method"] == "POST"
+    assert attrs["http.request.method"] == "POST"
+    assert attrs["url.path"] == "/api/projects/proj/toolboxes/contracts/mcp"
+    assert "gen_ai.system" not in attrs
+    assert "gen_ai.provider.name" not in attrs
+    assert tracer.span.attributes["http.status_code"] == 200
+    assert tracer.span.attributes["http.response.status_code"] == 200
+
+
+def test_toolbox_mcp_client_can_opt_out_of_mcp_post_tracing(monkeypatch) -> None:
+    import opentelemetry.trace as otel_trace
+
+    monkeypatch.setattr(
+        otel_trace,
+        "get_tracer",
+        lambda _name: (_ for _ in ()).throw(AssertionError("tracing disabled")),
+    )
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert "traceparent" not in request.headers
+        assert "leaf_customer_span_id" not in request.headers
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": payload["id"], "result": {"tools": [{"name": "lookup"}]}},
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            tools = await toolbox_tools_from_mcp(
+                endpoint="https://example.test/mcp",
+                token_provider=lambda: "TOKEN",
+                client=http,
+                trace_requests=False,
+            )
+            assert [tool.name for tool in tools] == ["lookup"]
+
+    asyncio.run(run())
+
+
 def test_toolbox_mcp_client_rejects_foundry_endpoint_without_api_version() -> None:
     with pytest.raises(ValueError, match="api-version"):
         ToolboxMcpClient(

@@ -338,6 +338,12 @@ in [Consume a toolbox](README.md#consume-a-toolbox). Pass the chosen settings
 through the hosted service's environment when deploying; an azd environment
 entry alone does not put it in the container.
 
+Local toolbox tools built with `toolbox_tools_from_mcp(...)` emit Castia-owned
+telemetry for the outbound MCP POST: `execute_tool <name>` contains a child HTTP
+span named like `POST /api/projects/<project>/toolboxes/<toolbox>/mcp`, and the
+request carries that POST span's `traceparent` plus `leaf_customer_span_id`.
+Pass `trace_requests=False` only when an agent deliberately needs to opt out.
+
 In a second PowerShell window, readiness is local and does not invoke a model.
 Non-loopback callers receive low-disclosure JSON such as `{"status":"ok"}`.
 Local loopback callers receive diagnostic readiness, including the agent name,
