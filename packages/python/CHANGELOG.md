@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/sethjuarez/castia/compare/python-v0.14.0...python-v0.14.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **python:** parent toolbox MCP traces ([e52f0c2](https://github.com/sethjuarez/castia/commit/e52f0c2d37ffc1e654d78220617b39861b70cd19))
+
 ## [0.14.0](https://github.com/sethjuarez/castia/compare/python-v0.13.1...python-v0.14.0) (2026-10-03)
 
 
