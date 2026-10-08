@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/sethjuarez/castia/compare/python-v0.14.1...python-v0.14.2) (2026-10-08)
+
+
+### Bug Fixes
+
+* **python:** suppress IMDS probe spans ([430ce72](https://github.com/sethjuarez/castia/commit/430ce728bc7550111427b210aba38710f1a994a1))
+
 ## [0.14.1](https://github.com/sethjuarez/castia/compare/python-v0.14.0...python-v0.14.1) (2026-10-07)
 
 
