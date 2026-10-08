@@ -343,6 +343,10 @@ telemetry for the outbound MCP POST: `execute_tool <name>` contains a child HTTP
 span named like `POST /api/projects/<project>/toolboxes/<toolbox>/mcp`, and the
 request carries that POST span's `traceparent` plus `leaf_customer_span_id`.
 Pass `trace_requests=False` only when an agent deliberately needs to opt out.
+Castia suppresses fast Azure metadata/IMDS dependency probes by default; if a
+new infrastructure probe clutters traces, use `suppress_telemetry_spans(...)` or
+the `CASTIA_OTEL_SUPPRESS_SPAN_*` environment variables as a bounded escape
+hatch rather than adding per-agent HTTP workarounds.
 
 In a second PowerShell window, readiness is local and does not invoke a model.
 Non-loopback callers receive low-disclosure JSON such as `{"status":"ok"}`.

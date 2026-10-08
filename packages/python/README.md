@@ -570,6 +570,8 @@ default**:
 | Content recording | `enable_content_recording` | `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED` | off |
 | GenAI tracing | `enable_genai_tracing` | `AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING` | on |
 | ASGI internal event span tracing | — | `CASTIA_OTEL_TRACE_ASGI_INTERNAL` | off |
+| Azure metadata span tracing | — | `CASTIA_OTEL_TRACE_MSI_TOKEN` | off |
+| Infrastructure span tracing | — | `CASTIA_OTEL_TRACE_INFRASTRUCTURE` | off |
 
 Passing nothing preserves the default behavior. Telemetry setup is best-effort:
 a failure is logged, never raised, so it can't break startup or a turn.
@@ -585,6 +587,23 @@ request span when available, without recording streamed text.
 Set `CASTIA_OTEL_TRACE_ASGI_INTERNAL=true` only when debugging the ASGI transport
 itself. `CASTIA_OTEL_TRACE_ASGI_SEND=true` remains accepted as a compatibility
 alias.
+
+Castia suppresses fast Azure metadata/IMDS dependency probes by default, while
+keeping slow calls and spans with exception evidence. If a new platform probe
+adds noise before Castia has a built-in rule, register a bounded escape hatch:
+
+```python
+from castia import suppress_telemetry_spans
+
+suppress_telemetry_spans("future-probe", name_contains="/metadata/new-token")
+```
+
+The same behavior can be configured operationally with
+`CASTIA_OTEL_SUPPRESS_SPAN_NAME_CONTAINS`,
+`CASTIA_OTEL_SUPPRESS_SPAN_TARGET_CONTAINS`, and
+`CASTIA_OTEL_SUPPRESS_SPAN_MAX_DURATION_MS`. Set
+`CASTIA_OTEL_TRACE_INFRASTRUCTURE=true` to disable Castia infrastructure
+suppression while debugging.
 
 ### Agent 365 export
 

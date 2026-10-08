@@ -87,10 +87,11 @@ PUBLIC_EXPORTS = {
         "toolbox_tools_from_schema", "validate_toolbox_endpoint",
     ),
     "observe.tracing": (
-        "OperationName", "TraceRecord", "clear_trace_sinks", "execute_tool",
-        "invoke_agent", "jsonl_trace_sink", "otel_trace_sink", "register_trace_sink",
-        "registered_trace_sinks", "remove_trace_sink", "trace_attribute",
-        "trace_step",
+        "OperationName", "TraceRecord", "clear_span_filters", "clear_trace_sinks",
+        "execute_tool", "invoke_agent", "jsonl_trace_sink", "otel_trace_sink",
+        "register_span_filter", "register_trace_sink", "registered_span_filters",
+        "registered_trace_sinks", "remove_span_filter", "remove_trace_sink",
+        "suppress_telemetry_spans", "trace_attribute", "trace_step",
     ),
 }
 
