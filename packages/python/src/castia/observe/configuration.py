@@ -20,6 +20,7 @@ _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
 _IMDS_NOISE_FAST_THRESHOLD_MS = 2000
 _PORTAL_NOISE_SPAN_PATHS = (
     "/azmonsdkdynamicconfiguration",
+    "/metadata/identity/oauth2/token",
     "/metadata/instance/compute",
     "/msi/token",
 )
@@ -464,7 +465,7 @@ def _azure_core_tracing_implementation():
 
     class CastiaOpenTelemetrySpan(OpenTelemetrySpan):
         def __init__(self, span: Any = None, name: str | None = "span", **kwargs: Any) -> None:
-            if span is None and _is_msi_token_span_name(name):
+            if span is None and _is_metadata_probe_span_name(name):
                 self._current_ctxt_manager = None
                 self._span_instance = NonRecordingSpan(
                     trace.get_current_span().get_span_context()
@@ -501,10 +502,7 @@ def _install_msi_token_span_filter() -> None:
 def _should_suppress_msi_token_span(span: Any) -> bool:
     if not _is_portal_noise_export_span(span):
         return False
-    if _span_has_error_evidence(span):
-        return False
-    status_code = _span_http_status_code(span)
-    if status_code is not None and status_code >= 400:
+    if _span_has_exception_evidence(span):
         return False
     duration_ms = _span_duration_ms(span)
     return duration_ms is not None and duration_ms <= _IMDS_NOISE_FAST_THRESHOLD_MS
@@ -518,29 +516,15 @@ def _is_portal_noise_export_span(span: Any) -> bool:
         str(attributes.get("http.url", "") or "").lower(),
         str(attributes.get("url.full", "") or "").lower(),
         str(attributes.get("http.target", "") or "").lower(),
+        str(attributes.get("target", "") or "").lower(),
+        str(attributes.get("server.address", "") or "").lower(),
+        str(attributes.get("net.peer.name", "") or "").lower(),
+        str(attributes.get("http.host", "") or "").lower(),
     ]
     return any(path in field for field in fields for path in _PORTAL_NOISE_SPAN_PATHS)
 
 
-def _span_http_status_code(span: Any) -> int | None:
-    attributes = getattr(span, "attributes", {}) or {}
-    for key in ("http.status_code", "http.response.status_code"):
-        value = attributes.get(key)
-        if value is None:
-            continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-    return None
-
-
-def _span_has_error_evidence(span: Any) -> bool:
-    from opentelemetry.trace import StatusCode
-
-    status_code = getattr(getattr(span, "status", None), "status_code", None)
-    if status_code == StatusCode.ERROR or getattr(status_code, "name", None) == "ERROR":
-        return True
+def _span_has_exception_evidence(span: Any) -> bool:
     attributes = getattr(span, "attributes", {}) or {}
     if any(str(key).startswith("exception.") for key in attributes):
         return True
@@ -565,8 +549,9 @@ def _configure_azure_core_tracing() -> None:
         settings.tracing_implementation = _azure_core_tracing_implementation()
 
 
-def _is_msi_token_span_name(name: str | None) -> bool:
-    return "/msi/token" in str(name or "").lower()
+def _is_metadata_probe_span_name(name: str | None) -> bool:
+    lowered = str(name or "").lower()
+    return any(path in lowered for path in _PORTAL_NOISE_SPAN_PATHS)
 
 
 def _is_stock_azure_otel_span(implementation: Any) -> bool:

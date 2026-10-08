@@ -279,13 +279,21 @@ def test_configure_observability_accepts_asgi_send_compat_flag(monkeypatch):
     assert options["fastapi"] == {}
 
 
-def test_azure_core_tracing_filters_msi_token_spans_by_default(monkeypatch):
+@pytest.mark.parametrize(
+    "name",
+    [
+        "GET /msi/token",
+        "GET /metadata/identity/oauth2/token",
+        "GET /metadata/instance/compute",
+    ],
+)
+def test_azure_core_tracing_filters_metadata_probe_spans_by_default(monkeypatch, name):
     from opentelemetry.trace import NonRecordingSpan
 
     monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
     implementation = observability._azure_core_tracing_implementation()
 
-    span = implementation(name="GET /msi/token")
+    span = implementation(name=name)
 
     assert isinstance(span.span_instance, NonRecordingSpan)
     assert implementation.__name__ == "CastiaOpenTelemetrySpan"
@@ -305,10 +313,14 @@ def _http_span(
     status_code: int = 200,
     duration_ms: int = 371,
     url: str = "http://100.64.100.2/msi/token",
+    target: str | None = None,
 ):
+    attributes = {"http.status_code": status_code, "url.full": url}
+    if target is not None:
+        attributes["target"] = target
     return mock.MagicMock(
         name=name,
-        attributes={"http.status_code": status_code, "url.full": url},
+        attributes=attributes,
         start_time=0,
         end_time=duration_ms * 1_000_000,
     )
@@ -363,28 +375,30 @@ def test_msi_token_filter_suppresses_successful_imds_noise_spans(monkeypatch):
     delegate.on_end.assert_not_called()
 
 
-def test_msi_token_filter_keeps_failures_and_slow_spans(monkeypatch):
-    from opentelemetry.trace import Status, StatusCode
+def test_msi_token_filter_suppresses_fast_metadata_identity_504(monkeypatch):
+    monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    processor.on_end(
+        _http_span(
+            name="GET /metadata/identity/oauth2/token",
+            status_code=504,
+            duration_ms=4,
+            url="http://169.254.169.254/metadata/identity/oauth2/token",
+            target="169.254.169.254:None",
+        )
+    )
+
+    delegate.on_end.assert_not_called()
+
+
+def test_msi_token_filter_keeps_slow_spans_and_exception_evidence(monkeypatch):
 
     monkeypatch.delenv(_TRACE_MSI_TOKEN_ENV, raising=False)
     delegate = mock.MagicMock()
     processor = observability._MsiTokenFilteringSpanProcessor(delegate)
-    failed = _http_span(status_code=400, duration_ms=350)
     slow = _http_span(status_code=200, duration_ms=2500)
-    imds_failure = _http_span(
-        name="GET /metadata/instance/compute",
-        status_code=500,
-        url="http://169.254.169.254/metadata/instance/compute",
-        duration_ms=350,
-    )
-    transport_error = mock.MagicMock(
-        name="GET /msi/token",
-        attributes={},
-        events=(),
-        start_time=0,
-        end_time=250 * 1_000_000,
-        status=Status(StatusCode.ERROR, "connection refused"),
-    )
     exception_attribute = mock.MagicMock(
         name="GET /AzMonSDKDynamicConfiguration",
         attributes={"exception.type": "ConnectionError"},
@@ -401,18 +415,12 @@ def test_msi_token_filter_keeps_failures_and_slow_spans(monkeypatch):
     )
     exception_event.events[0].name = "exception"
 
-    processor.on_end(failed)
     processor.on_end(slow)
-    processor.on_end(imds_failure)
-    processor.on_end(transport_error)
     processor.on_end(exception_attribute)
     processor.on_end(exception_event)
 
     assert delegate.on_end.call_args_list == [
-        mock.call(failed),
         mock.call(slow),
-        mock.call(imds_failure),
-        mock.call(transport_error),
         mock.call(exception_attribute),
         mock.call(exception_event),
     ]
