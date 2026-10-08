@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/sethjuarez/castia/compare/python-v0.14.2...python-v0.15.0) (2026-10-08)
+
+
+### Features
+
+* **python:** add telemetry span filter escape hatch ([e296be2](https://github.com/sethjuarez/castia/commit/e296be2332c2a252ee59dd187e000f657e3f6a7a))
+
 ## [0.14.2](https://github.com/sethjuarez/castia/compare/python-v0.14.1...python-v0.14.2) (2026-10-08)
 
 
