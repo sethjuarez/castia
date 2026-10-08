@@ -311,14 +311,17 @@ If those rows are correct but the UI badge reads **Other**, it is the portal
 
 ## Azure SDK metadata probe spans
 
-Hosted agents can emit metadata dependency spans beneath model calls or as
-standalone operations (`GET /msi/token`, `GET /metadata/instance/compute`, and
+Hosted and local agents can emit metadata dependency spans beneath model or tool
+calls, or as standalone operations (`GET /msi/token`,
+`GET /metadata/identity/oauth2/token`, `GET /metadata/instance/compute`, and
 `GET /AzMonSDKDynamicConfiguration`). These spans come from platform
 managed-identity, IMDS, and Azure Monitor SDK plumbing, not from Castia's agent
-loop. They make the default trace tree noisy, so Castia suppresses ordinary
-successful/fast metadata probe spans by default before export. Failed calls and
-unusually slow calls remain visible because they are useful auth/exporter and
-latency diagnostics.
+loop. They make the default trace tree noisy, so Castia suppresses ordinary fast
+metadata probe spans by default before export. That includes fast local IMDS
+probe statuses such as HTTP 504 when managed identity is unavailable; those are
+credential-chain probing noise, not agent/model/tool work. Spans with explicit
+exception evidence and unusually slow metadata calls remain visible because they
+are useful auth/exporter and latency diagnostics.
 
 Set `CASTIA_OTEL_TRACE_MSI_TOKEN=true` when debugging managed-identity
 authentication, token-acquisition latency, IMDS probing, or Azure Monitor
