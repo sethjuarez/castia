@@ -243,9 +243,10 @@ exporter, and abnormal-latency failures remain visible. It also installs an
 identity processor that stamps Foundry agent/project identity only while Castia
 is handling an actual agent invocation. Process-level probes emitted outside a
 turn are left unstamped so they do not become standalone Foundry traces. As a
-backstop, Castia also suppresses ordinary fast successful metadata probe spans
-before export. Spans with explicit HTTP 4xx/5xx status, or unusually slow
-metadata probes, remain visible for diagnostics.
+backstop, Castia also suppresses ordinary fast metadata probe spans before
+export, including credential-chain probe failures such as a fast local IMDS
+HTTP 504. Spans with explicit exception evidence, or unusually slow metadata
+probes, remain visible for diagnostics.
 
 ## The badge that lies: portal query is non-deterministic
 
@@ -327,6 +328,38 @@ Set `CASTIA_OTEL_TRACE_MSI_TOKEN=true` when debugging managed-identity
 authentication, token-acquisition latency, IMDS probing, or Azure Monitor
 exporter configuration. That opt-in restores these Azure SDK dependency spans for
 the process.
+
+Set `CASTIA_OTEL_TRACE_INFRASTRUCTURE=true` for a broader debugging view that
+disables Castia's built-in metadata suppression and any app/env span suppression
+rules for the process.
+
+### App span suppression escape hatch
+
+For future platform or infrastructure spans that are noisy before Castia ships a
+built-in rule, add a conservative app-local rule before `app.run()`:
+
+```python
+from castia import suppress_telemetry_spans
+
+suppress_telemetry_spans(
+    "future-imds-probe",
+    name_contains="/metadata/new-token",
+    target_contains="169.254.169.254",
+)
+```
+
+Rules drop only fast spans by default (`<= 2000 ms`) and keep spans with explicit
+exception evidence. Castia-owned semantic spans (`invoke_agent`, `execute_tool`,
+`chat`) and the manual toolbox MCP POST span are protected so broad rules do not
+hide the useful agent trace chain.
+
+Use environment variables for an operational hotfix without code changes:
+
+| Variable | Meaning |
+| --- | --- |
+| `CASTIA_OTEL_SUPPRESS_SPAN_NAME_CONTAINS` | Comma/semicolon-separated lowercase substrings matched against the span name. |
+| `CASTIA_OTEL_SUPPRESS_SPAN_TARGET_CONTAINS` | Comma/semicolon-separated substrings matched against URL/target/peer attributes. |
+| `CASTIA_OTEL_SUPPRESS_SPAN_MAX_DURATION_MS` | Duration cap for env rules; default `2000`, or `none` for no cap. |
 
 ## Prompty inner spans
 

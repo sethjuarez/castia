@@ -17,6 +17,7 @@ _logger = logging.getLogger("agent")
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
 _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
+_TRACE_INFRASTRUCTURE_ENV = "CASTIA_OTEL_TRACE_INFRASTRUCTURE"
 _IMDS_NOISE_FAST_THRESHOLD_MS = 2000
 _PORTAL_NOISE_SPAN_PATHS = (
     "/azmonsdkdynamicconfiguration",
@@ -348,7 +349,7 @@ class _AgentIdentitySpanProcessor(SpanProcessor):
 
 
 class _MsiTokenFilteringSpanProcessor(SpanProcessor):
-    """Skip export for ordinary successful Azure SDK metadata noise."""
+    """Skip export for ordinary Azure SDK metadata and app-filtered noise."""
 
     _castia_msi_filter = True
 
@@ -359,7 +360,7 @@ class _MsiTokenFilteringSpanProcessor(SpanProcessor):
         self._delegate.on_start(span, parent_context=parent_context)
 
     def on_end(self, span: Any) -> None:
-        if _should_suppress_msi_token_span(span):
+        if _should_suppress_msi_token_span(span) or _should_suppress_custom_span(span):
             return
         self._delegate.on_end(span)
 
@@ -457,7 +458,9 @@ def _azure_core_tracing_implementation():
     """Return the Azure SDK OTel span implementation Castia wants by default."""
     from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
 
-    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False):
+    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False) or _resolve_flag(
+        None, _TRACE_INFRASTRUCTURE_ENV, False
+    ):
         return OpenTelemetrySpan
 
     from opentelemetry import trace
@@ -478,7 +481,7 @@ def _azure_core_tracing_implementation():
 
 def _install_msi_token_span_filter() -> None:
     """Drop successful/fast managed-identity token spans before export."""
-    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False):
+    if _resolve_flag(None, _TRACE_INFRASTRUCTURE_ENV, False):
         return
     try:
         from opentelemetry import trace
@@ -500,12 +503,26 @@ def _install_msi_token_span_filter() -> None:
 
 
 def _should_suppress_msi_token_span(span: Any) -> bool:
+    if _resolve_flag(None, _TRACE_MSI_TOKEN_ENV, False) or _resolve_flag(
+        None, _TRACE_INFRASTRUCTURE_ENV, False
+    ):
+        return False
     if not _is_portal_noise_export_span(span):
         return False
     if _span_has_exception_evidence(span):
         return False
     duration_ms = _span_duration_ms(span)
     return duration_ms is not None and duration_ms <= _IMDS_NOISE_FAST_THRESHOLD_MS
+
+
+def _should_suppress_custom_span(span: Any) -> bool:
+    try:
+        from castia.observe.tracing import should_suppress_telemetry_span
+
+        return should_suppress_telemetry_span(span)
+    except Exception:
+        _logger.debug("Failed to evaluate custom telemetry span filters", exc_info=True)
+        return False
 
 
 def _is_portal_noise_export_span(span: Any) -> bool:

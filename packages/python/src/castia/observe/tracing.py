@@ -51,10 +51,18 @@ PROVIDER = "microsoft.foundry"
 
 _TRACER_NAME = "castia"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
+_TRACE_INFRASTRUCTURE_ENV = "CASTIA_OTEL_TRACE_INFRASTRUCTURE"
+_SPAN_FILTER_NAME_ENV = "CASTIA_OTEL_SUPPRESS_SPAN_NAME_CONTAINS"
+_SPAN_FILTER_TARGET_ENV = "CASTIA_OTEL_SUPPRESS_SPAN_TARGET_CONTAINS"
+_SPAN_FILTER_MAX_DURATION_ENV = "CASTIA_OTEL_SUPPRESS_SPAN_MAX_DURATION_MS"
+_DEFAULT_SPAN_FILTER_MAX_DURATION_MS = 2000.0
 _logger = logging.getLogger("agent")
 TraceSink = Callable[["TraceRecord"], None]
+SpanFilter = Callable[[Any], bool]
 _TRACE_SINKS: dict[str, TraceSink] = {}
 _TRACE_SINK_LOCK = threading.RLock()
+_SPAN_FILTERS: dict[str, SpanFilter] = {}
+_SPAN_FILTER_LOCK = threading.RLock()
 _CURRENT_STEP: ContextVar[_ActiveTraceStep | None] = ContextVar(
     "castia_current_trace_step", default=None
 )
@@ -420,6 +428,93 @@ def registered_trace_sinks() -> tuple[str, ...]:
         return tuple(_TRACE_SINKS)
 
 
+def register_span_filter(name: str, predicate: SpanFilter) -> None:
+    """Register an export-time span suppression predicate.
+
+    Predicates receive the OpenTelemetry readable span and return ``True`` to
+    drop it before export. Castia-owned semantic spans are always protected.
+    """
+    if not name or not name.strip():
+        raise ValueError("Span filter name must be non-empty.")
+    if not callable(predicate):
+        raise TypeError("Span filter predicate must be callable.")
+    with _SPAN_FILTER_LOCK:
+        _SPAN_FILTERS[name] = predicate
+
+
+def suppress_telemetry_spans(
+    name: str,
+    *,
+    name_contains: str | list[str] | tuple[str, ...] = (),
+    target_contains: str | list[str] | tuple[str, ...] = (),
+    max_duration_ms: float | None = _DEFAULT_SPAN_FILTER_MAX_DURATION_MS,
+) -> None:
+    """Register a conservative substring-based span suppression rule."""
+    names = _normalize_filter_terms(name_contains)
+    targets = _normalize_filter_terms(target_contains)
+    if not names and not targets:
+        raise ValueError("At least one name_contains or target_contains value is required.")
+    if max_duration_ms is not None and (
+        isinstance(max_duration_ms, bool)
+        or not isinstance(max_duration_ms, (int, float))
+        or not math.isfinite(max_duration_ms)
+        or max_duration_ms < 0
+    ):
+        raise ValueError("max_duration_ms must be a non-negative finite number or None.")
+
+    def predicate(span: Any) -> bool:
+        if _span_has_exception_evidence(span):
+            return False
+        duration_ms = _span_duration_ms(span)
+        if max_duration_ms is not None and (
+            duration_ms is None or duration_ms > max_duration_ms
+        ):
+            return False
+        fields = _span_filter_fields(span)
+        return any(term in fields["name"] for term in names) or any(
+            term in target for term in targets for target in fields["targets"]
+        )
+
+    register_span_filter(name, predicate)
+
+
+def remove_span_filter(name: str) -> bool:
+    """Remove a registered span filter by name."""
+    with _SPAN_FILTER_LOCK:
+        return _SPAN_FILTERS.pop(name, None) is not None
+
+
+def clear_span_filters() -> None:
+    """Remove all registered span suppression filters."""
+    with _SPAN_FILTER_LOCK:
+        _SPAN_FILTERS.clear()
+
+
+def registered_span_filters() -> tuple[str, ...]:
+    """Return registered span filter names."""
+    with _SPAN_FILTER_LOCK:
+        return tuple(_SPAN_FILTERS)
+
+
+def should_suppress_telemetry_span(span: Any) -> bool:
+    """Return whether app-configured span filters should suppress ``span``."""
+    if _env_flag(_TRACE_INFRASTRUCTURE_ENV, False):
+        return False
+    if _is_protected_semantic_span(span):
+        return False
+    if _env_span_filter_matches(span):
+        return True
+    with _SPAN_FILTER_LOCK:
+        filters = tuple(_SPAN_FILTERS.items())
+    for name, predicate in filters:
+        try:
+            if predicate(span):
+                return True
+        except Exception:
+            _logger.debug("Castia span filter %s failed", name, exc_info=True)
+    return False
+
+
 def trace_context_headers(extra_headers: Any | None = None) -> dict[str, str]:
     """Return headers carrying the current OpenTelemetry trace context.
 
@@ -566,6 +661,138 @@ def _is_homogeneous_otel_sequence(values: list[Any] | tuple[Any, ...]) -> bool:
         return True
     first_type = type(values[0])
     return all(type(value) is first_type for value in values)
+
+
+def _normalize_filter_terms(value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(value, str):
+        values = (value,)
+    else:
+        values = tuple(value)
+    return tuple(term.strip().lower() for term in values if term and term.strip())
+
+
+def _env_filter_terms(name: str) -> tuple[str, ...]:
+    raw = os.environ.get(name, "")
+    if not raw:
+        return ()
+    return tuple(
+        term.strip().lower()
+        for chunk in raw.split(";")
+        for term in chunk.split(",")
+        if term.strip()
+    )
+
+
+def _env_filter_max_duration_ms() -> float | None:
+    raw = os.environ.get(_SPAN_FILTER_MAX_DURATION_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_SPAN_FILTER_MAX_DURATION_MS
+    if raw.strip().lower() in {"none", "off", "unlimited"}:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        _logger.debug(
+            "Ignoring invalid %s value %r", _SPAN_FILTER_MAX_DURATION_ENV, raw
+        )
+        return _DEFAULT_SPAN_FILTER_MAX_DURATION_MS
+    if not math.isfinite(value) or value < 0:
+        _logger.debug(
+            "Ignoring invalid %s value %r", _SPAN_FILTER_MAX_DURATION_ENV, raw
+        )
+        return _DEFAULT_SPAN_FILTER_MAX_DURATION_MS
+    return value
+
+
+def _env_span_filter_matches(span: Any) -> bool:
+    if _env_flag(_TRACE_INFRASTRUCTURE_ENV, False):
+        return False
+    names = _env_filter_terms(_SPAN_FILTER_NAME_ENV)
+    targets = _env_filter_terms(_SPAN_FILTER_TARGET_ENV)
+    if not names and not targets:
+        return False
+    if _span_has_exception_evidence(span):
+        return False
+    max_duration_ms = _env_filter_max_duration_ms()
+    duration_ms = _span_duration_ms(span)
+    if max_duration_ms is not None and (
+        duration_ms is None or duration_ms > max_duration_ms
+    ):
+        return False
+    fields = _span_filter_fields(span)
+    return any(term in fields["name"] for term in names) or any(
+        term in target for term in targets for target in fields["targets"]
+    )
+
+
+def _is_protected_semantic_span(span: Any) -> bool:
+    attributes = getattr(span, "attributes", {}) or {}
+    operation = str(attributes.get("gen_ai.operation.name", "") or "").lower()
+    telemetry_scope = str(attributes.get("castia.telemetry.scope", "") or "").lower()
+    toolbox_marker = attributes.get("castia.toolbox.mcp")
+    name = str(getattr(span, "name", "") or "").lower()
+    operation_names = {
+        OperationName.CHAT,
+        OperationName.CREATE_AGENT,
+        OperationName.EMBEDDINGS,
+        OperationName.EXECUTE_TOOL,
+        OperationName.GENERATE_CONTENT,
+        OperationName.INVOKE_AGENT,
+        OperationName.TEXT_COMPLETION,
+    }
+    return (
+        operation in operation_names
+        or name.startswith(tuple(f"{value} " for value in operation_names))
+        or telemetry_scope in {"client_roundtrip", "toolbox_mcp_http"}
+        or any(str(key).startswith("castia.trace.") for key in attributes)
+        or toolbox_marker is True
+    )
+
+
+def _span_filter_fields(span: Any) -> dict[str, Any]:
+    attributes = getattr(span, "attributes", {}) or {}
+    name = str(getattr(span, "name", "") or "").lower()
+    target_keys = (
+        "http.url",
+        "url.full",
+        "http.target",
+        "target",
+        "server.address",
+        "net.peer.name",
+        "http.host",
+        "network.peer.address",
+    )
+    return {
+        "name": name,
+        "targets": tuple(
+            str(attributes.get(key, "") or "").lower()
+            for key in target_keys
+            if attributes.get(key)
+        ),
+    }
+
+
+def _span_has_exception_evidence(span: Any) -> bool:
+    attributes = getattr(span, "attributes", {}) or {}
+    if any(str(key).startswith("exception.") for key in attributes):
+        return True
+    events = getattr(span, "events", ()) or ()
+    return any(str(getattr(event, "name", "") or "").lower() == "exception" for event in events)
+
+
+def _span_duration_ms(span: Any) -> float | None:
+    start_time = getattr(span, "start_time", None)
+    end_time = getattr(span, "end_time", None)
+    if start_time is None or end_time is None:
+        return None
+    return (end_time - start_time) / 1_000_000
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() == "true"
 
 
 def _json_safe_mapping(values: dict[str, Any]) -> dict[str, Any]:

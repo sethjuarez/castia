@@ -9,6 +9,7 @@ value ``_enable_genai_tracing`` forwards to
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -19,7 +20,11 @@ _CONTENT_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
 _GENAI_ENV = "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING"
 _TRACE_ASGI_INTERNAL_ENV = "CASTIA_OTEL_TRACE_ASGI_INTERNAL"
 _TRACE_ASGI_SEND_ENV = "CASTIA_OTEL_TRACE_ASGI_SEND"
+_TRACE_INFRASTRUCTURE_ENV = "CASTIA_OTEL_TRACE_INFRASTRUCTURE"
 _TRACE_MSI_TOKEN_ENV = "CASTIA_OTEL_TRACE_MSI_TOKEN"
+_SPAN_FILTER_NAME_ENV = "CASTIA_OTEL_SUPPRESS_SPAN_NAME_CONTAINS"
+_SPAN_FILTER_TARGET_ENV = "CASTIA_OTEL_SUPPRESS_SPAN_TARGET_CONTAINS"
+_SPAN_FILTER_MAX_DURATION_ENV = "CASTIA_OTEL_SUPPRESS_SPAN_MAX_DURATION_MS"
 _APP_INSIGHTS_ENV = "APPLICATIONINSIGHTS_CONNECTION_STRING"
 _AZURE_MONITOR_ENV = "AZURE_MONITOR_CONNECTION_STRING"
 
@@ -307,6 +312,14 @@ def test_azure_core_tracing_can_keep_msi_token_spans(monkeypatch):
     assert observability._azure_core_tracing_implementation() is OpenTelemetrySpan
 
 
+def test_azure_core_tracing_can_keep_all_infrastructure_spans(monkeypatch):
+    from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
+
+    monkeypatch.setenv(_TRACE_INFRASTRUCTURE_ENV, "true")
+
+    assert observability._azure_core_tracing_implementation() is OpenTelemetrySpan
+
+
 def _http_span(
     *,
     name: str = "GET /msi/token",
@@ -443,6 +456,25 @@ def test_msi_token_span_filter_wraps_existing_processors(monkeypatch):
 def test_msi_token_span_filter_preserves_operator_opt_in(monkeypatch):
     monkeypatch.setenv(_TRACE_MSI_TOKEN_ENV, "true")
     processor = mock.MagicMock()
+    processor._castia_msi_filter = False
+    active_processor = mock.MagicMock(_span_processors=(processor,))
+    provider = mock.MagicMock(_active_span_processor=active_processor)
+
+    with mock.patch("opentelemetry.trace.get_tracer_provider", return_value=provider):
+        observability._install_msi_token_span_filter()
+
+    wrapped = active_processor._span_processors
+    assert len(wrapped) == 1
+    assert isinstance(wrapped[0], observability._MsiTokenFilteringSpanProcessor)
+
+    wrapped[0].on_end(_http_span(status_code=504, duration_ms=4))
+
+    processor.on_end.assert_called_once()
+
+
+def test_infrastructure_span_filter_preserves_operator_opt_in(monkeypatch):
+    monkeypatch.setenv(_TRACE_INFRASTRUCTURE_ENV, "true")
+    processor = mock.MagicMock()
     active_processor = mock.MagicMock(_span_processors=(processor,))
     provider = mock.MagicMock(_active_span_processor=active_processor)
 
@@ -450,6 +482,221 @@ def test_msi_token_span_filter_preserves_operator_opt_in(monkeypatch):
         observability._install_msi_token_span_filter()
 
     assert active_processor._span_processors == (processor,)
+
+
+def test_span_filter_registry_suppresses_matching_fast_spans(monkeypatch):
+    from castia.observe import tracing
+
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    tracing.clear_span_filters()
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    tracing.suppress_telemetry_spans(
+        "fabric-probe", name_contains="GET /future/metadata/probe"
+    )
+    span = _http_span(
+        name="GET /future/metadata/probe",
+        status_code=404,
+        duration_ms=12,
+        url="http://169.254.169.254/future/metadata/probe",
+    )
+
+    try:
+        processor.on_end(span)
+    finally:
+        tracing.clear_span_filters()
+
+    delegate.on_end.assert_not_called()
+
+
+def test_span_filter_registry_keeps_slow_and_exception_spans(monkeypatch):
+    from castia.observe import tracing
+
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    tracing.clear_span_filters()
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    tracing.suppress_telemetry_spans("fabric-probe", target_contains="future-probe")
+    slow = _http_span(
+        name="GET /future/probe",
+        status_code=504,
+        duration_ms=2501,
+        url="http://future-probe/metadata",
+    )
+    exception = mock.MagicMock(
+        name="GET /future/probe",
+        attributes={"url.full": "http://future-probe/metadata", "exception.type": "TimeoutError"},
+        events=(),
+        start_time=0,
+        end_time=12 * 1_000_000,
+    )
+
+    try:
+        processor.on_end(slow)
+        processor.on_end(exception)
+    finally:
+        tracing.clear_span_filters()
+
+    assert delegate.on_end.call_args_list == [mock.call(slow), mock.call(exception)]
+
+
+def test_span_filter_registry_bad_predicate_does_not_break_export(monkeypatch):
+    from castia.observe import tracing
+
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    tracing.clear_span_filters()
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    def fail(_span):
+        raise RuntimeError("boom")
+
+    tracing.register_span_filter("bad", fail)
+    span = _http_span(
+        name="GET /future/probe",
+        status_code=500,
+        duration_ms=12,
+        url="http://future-probe/metadata",
+    )
+
+    try:
+        processor.on_end(span)
+    finally:
+        tracing.clear_span_filters()
+
+    delegate.on_end.assert_called_once_with(span)
+
+
+def test_env_span_filter_suppresses_configured_name(monkeypatch):
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    monkeypatch.setenv(_SPAN_FILTER_NAME_ENV, "/metadata/new-token")
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    processor.on_end(
+        _http_span(
+            name="GET /metadata/new-token",
+            status_code=504,
+            duration_ms=8,
+            url="http://169.254.169.254/metadata/new-token",
+        )
+    )
+
+    delegate.on_end.assert_not_called()
+
+
+def test_env_span_filter_suppresses_configured_target(monkeypatch):
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    monkeypatch.setenv(_SPAN_FILTER_TARGET_ENV, "169.254.169.254")
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    processor.on_end(
+        _http_span(
+            name="GET /not-yet-known",
+            status_code=504,
+            duration_ms=8,
+            url="http://169.254.169.254/not-yet-known",
+            target="169.254.169.254:None",
+        )
+    )
+
+    delegate.on_end.assert_not_called()
+
+
+def test_env_span_filter_respects_duration_and_trace_infrastructure(monkeypatch):
+    monkeypatch.setenv(_SPAN_FILTER_NAME_ENV, "/metadata/new-token")
+    from castia.observe import tracing
+
+    tracing.clear_span_filters()
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    slow = _http_span(
+        name="GET /metadata/new-token",
+        status_code=504,
+        duration_ms=2501,
+        url="http://169.254.169.254/metadata/new-token",
+    )
+    debug = _http_span(
+        name="GET /metadata/new-token",
+        status_code=504,
+        duration_ms=8,
+        url="http://169.254.169.254/metadata/new-token",
+    )
+
+    processor.on_end(slow)
+    tracing.register_span_filter("drop-everything", lambda _span: True)
+    monkeypatch.setenv(_TRACE_INFRASTRUCTURE_ENV, "true")
+    try:
+        processor.on_end(debug)
+    finally:
+        tracing.clear_span_filters()
+
+    assert delegate.on_end.call_args_list == [mock.call(slow), mock.call(debug)]
+
+
+def test_env_span_filter_can_override_duration_cap(monkeypatch):
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    monkeypatch.setenv(_SPAN_FILTER_NAME_ENV, "/metadata/new-token")
+    monkeypatch.setenv(_SPAN_FILTER_MAX_DURATION_ENV, "3000")
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+
+    processor.on_end(
+        _http_span(
+            name="GET /metadata/new-token",
+            status_code=504,
+            duration_ms=2501,
+            url="http://169.254.169.254/metadata/new-token",
+        )
+    )
+
+    delegate.on_end.assert_not_called()
+
+
+def test_custom_filters_do_not_suppress_semantic_or_toolbox_spans(monkeypatch):
+    from castia.observe import tracing
+
+    monkeypatch.delenv(_TRACE_INFRASTRUCTURE_ENV, raising=False)
+    tracing.clear_span_filters()
+    delegate = mock.MagicMock()
+    processor = observability._MsiTokenFilteringSpanProcessor(delegate)
+    tracing.register_span_filter("drop-everything", lambda _span: True)
+    semantic = SimpleNamespace(
+        name="execute_tool foundry_iq_retrieve",
+        attributes={"gen_ai.operation.name": "execute_tool"},
+        events=(),
+        start_time=0,
+        end_time=8 * 1_000_000,
+    )
+    toolbox = SimpleNamespace(
+        name="POST /api/projects/demo/toolboxes/kb/mcp",
+        attributes={"castia.telemetry.scope": "toolbox_mcp_http", "castia.toolbox.mcp": True},
+        events=(),
+        start_time=0,
+        end_time=8 * 1_000_000,
+    )
+    local_trace = SimpleNamespace(
+        name="prompty turn_async",
+        attributes={"castia.trace.kind": "prompty"},
+        events=(),
+        start_time=0,
+        end_time=8 * 1_000_000,
+    )
+
+    try:
+        processor.on_end(semantic)
+        processor.on_end(toolbox)
+        processor.on_end(local_trace)
+    finally:
+        tracing.clear_span_filters()
+
+    assert delegate.on_end.call_args_list == [
+        mock.call(semantic),
+        mock.call(toolbox),
+        mock.call(local_trace),
+    ]
+
 
 
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
