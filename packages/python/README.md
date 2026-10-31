@@ -207,6 +207,23 @@ accepted for hosted Foundry gateway compatibility but is not used for replay;
 send the full prior turns in `input` when a client needs local multi-turn
 context.
 
+> **Multi-turn through the Foundry gateway.** Foundry's reference SDK hydrates
+> history from `conversation.id` automatically
+> ([hosted agent runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract)).
+> Castia does not yet do this, so each turn only sees its own `input`. Clients
+> that rely on `conversation` (the playground, simulated-user evaluation) see a
+> stateless agent.
+
+Gateway facts that affect hosted Castia agents:
+
+- Only allowlisted caller headers reach the container: `x-client-*`, content
+  headers, tracing headers, and `user-agent`. `Authorization` is never
+  forwarded, so pass custom caller data as `x-client-*`.
+- Castia forwards `x-agent-foundry-call-id` unchanged on model and toolbox
+  calls. It never forwards `x-agent-user-id`. Do the same in your own calls to
+  Foundry services.
+- For Python containers, set `PYTHONNOUSERSITE=1`.
+
 ### Background responses
 
 Foundry tooling, including native evaluations, can call a hosted agent with
