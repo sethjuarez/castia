@@ -387,6 +387,52 @@ def test_toolbox_mcp_client_reports_zero_tools() -> None:
     asyncio.run(run())
 
 
+def test_toolbox_mcp_client_forwards_only_the_request_call_id() -> None:
+    from castia.runtime.request_context import (
+        RequestContext,
+        reset_request_context,
+        set_request_context,
+    )
+
+    seen: list[httpx.Headers] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers)
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"tools": [{"name": "t"}]},
+            },
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            client = ToolboxMcpClient(
+                "https://example.test/mcp",
+                token_provider=lambda: "TOKEN",
+                headers={"x-agent-foundry-call-id": "stale", "x-extra": "1"},
+                client=http,
+                trace_requests=False,
+            )
+            token = set_request_context(
+                RequestContext(call_id="call-1", user_id="user-1")
+            )
+            try:
+                await client.list_tools()
+            finally:
+                reset_request_context(token)
+            await client.list_tools()
+
+    asyncio.run(run())
+    assert seen[0]["x-agent-foundry-call-id"] == "call-1"
+    assert "x-agent-user-id" not in seen[0]
+    assert seen[0]["x-extra"] == "1"
+    assert "x-agent-foundry-call-id" not in seen[1]
+
+
 @pytest.mark.parametrize(
     ("error", "match"),
     [

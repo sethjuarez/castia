@@ -161,10 +161,21 @@ class ToolboxMcpClient:
     async def _request(
         self, method: str, params: Mapping[str, Any] | None = None
     ) -> Any:
+        from castia.runtime.request_context import (
+            FOUNDRY_CALL_ID_HEADER,
+            current_request_context,
+        )
+
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            **self.headers,
+            **{
+                k: v
+                for k, v in self.headers.items()
+                if str(k).lower() != FOUNDRY_CALL_ID_HEADER
+            },
+            # Foundry resolves the caller's identity from the per-request call id.
+            **current_request_context().platform_headers(),
         }
         try:
             token = await _maybe_await(
