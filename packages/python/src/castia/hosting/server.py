@@ -684,6 +684,12 @@ def _sse_keepalive_interval() -> int:
         ) from exc
 
 
+async def _aclose(source: AsyncIterator[str]) -> None:
+    aclose = getattr(source, "aclose", None)
+    if aclose is not None:
+        await aclose()
+
+
 async def _with_sse_keepalive(
     source: AsyncIterator[str], interval: float
 ) -> AsyncIterator[str]:
@@ -694,8 +700,11 @@ async def _with_sse_keepalive(
     the source stays at most one item ahead of the client.
     """
     if not interval:
-        async for item in source:
-            yield item
+        try:
+            async for item in source:
+                yield item
+        finally:
+            await _aclose(source)
         return
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=1)
@@ -704,9 +713,14 @@ async def _with_sse_keepalive(
     closing = False
 
     async def pump() -> None:
+        # Close the source here, in pump's context, so its finally blocks can
+        # reset context variables; leaving it to GC would run them elsewhere.
         try:
-            async for item in source:
-                await queue.put(item)
+            try:
+                async for item in source:
+                    await queue.put(item)
+            finally:
+                await _aclose(source)
         except BaseException as exc:  # re-raised to the stream consumer
             if closing:
                 raise

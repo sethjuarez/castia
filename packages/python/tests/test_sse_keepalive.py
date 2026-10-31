@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import gc
 
 import pytest
 
@@ -138,6 +139,43 @@ def test_source_base_exceptions_are_not_a_clean_end(error):
             await asyncio.wait_for(stream.__anext__(), 1)
 
     asyncio.run(run())
+
+
+def test_closing_with_source_paused_at_yield_resets_context_in_pump():
+    var = contextvars.ContextVar("castia_test_scope")
+    outcome = {}
+
+    async def source():
+        token = var.set("bound")
+        try:
+            for item in ("a", "b", "c", "d"):
+                yield item
+        finally:
+            try:
+                var.reset(token)
+                outcome["reset"] = "ok"
+            except ValueError as exc:
+                outcome["reset"] = exc
+
+    async def run():
+        loop_errors = []
+        asyncio.get_running_loop().set_exception_handler(
+            lambda _loop, context: loop_errors.append(context)
+        )
+        stream = server._with_sse_keepalive(source(), 5)
+        assert await stream.__anext__() == "a"
+        # Let pump fill the queue with "b" and park the source at yield "c".
+        for _ in range(5):
+            await asyncio.sleep(0)
+        await stream.aclose()
+        gc.collect()
+        await asyncio.sleep(0)
+        return loop_errors
+
+    loop_errors = asyncio.run(run())
+    gc.collect()
+    assert outcome == {"reset": "ok"}
+    assert loop_errors == []
 
 
 def test_closing_the_stream_cancels_the_source():
