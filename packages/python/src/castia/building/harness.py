@@ -160,6 +160,7 @@ class AgentTestHarness:
                 self.app._commands,
                 agent_name=self.app.name,
                 required_env=self.app._required_env,
+                response_store=getattr(self.app, "_response_store", None),
             )
             transport = httpx.ASGITransport(
                 app=asgi, raise_app_exceptions=self.raise_app_exceptions

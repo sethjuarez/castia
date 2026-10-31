@@ -24,6 +24,8 @@ HTTP body.
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -31,9 +33,8 @@ import re
 import socket
 import subprocess
 import time
-from collections import OrderedDict
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from ipaddress import ip_address
 from uuid import uuid4
@@ -43,6 +44,12 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
+from castia.hosting.responses_store import (
+    NON_TERMINAL_STATUSES,
+    ResponseStore,
+    StoredResponse,
+    _ProcessLocalResponseCache,
+)
 from castia.messaging.connector import send_reply
 from castia.messaging.routing import (
     teams_direct_message,
@@ -64,6 +71,7 @@ from castia.runtime.request_context import (
     FOUNDRY_SESSION_ID_HEADER,
     FOUNDRY_USER_ID_HEADER,
     RequestContext,
+    current_request_context,
     reset_request_context,
     set_request_context,
 )
@@ -314,15 +322,91 @@ def _before_item(items: list[dict], item_id: str) -> list[dict]:
     return items
 
 
-def _store_completed_response(
-    responses_store: OrderedDict[str, dict],
-    response_id: str,
-    record: dict,
+_BACKGROUND_STORE_REQUIRED = (
+    "background=true requires a response store shared by every replica. "
+    "Pass one to Agent(response_store=...); see the castia README section "
+    "'Background responses'."
+)
+_STORE_UNAVAILABLE = "The response store is unavailable. Retry the request."
+_STORE_WRITE_ATTEMPTS = 3
+
+
+async def _save_terminal_response(
+    responses_store: ResponseStore,
+    response: dict,
+    input_items: list[dict],
 ) -> None:
-    responses_store[response_id] = record
-    responses_store.move_to_end(response_id)
-    while len(responses_store) > _MAX_STORED_RESPONSES:
-        responses_store.popitem(last=False)
+    """Persist a finished foreground response; storage failure never fails the turn."""
+    record: StoredResponse = {
+        "response": deepcopy(response),
+        "input_items": input_items,
+        "background": False,
+    }
+    try:
+        await responses_store.create(record)
+    except Exception:
+        logger.exception("Could not store response %s.", response.get("id"))
+
+
+async def _transition(
+    responses_store: ResponseStore,
+    record: StoredResponse,
+    *,
+    expected_status: str,
+) -> bool:
+    """Compare-and-set a record's status, retrying transient store failures."""
+    response_id = record["response"]["id"]
+    for attempt in range(1, _STORE_WRITE_ATTEMPTS + 1):
+        try:
+            return await responses_store.update(record, expected_status=expected_status)
+        except Exception:
+            if attempt == _STORE_WRITE_ATTEMPTS:
+                logger.exception(
+                    "Could not move background response %s from %s to %s.",
+                    response_id,
+                    expected_status,
+                    record["response"].get("status"),
+                )
+                return False
+            await asyncio.sleep(0.05 * attempt)
+    return False
+
+
+def _store_unavailable() -> JSONResponse:
+    return JSONResponse(
+        {
+            "error": {
+                "message": _STORE_UNAVAILABLE,
+                "type": "server_error",
+                "param": None,
+                "code": "store_unavailable",
+            }
+        },
+        status_code=503,
+    )
+
+
+def _background_snapshot(
+    *,
+    response_id: str,
+    created_at: int,
+    status: str,
+    response_options: dict,
+    error: dict | None = None,
+) -> dict:
+    """A non-completed background Responses object: empty output, no usage."""
+    body = _responses_body(
+        "",
+        response_id=response_id,
+        status=status,
+        created_at=created_at,
+        error=error,
+        **response_options,
+    )
+    body["output"] = []
+    body["usage"] = None
+    body["background"] = True
+    return body
 
 
 def _api_error(
@@ -739,10 +823,199 @@ def _register_activity(app: FastAPI, routes, invokes=None, commands=None) -> Non
                 return Response(status_code=500, headers=response_headers)
 
 
+def _current_span_context():
+    """The active request span context, used to link background work to it."""
+    try:
+        from opentelemetry import trace
+
+        context = trace.get_current_span().get_span_context()
+        return context if context.is_valid else None
+    except Exception:  # noqa: BLE001 - telemetry must never break a request
+        return None
+
+
+@contextmanager
+def _background_span(response_id: str, link_context) -> Iterator[None]:
+    try:
+        from opentelemetry import trace
+    except ImportError:  # pragma: no cover - opentelemetry ships with castia
+        yield
+        return
+    links = [trace.Link(link_context)] if link_context is not None else []
+    with trace.get_tracer(__name__).start_as_current_span(
+        "castia.responses.background",
+        links=links,
+        attributes={"castia.responses.id": response_id},
+    ):
+        yield
+
+
+class _BackgroundResponses:
+    """Runs ``background=true`` turns on this replica and records them in the store.
+
+    Execution is process-bound: the consumer store makes state visible to every
+    replica, but a restart abandons the work. Every write is a status
+    compare-and-set, so a cancel or delete from any replica wins over a late
+    completion.
+    """
+
+    def __init__(self, responses_store: ResponseStore, dispatch: Callable) -> None:
+        self._store = responses_store
+        self._dispatch = dispatch
+        self._tasks: dict[str, asyncio.Task] = {}
+
+    def start(
+        self,
+        record: StoredResponse,
+        *,
+        text: str,
+        context: RequestContext,
+        response_options: dict,
+        link_context,
+    ) -> None:
+        response = record["response"]
+        response_id = response["id"]
+        # A fresh context keeps request-scoped usage/diagnostics/span state out
+        # of the background turn; the request context is re-bound explicitly.
+        task = asyncio.create_task(
+            self._run(
+                response_id,
+                created_at=response["created_at"],
+                input_items=record["input_items"],
+                text=text,
+                context=context,
+                response_options=response_options,
+                link_context=link_context,
+            ),
+            context=contextvars.Context(),
+        )
+        self._tasks[response_id] = task
+        task.add_done_callback(lambda done: self._finished(response_id, done))
+
+    def _finished(self, response_id: str, task: asyncio.Task) -> None:
+        if self._tasks.get(response_id) is task:
+            del self._tasks[response_id]
+        if not task.cancelled() and task.exception() is not None:
+            logger.error(
+                "Background response %s worker crashed.",
+                response_id,
+                exc_info=task.exception(),
+            )
+
+    def cancel_local(self, response_id: str) -> None:
+        """Stop the worker if it runs on this replica (best effort)."""
+        task = self._tasks.get(response_id)
+        if task is not None:
+            task.cancel()
+
+    async def shutdown(self, grace_seconds: float = 5.0) -> None:
+        """Cancel local workers so their records end ``failed``, not stuck."""
+        tasks = list(self._tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks, timeout=grace_seconds)
+
+    async def _run(
+        self,
+        response_id: str,
+        *,
+        created_at: int,
+        input_items: list[dict],
+        text: str,
+        context: RequestContext,
+        response_options: dict,
+        link_context,
+    ) -> None:
+        def record(response: dict) -> StoredResponse:
+            return {
+                "response": response,
+                "input_items": input_items,
+                "background": True,
+            }
+
+        def snapshot(status: str, error: dict | None = None) -> StoredResponse:
+            return record(
+                _background_snapshot(
+                    response_id=response_id,
+                    created_at=created_at,
+                    status=status,
+                    response_options=response_options,
+                    error=error,
+                )
+            )
+
+        status = "queued"
+        token = set_request_context(context)
+        try:
+            with _background_span(response_id, link_context):
+                if not await _transition(
+                    self._store, snapshot("in_progress"), expected_status=status
+                ):
+                    return
+                status = "in_progress"
+                try:
+                    with dev_diagnostics.turn("responses", text), usage_scope() as usage:
+                        reply = await self._dispatch(text)
+                        dev_diagnostics.record_output(reply)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Background response %s failed.", response_id)
+                    await _transition(
+                        self._store,
+                        snapshot(
+                            "failed",
+                            {
+                                "code": "server_error",
+                                "message": "An internal server error occurred.",
+                            },
+                        ),
+                        expected_status=status,
+                    )
+                    return
+                completed = _responses_body(
+                    reply,
+                    response_id=response_id,
+                    output_item_id=f"msg_{uuid4().hex}",
+                    created_at=created_at,
+                    usage=usage,
+                    **response_options,
+                )
+                completed["background"] = True
+                await _transition(self._store, record(completed), expected_status=status)
+        except asyncio.CancelledError:
+            # A cancel request already moved the record to ``cancelled`` (so this
+            # compare-and-set loses); otherwise the process is stopping.
+            await _transition(
+                self._store,
+                snapshot(
+                    "failed",
+                    {
+                        "code": "server_error",
+                        "message": "The agent stopped before the response finished.",
+                    },
+                ),
+                expected_status=status,
+            )
+            raise
+        finally:
+            reset_request_context(token)
+
+
 def _register_wire(
-    app: FastAPI, wire: dict, responses_store: OrderedDict[str, dict]
-) -> None:
-    """Serve each registered wire-protocol handler on its native endpoint."""
+    app: FastAPI,
+    wire: dict,
+    responses_store: ResponseStore,
+    *,
+    background_store: ResponseStore | None = None,
+) -> _BackgroundResponses | None:
+    """Serve each registered wire-protocol handler on its native endpoint.
+
+    Returns the background executor when a consumer store enables
+    ``background=true``, so the app lifespan can stop it on shutdown.
+    """
+    background_runner: _BackgroundResponses | None = None
     responses_handler = wire.get("responses")
     if responses_handler is not None:
         responses_dispatch = make_return_dispatch(responses_handler)
@@ -752,6 +1025,8 @@ def _register_wire(
             if responses_stream_handler is not None
             else None
         )
+        if background_store is not None:
+            background_runner = _BackgroundResponses(background_store, responses_dispatch)
 
         @app.post("/responses")
         async def responses(request: Request) -> Response:
@@ -768,12 +1043,28 @@ def _register_wire(
                         "request body must be a JSON object",
                         param="body",
                     )
-                if body.get("background") is True:
-                    return _api_error(
-                        "background=true is not supported by this Castia runtime.",
-                        code="unsupported_parameter",
-                        param="background",
-                    )
+                background = body.get("background") is True
+                if background:
+                    if background_runner is None:
+                        return _api_error(
+                            _BACKGROUND_STORE_REQUIRED,
+                            code="unsupported_parameter",
+                            param="background",
+                        )
+                    if body.get("store") is False:
+                        return _api_error(
+                            "background=true requires store=true.",
+                            code="unsupported_parameter",
+                            param="background",
+                        )
+                    if body.get("stream") is True:
+                        return _api_error(
+                            "background=true with stream=true is not supported by "
+                            "this Castia runtime; omit stream and poll "
+                            "GET /responses/{response_id}.",
+                            code="unsupported_parameter",
+                            param="stream",
+                        )
                 if body.get("previous_response_id") is not None:
                     return _api_error(
                         "previous_response_id is not supported by this Castia runtime; "
@@ -802,6 +1093,34 @@ def _register_wire(
                 text = _responses_input(body.get("input"))
                 response_options = _responses_request_options(body)
                 store = body.get("store") is not False
+                if background:
+                    response_id = f"resp_{uuid4().hex}"
+                    record: StoredResponse = {
+                        "response": _background_snapshot(
+                            response_id=response_id,
+                            created_at=int(time.time()),
+                            status="queued",
+                            response_options=response_options,
+                        ),
+                        "input_items": _responses_input_items(
+                            body.get("input"), response_id=response_id
+                        ),
+                        "background": True,
+                    }
+                    queued = deepcopy(record["response"])
+                    try:
+                        await background_store.create(record)
+                    except Exception:
+                        logger.exception("Could not store background response.")
+                        return _store_unavailable()
+                    background_runner.start(
+                        record,
+                        text=text,
+                        context=current_request_context(),
+                        response_options=response_options,
+                        link_context=_current_span_context(),
+                    )
+                    return JSONResponse(queued)
                 if body.get("stream") is True:
 
                     async def events():
@@ -952,20 +1271,17 @@ def _register_wire(
                                     },
                                 )
                                 if store:
-                                    _store_completed_response(
+                                    await _save_terminal_response(
                                         responses_store,
-                                        response_id,
-                                        {
-                                            "response": _responses_body(
-                                                output_text,
-                                                response_id=response_id,
-                                                output_item_id=output_item_id,
-                                                created_at=created_at,
-                                                usage=turn_usage,
-                                                **response_options,
-                                            ),
-                                            "input_items": input_items,
-                                        },
+                                        _responses_body(
+                                            output_text,
+                                            response_id=response_id,
+                                            output_item_id=output_item_id,
+                                            created_at=created_at,
+                                            usage=turn_usage,
+                                            **response_options,
+                                        ),
+                                        input_items,
                                     )
                                 yield emit(
                                     "response.completed",
@@ -994,13 +1310,10 @@ def _register_wire(
                                 response_options=response_options,
                             )
                             if store:
-                                _store_completed_response(
+                                await _save_terminal_response(
                                     responses_store,
-                                    response_id,
-                                    {
-                                        "response": deepcopy(failed_event["response"]),
-                                        "input_items": input_items,
-                                    },
+                                    failed_event["response"],
+                                    input_items,
                                 )
                             terminal_status = "failed"
                             yield emit("response.failed", failed_event)
@@ -1033,32 +1346,50 @@ def _register_wire(
                     **response_options,
                 )
                 if store:
-                    _store_completed_response(
+                    await _save_terminal_response(
                         responses_store,
-                        response_id,
-                        {
-                            "response": deepcopy(body_out),
-                            "input_items": _responses_input_items(
-                                body.get("input"), response_id=response_id
-                            ),
-                        },
+                        body_out,
+                        _responses_input_items(body.get("input"), response_id=response_id),
                     )
                 return JSONResponse(body_out)
 
         logger.info("Serving responses protocol on POST /responses")
 
-        @app.get("/responses/{response_id}")
-        async def get_response(response_id: str) -> Response:
-            record = responses_store.get(response_id)
+        async def _load(response_id: str) -> StoredResponse | JSONResponse:
+            try:
+                record = await responses_store.get(response_id)
+            except Exception:
+                logger.exception("Could not read response %s.", response_id)
+                return _store_unavailable()
             if record is None:
                 return _not_found_response(response_id)
+            return record
+
+        @app.get("/responses/{response_id}")
+        async def get_response(response_id: str, request: Request) -> Response:
+            if request.query_params.get("stream", "").lower() == "true":
+                return _api_error(
+                    "Streaming a stored response is not supported by this Castia "
+                    "runtime; omit stream to read the current response.",
+                    code="unsupported_parameter",
+                    param="stream",
+                )
+            record = await _load(response_id)
+            if isinstance(record, JSONResponse):
+                return record
             return JSONResponse(record["response"])
 
         @app.delete("/responses/{response_id}")
         async def delete_response(response_id: str) -> Response:
-            if response_id not in responses_store:
+            try:
+                deleted = await responses_store.delete(response_id)
+            except Exception:
+                logger.exception("Could not delete response %s.", response_id)
+                return _store_unavailable()
+            if not deleted:
                 return _not_found_response(response_id)
-            del responses_store[response_id]
+            if background_runner is not None:
+                background_runner.cancel_local(response_id)
             return JSONResponse(
                 {"id": response_id, "object": "response", "deleted": True},
                 status_code=200,
@@ -1066,26 +1397,45 @@ def _register_wire(
 
         @app.post("/responses/{response_id}/cancel")
         async def cancel_response(response_id: str) -> Response:
-            record = responses_store.get(response_id)
-            if record is None:
-                return _not_found_response(response_id)
+            record = await _load(response_id)
+            if isinstance(record, JSONResponse):
+                return record
             status = record["response"].get("status")
-            if isinstance(status, str):
-                message = f"Cannot cancel a {status} response."
-            else:
-                # Defensive only: Castia stores terminal responses today.
-                message = "In-flight cancellation is not supported by this Castia runtime."
+            if record.get("background") and status in NON_TERMINAL_STATUSES:
+                cancelled = deepcopy(record["response"])
+                cancelled.update(
+                    status="cancelled", output=[], output_text="", usage=None
+                )
+                swapped = await _transition(
+                    responses_store,
+                    {
+                        "response": cancelled,
+                        "input_items": record["input_items"],
+                        "background": True,
+                    },
+                    expected_status=status,
+                )
+                if swapped:
+                    background_runner.cancel_local(response_id)
+                    return JSONResponse(cancelled)
+                # Lost the race to the worker or another cancel: report what won.
+                record = await _load(response_id)
+                if isinstance(record, JSONResponse):
+                    return record
+                status = record["response"].get("status")
+            if record.get("background") and status == "cancelled":
+                return JSONResponse(record["response"])
             return _api_error(
-                message,
+                f"Cannot cancel a {status} response.",
                 code="unsupported_parameter",
                 param="response_id",
             )
 
         @app.get("/responses/{response_id}/input_items")
         async def response_input_items(response_id: str, request: Request) -> Response:
-            record = responses_store.get(response_id)
-            if record is None:
-                return _not_found_response(response_id)
+            record = await _load(response_id)
+            if isinstance(record, JSONResponse):
+                return record
             try:
                 limit = int(request.query_params.get("limit", "20"))
             except ValueError:
@@ -1156,6 +1506,8 @@ def _register_wire(
                 return JSONResponse(_invocations_body(reply))
 
         logger.info("Serving invocations protocol on POST /invocations")
+
+    return background_runner
 
 
 def _registered_protocols(routes, wire=None, invokes=None, commands=None) -> list[str]:
@@ -1249,9 +1601,23 @@ def build_app(
     *,
     agent_name: str | None = None,
     required_env: tuple[str, ...] = (),
+    response_store: ResponseStore | None = None,
 ) -> FastAPI:
-    """Assemble the FastAPI app: readiness, the Activity endpoint, wire routes."""
-    app = FastAPI(title="castia", docs_url=None, redoc_url=None)
+    """Assemble the FastAPI app: readiness, the Activity endpoint, wire routes.
+
+    ``response_store`` is the consumer-owned store that enables
+    ``background=true``; without it, stored foreground responses fall back to a
+    bounded process-local cache.
+    """
+    background_runner: _BackgroundResponses | None = None
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        if background_runner is not None:
+            await background_runner.shutdown()
+
+    app = FastAPI(title="castia", docs_url=None, redoc_url=None, lifespan=lifespan)
 
     @app.get("/readiness")
     async def readiness(request: Request) -> Response:
@@ -1291,7 +1657,12 @@ def build_app(
         )
 
     _register_activity(app, routes, invokes, commands)
-    _register_wire(app, wire or {}, OrderedDict())
+    background_runner = _register_wire(
+        app,
+        wire or {},
+        response_store or _ProcessLocalResponseCache(_MAX_STORED_RESPONSES),
+        background_store=response_store,
+    )
     return app
 
 
@@ -1380,6 +1751,7 @@ def serve(
     port: int = 8088,
     agent_name: str | None = None,
     required_env: tuple[str, ...] = (),
+    response_store: ResponseStore | None = None,
 ) -> None:
     """Serve the Activity endpoint and any registered wire protocols."""
     logger.info("Starting agent %s on %s:%s...", agent_name or "<unnamed>", host, port)
@@ -1392,6 +1764,7 @@ def serve(
             commands,
             agent_name=agent_name,
             required_env=required_env,
+            response_store=response_store,
         ),
         host=host,
         port=port,

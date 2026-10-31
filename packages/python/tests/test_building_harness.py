@@ -5,6 +5,7 @@ import json
 import socket
 import subprocess
 import uuid
+from copy import deepcopy
 from pathlib import Path
 
 import httpx
@@ -13,7 +14,14 @@ from openai.types.responses.response import Response as OpenAIResponse
 from openai.types.responses.response_stream_event import ResponseStreamEvent
 from pydantic import TypeAdapter
 
-from castia import Agent, Depends, Message, Teams, current_request_context
+from castia import (
+    Agent,
+    Depends,
+    Message,
+    ResponseStore,
+    Teams,
+    current_request_context,
+)
 from castia.building import AgentTestHarness
 from castia.building._offline import OfflineOperationError
 
@@ -373,7 +381,18 @@ def test_agent_run_uses_env_port_and_startup_checks(monkeypatch):
         lambda: calls.append("observability"),
     )
 
-    def fake_serve(routes, wire, invokes, commands, *, host, port, agent_name, required_env):
+    def fake_serve(
+        routes,
+        wire,
+        invokes,
+        commands,
+        *,
+        host,
+        port,
+        agent_name,
+        required_env,
+        response_store=None,
+    ):
         captured.update(
             host=host,
             port=port,
@@ -412,7 +431,16 @@ def test_agent_run_explicit_port_wins_and_invalid_port_fails(monkeypatch):
     )
 
     def fake_explicit_serve(
-        routes, wire, invokes, commands, *, host, port, agent_name, required_env
+        routes,
+        wire,
+        invokes,
+        commands,
+        *,
+        host,
+        port,
+        agent_name,
+        required_env,
+        response_store=None,
     ):
         captured.update(host=host, port=port)
 
@@ -806,7 +834,7 @@ def test_responses_lifecycle_stores_completed_json_response():
     asyncio.run(run())
 
 
-def test_responses_lifecycle_honors_store_false_and_rejects_background():
+def test_responses_lifecycle_honors_store_false_and_requires_store_for_background():
     app = Agent()
 
     @app.responses()
@@ -841,18 +869,296 @@ def test_responses_lifecycle_honors_store_false_and_rejects_background():
                 "/responses", json={"input": "later", "background": True}
             )
             assert background.status_code == 400
-            assert background.json()["error"] == {
-                "message": "background=true is not supported by this Castia runtime.",
-                "type": "invalid_request_error",
-                "param": "background",
-                "code": "unsupported_parameter",
-            }
+            error = background.json()["error"]
+            assert error["param"] == "background"
+            assert error["code"] == "unsupported_parameter"
+            assert "Agent(response_store=...)" in error["message"]
 
             bad_body = await test.client.post("/responses", json=["not", "object"])
             assert bad_body.status_code == 400
             assert bad_body.json()["error"]["param"] == "body"
 
     asyncio.run(run())
+
+
+class InMemoryResponseStore:
+    """TEST ONLY - not for production: process-local, unbounded, single replica."""
+
+    def __init__(self):
+        self.records = {}
+        self.fail_create = False
+        self.fail_get = False
+
+    async def create(self, record):
+        if self.fail_create:
+            raise ConnectionError("store down")
+        self.records[record["response"]["id"]] = deepcopy(record)
+
+    async def get(self, response_id):
+        if self.fail_get:
+            raise ConnectionError("store down")
+        record = self.records.get(response_id)
+        return deepcopy(record) if record is not None else None
+
+    async def update(self, record, *, expected_status):
+        response_id = record["response"]["id"]
+        current = self.records.get(response_id)
+        if current is None or current["response"]["status"] != expected_status:
+            return False
+        self.records[response_id] = deepcopy(record)
+        return True
+
+    async def delete(self, response_id):
+        return self.records.pop(response_id, None) is not None
+
+
+async def _poll_until(client, response_id, statuses, attempts=200):
+    for _ in range(attempts):
+        fetched = await client.get(f"/responses/{response_id}")
+        assert fetched.status_code == 200
+        body = fetched.json()
+        if body["status"] in statuses:
+            return body
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"{response_id} never reached {statuses}: {body['status']}")
+
+
+def test_background_response_is_queued_then_polled_to_completion():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+    release = asyncio.Event()
+    seen = {}
+
+    @app.responses()
+    async def reply(text: str):
+        seen["call_id"] = current_request_context().call_id
+        await release.wait()
+        return f"later:{text}"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses",
+                json={"input": "hello", "background": True},
+                headers={"x-agent-foundry-call-id": "call-bg"},
+            )
+            assert created.status_code == 200
+            queued = created.json()
+            assert queued["status"] == "queued"
+            assert queued["background"] is True
+            assert queued["output"] == []
+            assert queued["usage"] is None
+            response_id = queued["id"]
+
+            running = await _poll_until(test.client, response_id, {"in_progress"})
+            assert running["output"] == []
+            release.set()
+            done = await _poll_until(test.client, response_id, {"completed"})
+            assert done["output_text"] == "later:hello"
+            assert done["background"] is True
+            assert_sdk_parseable_response(done)
+            assert seen["call_id"] == "call-bg"
+
+            items = await test.client.get(f"/responses/{response_id}/input_items")
+            assert items.json()["data"][0]["content"][0]["text"] == "hello"
+
+            cancel = await test.client.post(f"/responses/{response_id}/cancel")
+            assert cancel.status_code == 400
+
+    asyncio.run(run())
+
+
+def test_background_handler_failure_marks_response_failed():
+    app = Agent(response_store=InMemoryResponseStore())
+
+    @app.responses()
+    async def reply(text: str):
+        raise RuntimeError("secret detail")
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses", json={"input": "boom", "background": True}
+            )
+            failed = await _poll_until(test.client, created.json()["id"], {"failed"})
+            assert failed["error"]["code"] == "server_error"
+            assert "secret" not in failed["error"]["message"]
+            assert failed["output"] == []
+
+    asyncio.run(run())
+
+
+def test_background_cancel_is_idempotent_and_wins_over_the_worker():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    @app.responses()
+    async def reply(text: str):
+        started.set()
+        try:
+            await asyncio.sleep(30)
+        finally:
+            stopped.set()
+        return "never"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses", json={"input": "slow", "background": True}
+            )
+            response_id = created.json()["id"]
+            await asyncio.wait_for(started.wait(), 5)
+
+            cancel = await test.client.post(f"/responses/{response_id}/cancel")
+            assert cancel.status_code == 200
+            assert cancel.json()["status"] == "cancelled"
+            assert cancel.json()["output"] == []
+            await asyncio.wait_for(stopped.wait(), 5)
+            await asyncio.sleep(0.05)
+
+            again = await test.client.post(f"/responses/{response_id}/cancel")
+            assert again.status_code == 200
+            assert again.json()["status"] == "cancelled"
+            fetched = await test.client.get(f"/responses/{response_id}")
+            assert fetched.json()["status"] == "cancelled"
+
+    asyncio.run(run())
+
+
+def test_background_delete_in_flight_is_not_resurrected():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @app.responses()
+    async def reply(text: str):
+        started.set()
+        await release.wait()
+        return "late"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses", json={"input": "x", "background": True}
+            )
+            response_id = created.json()["id"]
+            await asyncio.wait_for(started.wait(), 5)
+            deleted = await test.client.delete(f"/responses/{response_id}")
+            assert deleted.status_code == 200
+            release.set()
+            await asyncio.sleep(0.05)
+            assert response_id not in store.records
+            assert (await test.client.get(f"/responses/{response_id}")).status_code == 404
+
+    asyncio.run(run())
+
+
+def test_background_rejects_store_false_stream_and_get_stream():
+    app = Agent(response_store=InMemoryResponseStore())
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            no_store = await test.client.post(
+                "/responses", json={"input": "x", "background": True, "store": False}
+            )
+            assert no_store.status_code == 400
+            assert no_store.json()["error"]["param"] == "background"
+            assert "store=true" in no_store.json()["error"]["message"]
+
+            stream = await test.client.post(
+                "/responses", json={"input": "x", "background": True, "stream": True}
+            )
+            assert stream.status_code == 400
+            assert stream.json()["error"]["param"] == "stream"
+
+            created = await test.client.post("/responses", json={"input": "x"})
+            response_id = created.json()["id"]
+            streamed = await test.client.get(f"/responses/{response_id}?stream=true")
+            assert streamed.status_code == 400
+            assert streamed.json()["error"]["param"] == "stream"
+
+    asyncio.run(run())
+
+
+def test_response_store_errors_return_503_and_start_no_work():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+    calls = []
+
+    @app.responses()
+    async def reply(text: str):
+        calls.append(text)
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            store.fail_create = True
+            created = await test.client.post(
+                "/responses", json={"input": "x", "background": True}
+            )
+            assert created.status_code == 503
+            assert created.json()["error"]["code"] == "store_unavailable"
+            await asyncio.sleep(0.05)
+            assert calls == []
+
+            # A foreground turn still answers when storing it fails.
+            foreground = await test.client.post("/responses", json={"input": "fg"})
+            assert foreground.status_code == 200
+            assert calls == ["fg"]
+
+            store.fail_get = True
+            fetched = await test.client.get("/responses/resp_missing")
+            assert fetched.status_code == 503
+
+    asyncio.run(run())
+
+
+def test_consumer_store_also_holds_foreground_responses():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post("/responses", json={"input": "sync"})
+            record = store.records[created.json()["id"]]
+            assert record["background"] is False
+            assert record["response"]["status"] == "completed"
+
+    asyncio.run(run())
+
+
+def test_agent_validates_response_store_and_responses_only_keeps_it():
+    class SyncStore:
+        def create(self, record): ...
+        def get(self, response_id): ...
+        def update(self, record, *, expected_status): ...
+        def delete(self, response_id): ...
+
+    with pytest.raises(TypeError, match="must be async"):
+        Agent(response_store=SyncStore())
+    with pytest.raises(TypeError, match="missing"):
+        Agent(response_store=object())
+
+    store = InMemoryResponseStore()
+    assert isinstance(store, ResponseStore)
+    app = Agent(response_store=store)
+
+    @app.responses()
+    async def reply(text: str):
+        return text
+
+    assert app.responses_only()._response_store is store
 
 
 def test_responses_lifecycle_evicts_oldest_completed_records(monkeypatch):
