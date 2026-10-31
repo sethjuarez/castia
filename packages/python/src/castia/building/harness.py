@@ -88,10 +88,18 @@ class AgentTestHarness:
             raise RuntimeError("Use the harness inside 'async with'.")
         return self._client
 
-    async def _resolve(self, dependency: Callable[..., Any], context: Any) -> Any:
-        if dependency in self._cache:
+    async def _resolve(
+        self, dependency: Callable[..., Any], context: Any, *, use_cache: bool = True
+    ) -> Any:
+        per_turn = getattr(dependency, "__castia_no_cache__", False)
+        cacheable = use_cache and not per_turn
+        if cacheable and dependency in self._cache:
             return self._cache[dependency]
         provider = self.dependency_overrides.get(dependency)
+        if provider is None and per_turn:
+            # Framework per-turn dependencies (response_history) read request
+            # state only, so they run for real under the harness.
+            provider = dependency
         if provider is None:
             raise RuntimeError("Missing dependency override; real providers are disabled.")
         assert self._stack is not None
@@ -103,7 +111,8 @@ class AgentTestHarness:
             result = provider()
             if inspect.isawaitable(result):
                 result = await result
-        self._cache[dependency] = result
+        if cacheable:
+            self._cache[dependency] = result
         return result
 
     async def _send(

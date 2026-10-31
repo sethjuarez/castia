@@ -67,7 +67,7 @@ async def _resolve_dependency(param: inspect.Parameter, activity: Activity | Non
             "castia.dependency.name": _dependency_name(dependency),
         },
     ):
-        return await resolve(dependency, activity)
+        return await resolve(dependency, activity, use_cache=param.default.use_cache)
 
 
 def make_dispatch(func: Handler) -> ActivityDispatch:
