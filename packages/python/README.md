@@ -178,7 +178,9 @@ non-streaming request returns a completed `response` object immediately.
 success. When streaming, if the handler raises mid-turn, Castia emits a terminal
 `response.failed` event with a generic `server_error`, then `[DONE]`; the
 exception is logged server-side and the public event does not include exception
-details. Unless the request sets `store: false`, Castia also keeps the terminal
+details. During idle gaps, the stream also carries `: keep-alive` SSE comments,
+every `SSE_KEEPALIVE_INTERVAL` seconds (default `15`, `0` disables; same contract
+as `azure-ai-agentserver-core`), so proxies don't drop slow turns. Unless the request sets `store: false`, Castia also keeps the terminal
 completed or failed response and normalized input items in a bounded in-memory
 store for the current process.
 The completed record is available through:
