@@ -126,7 +126,11 @@ def test_source_errors_propagate():
         _collect(source(), 0.05)
 
 
-@pytest.mark.parametrize("error", [asyncio.CancelledError, KeyboardInterrupt])
+class _SourceAbort(BaseException):
+    """A non-Exception BaseException that asyncio does not re-raise to the loop."""
+
+
+@pytest.mark.parametrize("error", [asyncio.CancelledError, _SourceAbort])
 def test_source_base_exceptions_are_not_a_clean_end(error):
     async def source():
         yield "a"
