@@ -51,6 +51,7 @@ from castia.hosting.responses_store import (
     StoredResponse,
     _ProcessLocalResponseCache,
 )
+from castia.hosting.snapshot import register_snapshot_routes
 from castia.messaging.connector import send_reply
 from castia.messaging.routing import (
     teams_direct_message,
@@ -1917,6 +1918,7 @@ def build_app(
             status_code=200,
         )
 
+    register_snapshot_routes(app)
     _register_activity(app, routes, invokes, commands)
     background_runner = _register_wire(
         app,

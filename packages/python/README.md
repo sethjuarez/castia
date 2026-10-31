@@ -331,6 +331,23 @@ check record owners, so `get_history` must filter by `user_id`.
 `Depends(..., use_cache=False)` resolves a dependency on every turn. Castia
 marks `response_history` per-turn, so it is never cached across requests.
 
+### Snapshot lifecycle
+
+Foundry can snapshot an idle hosted-agent process and later restore it for a
+session. Castia serves the platform hooks from
+[`azure-ai-agentserver-core`](https://pypi.org/project/azure-ai-agentserver-core/)
+2.3.0, so agents need no extra code:
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /_agent/before-snapshot` (alias `/_before_snapshot`) | Takes a JSON object body and returns `{"status":"ok"}`. It's idempotent. Castia holds no state to release. |
+| `POST /_agent/after-restore` (alias `/_after_restore`) | Takes `session_context` with `session_id`, `restore_id`, and optional `session_env_overrides`. It applies the overrides and `FOUNDRY_AGENT_SESSION_ID` to `os.environ`, and returns `{"status":"ok"}`. |
+| Errors | A malformed body → `400 invalid_before_snapshot_request` / `invalid_after_restore_request`. A different session after the first restore → `409 session_mismatch`. A failed env write → `500 after_restore_failed`, rolled back. |
+
+Replaying a `restore_id` returns `ok` without reapplying it. Restored values only
+reach code that reads the environment after the restore. Settings captured at
+startup keep their snapshot-time values.
+
 ### Composing protocols with routers
 
 Like FastAPI's `include_router`, an `Agent` composes `Router`s so each protocol
