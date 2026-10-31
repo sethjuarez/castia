@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0](https://github.com/sethjuarez/castia/compare/python-v0.16.0...python-v0.17.0) (2026-10-31)
+
+
+### Features
+
+* **python:** send SSE keep-alive comments on streamed Responses ([#116](https://github.com/sethjuarez/castia/issues/116)) ([f47f9fe](https://github.com/sethjuarez/castia/commit/f47f9fef8bd31fbdf8af87bbdd26dad109c41541))
+* **python:** serve Foundry snapshot lifecycle endpoints ([#117](https://github.com/sethjuarez/castia/issues/117)) ([5941600](https://github.com/sethjuarez/castia/commit/59416001e13ca79e42a2e895b9fd05d16c58db08))
+* **python:** support Responses conversation history through a consumer store ([#114](https://github.com/sethjuarez/castia/issues/114)) ([ba7c259](https://github.com/sethjuarez/castia/commit/ba7c2596075b4c5f210b99e63f00d80cc89c797d))
+
 ## [0.16.0](https://github.com/sethjuarez/castia/compare/python-v0.15.0...python-v0.16.0) (2026-10-31)
 
 
