@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/sethjuarez/castia/compare/python-v0.15.0...python-v0.16.0) (2026-10-31)
+
+
+### Features
+
+* **python:** support background Responses with a consumer-owned response store ([#112](https://github.com/sethjuarez/castia/issues/112)) ([1d6c334](https://github.com/sethjuarez/castia/commit/1d6c334ea43303cf4b157915ab0896bb6f6861a0))
+
 ## [0.15.0](https://github.com/sethjuarez/castia/compare/python-v0.14.2...python-v0.15.0) (2026-10-08)
 
 
