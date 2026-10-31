@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator, Callable
+from copy import deepcopy
 
 from castia.observe.tracing import trace_attribute, trace_context_headers, trace_step
 from castia.runtime.usage import record_response_usage
@@ -79,7 +80,9 @@ class Model:
             credential=DefaultAzureCredential(),
         )
 
-    async def respond(self, text: str) -> str:
+    async def respond(self, text: str, *, history: list[dict] | None = None) -> str:
+        """Answer ``text``; ``history`` (from :func:`castia.response_history`)
+        is prior conversation items, sent before it, oldest first."""
         # The GenAI instrumentor enabled in observability._enable_genai_tracing
         # wraps this Responses API call in a `chat {model}` span carrying the
         # gen_ai.* semantic-convention attributes the Foundry Traces UI renders.
@@ -94,7 +97,7 @@ class Model:
             _add_model_event("castia.model.request.started", phase="single")
             response = await self._client.get_openai_client().responses.create(
                 model=self._deployment,
-                input=_user_message_input(text),
+                input=_conversation_input(text, history),
                 **_instructions_param(self._instructions),
                 **self._reasoning,
                 extra_headers=trace_context_headers(),
@@ -105,7 +108,9 @@ class Model:
             _add_model_event("castia.model.final_response.completed", phase="single")
             return output
 
-    async def stream(self, text: str) -> AsyncIterator[str]:
+    async def stream(
+        self, text: str, *, history: list[dict] | None = None
+    ) -> AsyncIterator[str]:
         """Yield the answer to ``text`` as it is generated, delta by delta.
 
         Opens the Responses API in streaming mode and yields each
@@ -129,7 +134,7 @@ class Model:
             _add_model_event("castia.model.request.started", phase="stream")
             stream = await self._client.get_openai_client().responses.create(
                 model=self._deployment,
-                input=_user_message_input(text),
+                input=_conversation_input(text, history),
                 stream=True,
                 **_instructions_param(self._instructions),
                 **self._reasoning,
@@ -163,6 +168,7 @@ class Model:
         activity: object,
         max_iterations: int = 4,
         extra_specs: list[dict] | None = None,
+        history: list[dict] | None = None,
     ) -> str:
         """Answer ``text`` letting the model call outbound :class:`~castia.inference.tools.Tool` s.
 
@@ -192,7 +198,7 @@ class Model:
         ]
         by_name = {t.name: t for t in function_tools}
         client = self._client.get_openai_client()
-        conversation: list = _user_message_input(text)
+        conversation: list = _conversation_input(text, history)
 
         with trace_step(
             "castia.model.respond_with_tools",
@@ -393,6 +399,11 @@ def _user_message_input(text: str) -> list[dict]:
     decision to include or omit the ``text`` value on exported spans.
     """
     return [{"role": "user", "content": [{"type": "input_text", "text": text}]}]
+
+
+def _conversation_input(text: str, history: list[dict] | None) -> list[dict]:
+    """Prior conversation items (oldest first) followed by the user's ``text``."""
+    return [*deepcopy(list(history or [])), *_user_message_input(text)]
 
 
 def _event_attributes(**attributes: object) -> dict[str, bool | int | float | str]:

@@ -16,6 +16,8 @@
         "output_text": "",
         "output": [],
         "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "conversation": null,
         "tool_choice": "auto",
         "tools": [],
         "usage": null
@@ -40,6 +42,8 @@
         "output_text": "",
         "output": [],
         "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "conversation": null,
         "tool_choice": "auto",
         "tools": [],
         "usage": null
@@ -184,6 +188,8 @@
           }
         ],
         "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "conversation": null,
         "tool_choice": "auto",
         "tools": [],
         "usage": {
@@ -226,6 +232,8 @@
         }
       ],
       "parallel_tool_calls": true,
+      "previous_response_id": null,
+      "conversation": null,
       "tool_choice": "auto",
       "tools": [],
       "usage": {

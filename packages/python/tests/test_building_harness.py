@@ -301,8 +301,17 @@ def test_real_wire_endpoints_and_strict_isolated_overrides():
 
 
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("previous_response_id", ["resp_previous", "", 123])
-def test_responses_rejects_previous_response_id(stream, previous_response_id):
+@pytest.mark.parametrize(
+    ("previous_response_id", "code"),
+    [
+        ("resp_previous", "unsupported_parameter"),
+        ("", "invalid_request"),
+        (123, "invalid_request"),
+    ],
+)
+def test_responses_previous_response_id_needs_a_consumer_store(
+    stream, previous_response_id, code
+):
     app = Agent()
 
     @app.responses()
@@ -321,8 +330,10 @@ def test_responses_rejects_previous_response_id(stream, previous_response_id):
             )
             assert response.status_code == 400
             body = response.json()
-            assert body["error"]["code"] == "unsupported_parameter"
+            assert body["error"]["code"] == code
             assert body["error"]["param"] == "previous_response_id"
+            if code == "unsupported_parameter":
+                assert "response_store" in body["error"]["message"]
 
             allowed = await test.client.post(
                 "/responses",
@@ -344,8 +355,11 @@ def test_responses_rejects_previous_response_id(stream, previous_response_id):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("conversation", [None, "conv_previous", {}, {"id": "conv"}])
-def test_responses_accepts_hosted_conversation_context(stream, conversation):
+@pytest.mark.parametrize(
+    ("conversation", "echoed"),
+    [(None, None), ("conv_previous", "conv_previous"), ({"id": "conv"}, "conv")],
+)
+def test_responses_accepts_hosted_conversation_context(stream, conversation, echoed):
     app = Agent()
 
     @app.responses()
@@ -362,9 +376,18 @@ def test_responses_accepts_hosted_conversation_context(stream, conversation):
             if stream:
                 events = sse_events(response.text)
                 assert events[-2][0] == "response.completed"
-                assert events[-2][1]["response"]["output_text"] == "hello"
+                body = events[-2][1]["response"]
             else:
-                assert response.json()["output_text"] == "hello"
+                body = response.json()
+            assert body["output_text"] == "hello"
+            assert body["conversation"] == ({"id": echoed} if echoed else None)
+
+            invalid = await test.client.post(
+                "/responses",
+                json={"input": "hello", "stream": stream, "conversation": {}},
+            )
+            assert invalid.status_code == 400
+            assert invalid.json()["error"]["param"] == "conversation"
 
     asyncio.run(run())
 

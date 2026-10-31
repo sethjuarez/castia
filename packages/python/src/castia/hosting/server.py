@@ -46,6 +46,7 @@ from pydantic import ValidationError
 
 from castia.hosting.responses_store import (
     NON_TERMINAL_STATUSES,
+    ResponseHistoryStore,
     ResponseStore,
     StoredResponse,
     _ProcessLocalResponseCache,
@@ -66,6 +67,7 @@ from castia.runtime.dispatch import (
     make_return_dispatch,
     make_stream_dispatch,
 )
+from castia.runtime.history import bind_response_history, model_input_items
 from castia.runtime.request_context import (
     FOUNDRY_CALL_ID_HEADER,
     FOUNDRY_SESSION_ID_HEADER,
@@ -185,6 +187,8 @@ def _responses_body(
     tool_choice: object = None,
     parallel_tool_calls: bool | None = None,
     usage: TurnUsage | None = None,
+    previous_response_id: str | None = None,
+    conversation: dict | None = None,
 ) -> dict:
     """An OpenAI Responses-shaped payload carrying ``text``.
 
@@ -219,6 +223,8 @@ def _responses_body(
         "parallel_tool_calls": True
         if parallel_tool_calls is None
         else parallel_tool_calls,
+        "previous_response_id": previous_response_id,
+        "conversation": deepcopy(conversation),
         "tool_choice": "auto" if tool_choice is None else tool_choice,
         "tools": tools or [],
         "usage": None
@@ -424,6 +430,201 @@ def _background_snapshot(
     return body
 
 
+_HISTORY_STORE_REQUIRED = (
+    "previous_response_id requires a response store that keeps prior responses. "
+    "Pass one to Agent(response_store=...); see the castia README section "
+    "'Conversation history'."
+)
+_HISTORY_MAX_HOPS = 100
+_HISTORY_MAX_ITEMS = 1000
+
+
+class _HistoryError(Exception):
+    """A history lookup that must end the request with ``response``."""
+
+    def __init__(self, response: JSONResponse) -> None:
+        super().__init__(response.status_code)
+        self.response = response
+
+
+def _history_request(body: dict) -> tuple[str | None, str | None] | JSONResponse:
+    """Validate ``previous_response_id`` / ``conversation``; return their ids."""
+    previous = body.get("previous_response_id")
+    if previous is not None and (not isinstance(previous, str) or not previous):
+        return _api_error(
+            "previous_response_id must be a non-empty string.",
+            param="previous_response_id",
+        )
+    conversation = body.get("conversation")
+    conversation_id = None
+    if conversation is not None:
+        if isinstance(conversation, str):
+            conversation_id = conversation
+        elif isinstance(conversation, dict) and isinstance(conversation.get("id"), str):
+            conversation_id = conversation["id"]
+        if not conversation_id:
+            return _api_error(
+                "conversation must be a conversation id or an object with an id.",
+                param="conversation",
+            )
+    if previous is not None and conversation_id is not None:
+        return _api_error(
+            "previous_response_id and conversation cannot be used together.",
+            param="conversation",
+        )
+    return previous, conversation_id
+
+
+def _inline_history(value) -> list:
+    """Items a client sent in ``input`` before the latest user message."""
+    index, _ = _current_user_item(value)
+    return value[:index] if index is not None else []
+
+
+def _response_items(record: StoredResponse) -> list:
+    return list(record.get("input_items") or []) + list(
+        record["response"].get("output") or []
+    )
+
+
+async def _stored_history(
+    store: ResponseStore | None,
+    *,
+    previous_response_id: str | None,
+    conversation_id: str | None,
+    owner: str | None,
+) -> tuple[list[list], bool]:
+    """Prior responses' items, grouped per response and oldest first.
+
+    Returns ``(groups, truncated)``. Raises :class:`_HistoryError` for a
+    missing, foreign, or unfinished ``previous_response_id``.
+    """
+    if conversation_id is not None:
+        if not isinstance(store, ResponseHistoryStore):
+            logger.info(
+                "Ignoring Responses conversation %r: the response store does not "
+                "implement castia.ResponseHistoryStore.",
+                conversation_id,
+            )
+            _set_span_attribute("castia.responses.conversation_ignored", True)
+            return [], False
+        groups = await store.get_history(
+            previous_response_id=None,
+            conversation_id=conversation_id,
+            user_id=owner,
+            limit=_HISTORY_MAX_ITEMS,
+        )
+        return _history_groups(groups), False
+    if previous_response_id is None or store is None:
+        return [], False
+
+    anchor = await store.get(previous_response_id)
+    if anchor is None or anchor.get("user_id") != owner:
+        raise _HistoryError(_not_found_response(previous_response_id))
+    status = anchor["response"].get("status")
+    if status in NON_TERMINAL_STATUSES:
+        raise _HistoryError(
+            _api_error(
+                f"Previous response {previous_response_id!r} is still {status}; "
+                "wait until it finishes.",
+                param="previous_response_id",
+            )
+        )
+    if isinstance(store, ResponseHistoryStore):
+        groups = await store.get_history(
+            previous_response_id=previous_response_id,
+            conversation_id=None,
+            user_id=owner,
+            limit=_HISTORY_MAX_ITEMS,
+        )
+        return _history_groups(groups), False
+
+    chain: list[StoredResponse] = []
+    seen: set[str] = set()
+    truncated = False
+    record: StoredResponse | None = anchor
+    while record is not None:
+        response_id = record["response"].get("id")
+        if response_id in seen:
+            truncated = True
+            break
+        seen.add(response_id)
+        chain.append(record)
+        link = record["response"].get("previous_response_id")
+        if not link:
+            break
+        if len(chain) >= _HISTORY_MAX_HOPS:
+            truncated = True
+            break
+        record = await store.get(link)
+        if record is None or record.get("user_id") != owner:
+            # A deleted or foreign link ends the history; never cross users.
+            truncated = True
+            record = None
+    return [_response_items(item) for item in reversed(chain)], truncated
+
+
+def _history_groups(groups) -> list[list]:
+    """Validate a ``ResponseHistoryStore.get_history`` result: one list per response."""
+    if not isinstance(groups, list) or not all(isinstance(g, list) for g in groups):
+        raise TypeError(
+            "ResponseHistoryStore.get_history must return a list of per-response "
+            "item lists, oldest first."
+        )
+    return [list(group) for group in groups]
+
+
+def _capped_history(groups: list[list]) -> tuple[list[dict], bool]:
+    """Normalize history and drop the oldest whole responses past the item cap.
+
+    Groups are flattened before normalizing so a tool call in one response
+    still pairs with its output in the next.
+    """
+    groups = [group for group in groups if group]
+    truncated = False
+    items = model_input_items(item for group in groups for item in group)
+    while len(groups) > 1 and len(items) > _HISTORY_MAX_ITEMS:
+        groups.pop(0)
+        truncated = True
+        items = model_input_items(item for group in groups for item in group)
+    if len(items) > _HISTORY_MAX_ITEMS:
+        items = model_input_items(items[-_HISTORY_MAX_ITEMS:])
+        truncated = True
+    return items, truncated
+
+
+async def _resolve_history(
+    store: ResponseStore | None,
+    body: dict,
+    *,
+    previous_response_id: str | None,
+    conversation_id: str | None,
+    owner: str | None,
+) -> list[dict]:
+    groups, truncated = await _stored_history(
+        store,
+        previous_response_id=previous_response_id,
+        conversation_id=conversation_id,
+        owner=owner,
+    )
+    items, capped = _capped_history([*groups, _inline_history(body.get("input"))])
+    _set_span_attribute("castia.responses.history.item_count", len(items))
+    if truncated or capped:
+        _set_span_attribute("castia.responses.history.truncated", True)
+    return items
+
+
+def _set_span_attribute(name: str, value) -> None:
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        if span and span.is_recording():
+            span.set_attribute(name, value)
+    except Exception:
+        logger.debug("Could not set span attribute %s.", name, exc_info=True)
+
+
 def _api_error(
     message: str,
     *,
@@ -612,35 +813,45 @@ def _responses_input(value) -> str:
     """
     if isinstance(value, str):
         return value
+    return _current_user_item(value)[1]
+
+
+def _input_content_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text") or ""
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") in ("input_text", "output_text", "text")
+        )
+    return ""
+
+
+def _current_user_item(value) -> tuple[int | None, str]:
+    """Index and text of the current user turn in a list ``input``.
+
+    The last non-empty user item wins (a bare string counts as a user item);
+    otherwise the last item with any text, so a role-less item still resolves.
+    Items before the returned index are the turn's inline history.
+    """
     if not isinstance(value, list):
-        return ""
-
-    def _content_text(content) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = [
-                part.get("text") or ""
-                for part in content
-                if isinstance(part, dict)
-                and part.get("type") in ("input_text", "output_text", "text")
-            ]
-            return "".join(parts)
-        return ""
-
-    # Prefer the last user turn (mirrors ``_last_user_text``); fall back to the
-    # last item with any text so a role-less input item still resolves.
-    fallback = ""
-    for item in reversed(value):
-        if not isinstance(item, dict):
-            if isinstance(item, str) and not fallback:
-                fallback = item
+        return None, ""
+    fallback: tuple[int | None, str] = (None, "")
+    for index in range(len(value) - 1, -1, -1):
+        item = value[index]
+        if isinstance(item, str):
+            if item:
+                return index, item
             continue
-        text = _content_text(item.get("content"))
+        if not isinstance(item, dict):
+            continue
+        text = _input_content_text(item.get("content"))
         if item.get("role") == "user" and text:
-            return text
-        if text and not fallback:
-            fallback = text
+            return index, text
+        if text and fallback[0] is None:
+            fallback = (index, text)
     return fallback
 
 
@@ -884,6 +1095,7 @@ class _BackgroundResponses:
         record: StoredResponse,
         *,
         text: str,
+        history: list[dict],
         context: RequestContext,
         response_options: dict,
         link_context,
@@ -898,6 +1110,7 @@ class _BackgroundResponses:
                 created_at=response["created_at"],
                 input_items=record["input_items"],
                 text=text,
+                history=history,
                 context=context,
                 response_options=response_options,
                 link_context=link_context,
@@ -938,6 +1151,7 @@ class _BackgroundResponses:
         created_at: int,
         input_items: list[dict],
         text: str,
+        history: list[dict],
         context: RequestContext,
         response_options: dict,
         link_context,
@@ -971,7 +1185,9 @@ class _BackgroundResponses:
                     return
                 status = "in_progress"
                 try:
-                    with dev_diagnostics.turn("responses", text), usage_scope() as usage:
+                    with bind_response_history(history), dev_diagnostics.turn(
+                        "responses", text
+                    ), usage_scope() as usage:
                         reply = await self._dispatch(text)
                         dev_diagnostics.record_output(reply)
                 except asyncio.CancelledError:
@@ -1082,33 +1298,35 @@ def _register_wire(
                             code="unsupported_parameter",
                             param="stream",
                         )
-                if body.get("previous_response_id") is not None:
+                parsed_history = _history_request(body)
+                if isinstance(parsed_history, JSONResponse):
+                    return parsed_history
+                previous_response_id, conversation_id = parsed_history
+                if previous_response_id is not None and background_store is None:
                     return _api_error(
-                        "previous_response_id is not supported by this Castia runtime; "
-                        "send the full prior turns in input instead.",
+                        _HISTORY_STORE_REQUIRED,
                         code="unsupported_parameter",
                         param="previous_response_id",
                     )
-                if body.get("conversation") is not None:
-                    logger.info(
-                        "Ignoring client-supplied Responses conversation; "
-                        "Castia does not reconstruct prior response history."
+                try:
+                    history = await _resolve_history(
+                        background_store,
+                        body,
+                        previous_response_id=previous_response_id,
+                        conversation_id=conversation_id,
+                        owner=owner,
                     )
-                    try:
-                        from opentelemetry import trace
-
-                        span = trace.get_current_span()
-                        if span and span.is_recording():
-                            span.set_attribute(
-                                "castia.responses.conversation_ignored", True
-                            )
-                    except Exception as exc:
-                        logger.debug(
-                            "Could not annotate ignored Responses conversation.",
-                            exc_info=exc,
-                        )
+                except _HistoryError as error:
+                    return error.response
+                except Exception:
+                    logger.exception("Could not read Responses history.")
+                    return _store_unavailable()
                 text = _responses_input(body.get("input"))
                 response_options = _responses_request_options(body)
+                response_options["previous_response_id"] = previous_response_id
+                response_options["conversation"] = (
+                    {"id": conversation_id} if conversation_id is not None else None
+                )
                 store = body.get("store") is not False
                 if background:
                     response_id = f"resp_{uuid4().hex}"
@@ -1134,6 +1352,7 @@ def _register_wire(
                     background_runner.start(
                         record,
                         text=text,
+                        history=history,
                         context=current_request_context(),
                         response_options=response_options,
                         link_context=_current_span_context(),
@@ -1175,7 +1394,9 @@ def _register_wire(
                         )
                         chunks: list[str] = []
                         try:
-                            with _request_scope(request), dev_diagnostics.turn(
+                            with _request_scope(request), bind_response_history(
+                                history
+                            ), dev_diagnostics.turn(
                                 "responses", text
                             ), usage_scope() as turn_usage:
                                 yield emit(
@@ -1351,7 +1572,9 @@ def _register_wire(
 
                     return StreamingResponse(events(), media_type="text/event-stream")
 
-                with dev_diagnostics.turn("responses", text), usage_scope() as turn_usage:
+                with bind_response_history(history), dev_diagnostics.turn(
+                    "responses", text
+                ), usage_scope() as turn_usage:
                     reply = await responses_dispatch(text)
                     dev_diagnostics.record_output(reply)
                 response_id = f"resp_{uuid4().hex}"
