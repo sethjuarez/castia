@@ -662,6 +662,101 @@ def _sse_done() -> str:
     return "data: [DONE]\n\n"
 
 
+SSE_KEEPALIVE_ENV = "SSE_KEEPALIVE_INTERVAL"
+_DEFAULT_SSE_KEEPALIVE_SECONDS = 15
+_SSE_KEEPALIVE_FRAME = ": keep-alive\n\n"
+
+
+def _sse_keepalive_interval() -> int:
+    """Seconds between idle SSE keep-alive comments; ``0`` disables them.
+
+    Mirrors azure-ai-agentserver-core: ``SSE_KEEPALIVE_INTERVAL`` or 15 s;
+    negative values clamp to 0, and a non-integer is a startup error.
+    """
+    raw = os.environ.get(SSE_KEEPALIVE_ENV)
+    if raw is None:
+        return _DEFAULT_SSE_KEEPALIVE_SECONDS
+    try:
+        return max(0, int(raw))
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid value for {SSE_KEEPALIVE_ENV}: {raw!r} (expected an integer)"
+        ) from exc
+
+
+async def _aclose(source: AsyncIterator[str]) -> None:
+    aclose = getattr(source, "aclose", None)
+    if aclose is not None:
+        await aclose()
+
+
+async def _with_sse_keepalive(
+    source: AsyncIterator[str], interval: float
+) -> AsyncIterator[str]:
+    """Interleave keep-alive comments into ``source`` during idle gaps.
+
+    One task drains ``source`` so context variables it sets persist across the
+    stream; items are never dropped or reordered. The queue holds one item, so
+    the source stays at most one item ahead of the client.
+    """
+    if not interval:
+        try:
+            async for item in source:
+                yield item
+        finally:
+            await _aclose(source)
+        return
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    done = object()
+    failure: list[BaseException] = []
+    closing = False
+
+    async def pump() -> None:
+        # Close the source here, in pump's context, so its finally blocks can
+        # reset context variables; leaving it to GC would run them elsewhere.
+        try:
+            try:
+                async for item in source:
+                    await queue.put(item)
+            finally:
+                await _aclose(source)
+        except BaseException as exc:  # re-raised to the stream consumer
+            if closing:
+                raise
+            failure.append(exc)
+        await queue.put(done)
+
+    pump_task = asyncio.ensure_future(pump())
+    pending: asyncio.Future | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(queue.get())
+            finished, _ = await asyncio.wait({pending}, timeout=interval)
+            if not finished:
+                yield _SSE_KEEPALIVE_FRAME
+                continue
+            item = pending.result()
+            pending = None
+            if item is done:
+                break
+            yield item
+        if failure:
+            raise failure[0]
+    finally:
+        if pending is not None:
+            pending.cancel()
+        if not pump_task.done():
+            closing = True
+            pump_task.cancel()
+        try:
+            await pump_task
+        except asyncio.CancelledError:
+            if not closing:
+                raise
+
+
 def _record_stream_attributes(
     *,
     started: float,
@@ -1248,6 +1343,7 @@ def _register_wire(
     ``background=true``, so the app lifespan can stop it on shutdown.
     """
     background_runner: _BackgroundResponses | None = None
+    sse_keepalive = _sse_keepalive_interval()
     responses_handler = wire.get("responses")
     if responses_handler is not None:
         responses_dispatch = make_return_dispatch(responses_handler)
@@ -1570,7 +1666,10 @@ def _register_wire(
                                 terminal_status=terminal_status,
                             )
 
-                    return StreamingResponse(events(), media_type="text/event-stream")
+                    return StreamingResponse(
+                        _with_sse_keepalive(events(), sse_keepalive),
+                        media_type="text/event-stream",
+                    )
 
                 with bind_response_history(history), dev_diagnostics.turn(
                     "responses", text
