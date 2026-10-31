@@ -200,19 +200,16 @@ failed responses currently report `usage: null`.
 `POST /responses/{response_id}/cancel` cancels only a `queued` or
 `in_progress` background response; for a terminal response it returns
 `400 unsupported_parameter` (`Cannot cancel a completed response.`), and `404`
-if the response is unknown. `previous_response_id` is rejected with
-`400 unsupported_parameter` instead of being silently ignored, because Castia
-does not currently reconstruct prior response history. `conversation` is
-accepted for hosted Foundry gateway compatibility but is not used for replay;
-send the full prior turns in `input` when a client needs local multi-turn
-context.
+if the response is unknown. `previous_response_id` and `conversation` replay
+prior turns through a store you provide; see
+[Conversation history](#conversation-history).
 
 > **Multi-turn through the Foundry gateway.** Foundry's reference SDK hydrates
 > history from `conversation.id` automatically
 > ([hosted agent runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract)).
-> Castia does not yet do this, so each turn only sees its own `input`. Clients
-> that rely on `conversation` (the playground, simulated-user evaluation) see a
-> stateless agent.
+> In Castia, history is replayed only when your store implements
+> `castia.ResponseHistoryStore`. Without it, clients that rely on `conversation`
+> (the playground, simulated-user evaluation) see a stateless agent.
 
 Gateway facts that affect hosted Castia agents:
 
@@ -277,6 +274,62 @@ app = Agent(name="my-agent", response_store=store)
 | Foreground turns | Stored through the same store (unless `store: false`). A failed write is logged and never fails the turn. |
 | Not supported | `background` with `store: false` returns `400`. `background` with `stream: true` returns `400`. `GET ...?stream=true` returns `400`. |
 | Execution | Bound to a process. The store makes state visible on every replica, but a restart abandons in-flight work, and on shutdown Castia marks local work `failed` on a best-effort basis. A cancel from another replica records `cancelled`, but the worker keeps running until it finishes and its result is discarded. Expiring stale `queued`/`in_progress` records is the store owner's job. |
+
+### Conversation history
+
+A Responses handler receives only the latest user text. Ask for the earlier
+turns with `response_history` and pass them to the model:
+
+```python
+from castia import Depends, Model, response_history
+
+
+@app.responses()
+async def reply(
+    text: str,
+    model: Model = Depends(model_provider),
+    history: list[dict] = Depends(response_history),
+) -> str:
+    return await model.respond(text, history=history)
+```
+
+`Model.respond`, `stream`, and `respond_with_tools` accept `history=`. Items are
+replayable Responses input items, oldest first: text `message` items and
+`function_call`/`function_call_output` pairs (output after its call, even
+across responses). Ids, statuses, non-text parts, and unpaired or out-of-order
+tool items are dropped. History comes from three sources:
+
+| Source | Needs | Behavior |
+| --- | --- | --- |
+| Earlier items in `input` | Nothing | Items before the current user message (the one the handler receives as `text`) become history. Items after it are ignored. |
+| `previous_response_id` | `Agent(response_store=...)` | Castia walks the chain with `get`: each response's `input_items`, then its `output`. Without a store it returns `400 unsupported_parameter`. |
+| `conversation` (`"id"` or `{"id": ...}`) | A store that also implements `castia.ResponseHistoryStore` | Castia calls `get_history(conversation_id=...)`. Without that method, `conversation` is echoed but ignored, with the span attribute `castia.responses.conversation_ignored`. |
+
+Implement `get_history` to serve `previous_response_id` from an index too:
+
+```python
+class MyStore:  # also implements ResponseStore
+    async def get_history(
+        self, *, previous_response_id, conversation_id, user_id, limit
+    ) -> list[list[dict]]:
+        ...  # one item list per prior response, oldest first; only matching user_id
+```
+
+Castia never writes a conversation itself. Each stored response carries
+`response["conversation"]["id"]` and `response["previous_response_id"]`, so
+your store can index them on `create`. For `conversation` lookups, Castia can't
+check record owners, so `get_history` must filter by `user_id`.
+
+| Rule | Behavior |
+| --- | --- |
+| Ownership | A `previous_response_id` owned by another `x-agent-user-id` returns `404`, including for `background: true`. Anonymous records are visible only to anonymous callers. A chain stops at a foreign or deleted link. |
+| Limits | At most 100 chained responses and 1,000 items. The oldest whole responses are dropped first, and the span attribute `castia.responses.history.truncated` is set. |
+| Errors | Both `previous_response_id` and `conversation` → `400`. An unfinished previous response → `400`. A store failure → `503 store_unavailable`. |
+| `store: false` | History is read, but the new turn is not written. |
+| Echo | Every response shape (JSON, SSE, background snapshots) echoes `previous_response_id` and `conversation`. |
+
+`Depends(..., use_cache=False)` resolves a dependency on every turn. Castia
+marks `response_history` per-turn, so it is never cached across requests.
 
 ### Composing protocols with routers
 

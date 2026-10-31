@@ -24,6 +24,7 @@ from collections import OrderedDict
 from typing import NotRequired, Protocol, TypedDict, runtime_checkable
 
 __all__ = [
+    "ResponseHistoryStore",
     "ResponseStore",
     "StoredResponse",
     "validate_response_store",
@@ -79,6 +80,37 @@ class ResponseStore(Protocol):
 
     async def delete(self, response_id: str) -> bool:
         """Delete a record; return ``False`` when it did not exist."""
+
+
+@runtime_checkable
+class ResponseHistoryStore(Protocol):
+    """Optional history lookup a :class:`ResponseStore` may also implement.
+
+    Castia reconstructs ``previous_response_id`` chains through
+    :meth:`ResponseStore.get` on its own. Implement this to serve history from
+    an index instead, and to enable ``conversation``: Castia never stores a
+    conversation itself, it records the id on each response
+    (``response["conversation"]["id"]``) so the store can index it.
+
+    Exactly one of ``previous_response_id`` / ``conversation_id`` is set.
+    Return one list per prior response, oldest first; each list is that
+    response's ``input_items`` followed by its ``response["output"]``. Keeping
+    responses separate lets Castia drop the oldest whole responses when the
+    history passes ``limit`` items. Only include records whose ``user_id``
+    equals ``user_id`` -- for ``conversation`` lookups, tenant isolation is the
+    store's job. Castia has already checked that ``previous_response_id``
+    exists and belongs to the caller. Raise when the backend is unavailable.
+    """
+
+    async def get_history(
+        self,
+        *,
+        previous_response_id: str | None,
+        conversation_id: str | None,
+        user_id: str | None,
+        limit: int,
+    ) -> list[list[dict]]:
+        """Return prior responses' items, one list per response, oldest first."""
 
 
 def validate_response_store(store: object) -> ResponseStore:

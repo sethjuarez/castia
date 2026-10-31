@@ -56,11 +56,14 @@ PUBLIC_EXPORTS = {
     ),
     "runtime.context": ("Turn", "current_turn", "current_turn_or_none"),
     "runtime.dependencies": ("Depends",),
+    "runtime.history": ("response_history",),
     "runtime.request_context": ("RequestContext", "current_request_context"),
     "hosting.identity": (
         "AgenticIdentityError", "agentic_user_id", "require_agentic_user",
     ),
-    "hosting.responses_store": ("ResponseStore", "StoredResponse"),
+    "hosting.responses_store": (
+        "ResponseHistoryStore", "ResponseStore", "StoredResponse",
+    ),
     "messaging.cards": (
         "Reaction", "action_chips", "adaptive_card", "decision_card",
         "suggested_actions",

@@ -16,7 +16,11 @@ from castia.hosting.identity import (
     agentic_user_id,
     require_agentic_user,
 )
-from castia.hosting.responses_store import ResponseStore, StoredResponse
+from castia.hosting.responses_store import (
+    ResponseHistoryStore,
+    ResponseStore,
+    StoredResponse,
+)
 from castia.inference.model import Model, get_model, use_model
 from castia.integrations.toolbox import (
     McpToolboxError,
@@ -87,6 +91,7 @@ from castia.runtime.application import (
 )
 from castia.runtime.context import Turn, current_turn, current_turn_or_none
 from castia.runtime.dependencies import Depends
+from castia.runtime.history import response_history
 from castia.runtime.request_context import RequestContext, current_request_context
 
 __all__ = [
@@ -103,6 +108,7 @@ __all__ = [
     "OperationName",
     "Reaction",
     "RequestContext",
+    "ResponseHistoryStore",
     "ResponseStore",
     "Router",
     "StoredResponse",
@@ -148,6 +154,7 @@ __all__ = [
     "remove_trace_sink",
     "require_agentic_user",
     "resolve_toolbox_endpoint",
+    "response_history",
     "sensitivity_label",
     "serialize_mcp_result",
     "suggested_actions",
