@@ -60,6 +60,7 @@ PUBLIC_EXPORTS = {
     "hosting.identity": (
         "AgenticIdentityError", "agentic_user_id", "require_agentic_user",
     ),
+    "hosting.responses_store": ("ResponseStore", "StoredResponse"),
     "messaging.cards": (
         "Reaction", "action_chips", "adaptive_card", "decision_card",
         "suggested_actions",

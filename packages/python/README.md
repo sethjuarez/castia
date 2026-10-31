@@ -188,26 +188,95 @@ The completed record is available through:
 - `POST /responses/{response_id}/cancel`
 - `GET /responses/{response_id}/input_items`
 
-This lifecycle store is intentionally lightweight. It is process-local,
+This default lifecycle store is intentionally lightweight. It is process-local,
 in-memory, and capped at the most recent 512 responses per process; older
 records are evicted, so a later `GET` can return `404` even before restart. It
 is not durable and does not survive process restart, scale-out, or container
-replacement. Stored and returned response objects are wire-shaped but minimal: completed
+replacement. Pass a `response_store` (below) to keep records in your own
+storage instead. Stored and returned response objects are wire-shaped but minimal: completed
 `usage` token counts are reported as zeros and are not real model accounting;
 failed responses currently report `usage: null`.
 
-The runtime is deliberately explicit about unsupported Azure AI AgentServer
-hosted-runtime features: `background=true` is rejected with
-`400 unsupported_parameter`; `POST /responses/{response_id}/cancel` exists only
-to return a clear `400 unsupported_parameter` for a stored terminal response
-(`Cannot cancel a completed response.` or `Cannot cancel a failed response.`,
-and `404` if the response is unknown); durable replay and true in-flight
-cancellation are not implemented. `previous_response_id` is rejected with
+`POST /responses/{response_id}/cancel` cancels only a `queued` or
+`in_progress` background response; for a terminal response it returns
+`400 unsupported_parameter` (`Cannot cancel a completed response.`), and `404`
+if the response is unknown. `previous_response_id` is rejected with
 `400 unsupported_parameter` instead of being silently ignored, because Castia
 does not currently reconstruct prior response history. `conversation` is
 accepted for hosted Foundry gateway compatibility but is not used for replay;
 send the full prior turns in `input` when a client needs local multi-turn
 context.
+
+> **Multi-turn through the Foundry gateway.** Foundry's reference SDK hydrates
+> history from `conversation.id` automatically
+> ([hosted agent runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract)).
+> Castia does not yet do this, so each turn only sees its own `input`. Clients
+> that rely on `conversation` (the playground, simulated-user evaluation) see a
+> stateless agent.
+
+Gateway facts that affect hosted Castia agents:
+
+- Only allowlisted caller headers reach the container: `x-client-*`, content
+  headers, tracing headers, and `user-agent`. `Authorization` is never
+  forwarded, so pass custom caller data as `x-client-*`.
+- Castia forwards `x-agent-foundry-call-id` unchanged on model and toolbox
+  calls. It never forwards `x-agent-user-id`. Do the same in your own calls to
+  Foundry services.
+- For Python containers, set `PYTHONNOUSERSITE=1`.
+
+### Background responses
+
+Foundry tooling, including native evaluations, can call a hosted agent with
+`background: true`. The client then expects a `queued` response right away and
+polls `GET /responses/{response_id}` until the status is terminal. A hosted
+agent may run on several replicas, so a poll can reach a replica other than the
+one running the turn. For that reason, **you own the response store**. Castia
+ships no production backend. Without a store, `background: true` returns
+`400 unsupported_parameter` and the message says how to configure one.
+
+Implement the async `castia.ResponseStore` protocol over storage that every
+replica can reach (Cosmos DB, Redis, SQL, and so on), then pass it to the agent:
+
+```python
+from castia import Agent, ResponseStore, StoredResponse
+
+
+class InMemoryResponseStore:
+    """EXAMPLE ONLY, not for production: single-process and unbounded."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, StoredResponse] = {}
+
+    async def create(self, record: StoredResponse) -> None:
+        self._records[record["response"]["id"]] = record
+
+    async def get(self, response_id: str) -> StoredResponse | None:
+        return self._records.get(response_id)
+
+    async def update(self, record: StoredResponse, *, expected_status: str) -> bool:
+        current = self._records.get(record["response"]["id"])
+        if current is None or current["response"]["status"] != expected_status:
+            return False  # compare-and-set; never upsert a deleted record
+        self._records[record["response"]["id"]] = record
+        return True
+
+    async def delete(self, response_id: str) -> bool:
+        return self._records.pop(response_id, None) is not None
+
+
+store: ResponseStore = InMemoryResponseStore()
+app = Agent(name="my-agent", response_store=store)
+```
+
+| Contract | Behavior |
+| --- | --- |
+| Lifecycle | `queued` → `in_progress` → `completed`, `failed`, or `cancelled`. Non-terminal snapshots have `output: []` and `usage: null`. |
+| `update` | An atomic compare-and-set on `response.status`. It returns `False` on a mismatch or a missing record, and it never upserts. This is how a cancel or delete wins over a late completion. |
+| Per-user isolation | Each record stores the caller's Foundry `x-agent-user-id` as `user_id` (`None` without one). `GET`, `input_items`, `cancel`, and `DELETE` return `404` when the caller's user id differs. It is ownership metadata, not a lookup key; records stay keyed by response id. |
+| Store errors | Raise from the store; don't return `None`. Castia answers `503 store_unavailable`: when `create` fails no work starts, and when a cancel write fails the cancel is not reported as done. |
+| Foreground turns | Stored through the same store (unless `store: false`). A failed write is logged and never fails the turn. |
+| Not supported | `background` with `store: false` returns `400`. `background` with `stream: true` returns `400`. `GET ...?stream=true` returns `400`. |
+| Execution | Bound to a process. The store makes state visible on every replica, but a restart abandons in-flight work, and on shutdown Castia marks local work `failed` on a best-effort basis. A cancel from another replica records `cancelled`, but the worker keeps running until it finishes and its result is discarded. Expiring stale `queued`/`in_progress` records is the store owner's job. |
 
 ### Composing protocols with routers
 

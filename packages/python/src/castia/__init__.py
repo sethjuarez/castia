@@ -16,6 +16,7 @@ from castia.hosting.identity import (
     agentic_user_id,
     require_agentic_user,
 )
+from castia.hosting.responses_store import ResponseStore, StoredResponse
 from castia.inference.model import Model, get_model, use_model
 from castia.integrations.toolbox import (
     McpToolboxError,
@@ -102,7 +103,9 @@ __all__ = [
     "OperationName",
     "Reaction",
     "RequestContext",
+    "ResponseStore",
     "Router",
+    "StoredResponse",
     "Streamer",
     "Teams",
     "ToolboxAuthenticationError",

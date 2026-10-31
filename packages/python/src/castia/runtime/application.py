@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from castia.hosting.responses_store import ResponseStore, validate_response_store
 from castia.messaging.surfaces import Teams
 
 Handler = Callable[..., Awaitable[Any]]
@@ -415,10 +416,22 @@ class Agent(Router):
     ``run`` that configures telemetry and serves the registered handlers.
     """
 
-    def __init__(self, *, name: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        response_store: ResponseStore | None = None,
+    ) -> None:
         super().__init__()
         self.name = name
         self._model: Any = None
+        # Consumer-owned store for Responses records; required for
+        # ``background=true``. Castia ships no production implementation.
+        self._response_store = (
+            validate_response_store(response_store)
+            if response_store is not None
+            else None
+        )
 
     @property
     def model(self) -> Any:
@@ -451,7 +464,7 @@ class Agent(Router):
                 "that does) before projecting."
             )
         default = f"{self.name}-optimize" if self.name else None
-        projected = Agent(name=name or default)
+        projected = Agent(name=name or default, response_store=self._response_store)
         projected._wire["responses"] = handler
         if "responses_stream" in self._wire:
             projected._wire["responses_stream"] = self._wire["responses_stream"]
@@ -505,4 +518,5 @@ class Agent(Router):
             port=resolved_port,
             agent_name=self.name,
             required_env=self._required_env,
+            response_store=self._response_store,
         )
