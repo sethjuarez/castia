@@ -888,6 +888,7 @@ class InMemoryResponseStore:
         self.records = {}
         self.fail_create = False
         self.fail_get = False
+        self.fail_update = False
 
     async def create(self, record):
         if self.fail_create:
@@ -901,6 +902,8 @@ class InMemoryResponseStore:
         return deepcopy(record) if record is not None else None
 
     async def update(self, record, *, expected_status):
+        if self.fail_update:
+            raise ConnectionError("store down")
         response_id = record["response"]["id"]
         current = self.records.get(response_id)
         if current is None or current["response"]["status"] != expected_status:
@@ -1052,6 +1055,144 @@ def test_background_delete_in_flight_is_not_resurrected():
             await asyncio.sleep(0.05)
             assert response_id not in store.records
             assert (await test.client.get(f"/responses/{response_id}")).status_code == 404
+
+    asyncio.run(run())
+
+
+class _CancelRaceStore(InMemoryResponseStore):
+    """TEST ONLY: lands the worker's queued -> in_progress write between a
+    cancel's read and its compare-and-set."""
+
+    def __init__(self):
+        super().__init__()
+        self.cancel_attempted = asyncio.Event()
+        self.worker_landed = asyncio.Event()
+        self.cancel_expectations = []
+
+    async def update(self, record, *, expected_status):
+        status = record["response"]["status"]
+        if status == "in_progress" and expected_status == "queued":
+            await self.cancel_attempted.wait()
+            swapped = await super().update(record, expected_status=expected_status)
+            self.worker_landed.set()
+            return swapped
+        if status == "cancelled":
+            self.cancel_expectations.append(expected_status)
+            if not self.cancel_attempted.is_set():
+                self.cancel_attempted.set()
+                await self.worker_landed.wait()
+        return await super().update(record, expected_status=expected_status)
+
+
+def test_background_cancel_retries_when_the_worker_starts_first():
+    store = _CancelRaceStore()
+    app = Agent(response_store=store)
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    @app.responses()
+    async def reply(text: str):
+        started.set()
+        try:
+            await asyncio.sleep(30)
+        finally:
+            stopped.set()
+        return "never"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses", json={"input": "slow", "background": True}
+            )
+            response_id = created.json()["id"]
+            cancel = await test.client.post(f"/responses/{response_id}/cancel")
+            assert cancel.status_code == 200, cancel.json()
+            assert cancel.json()["status"] == "cancelled"
+            assert store.cancel_expectations == ["queued", "in_progress"]
+            await asyncio.wait_for(started.wait(), 5)
+            await asyncio.wait_for(stopped.wait(), 5)
+            await asyncio.sleep(0.05)
+            assert store.records[response_id]["response"]["status"] == "cancelled"
+
+    asyncio.run(run())
+
+
+def test_background_cancel_store_failure_returns_503():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @app.responses()
+    async def reply(text: str):
+        started.set()
+        await release.wait()
+        return "done"
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            created = await test.client.post(
+                "/responses", json={"input": "x", "background": True}
+            )
+            response_id = created.json()["id"]
+            await asyncio.wait_for(started.wait(), 5)
+            store.fail_update = True
+            cancel = await test.client.post(f"/responses/{response_id}/cancel")
+            assert cancel.status_code == 503
+            assert cancel.json()["error"]["code"] == "store_unavailable"
+            store.fail_update = False
+            release.set()
+            done = await _poll_until(test.client, response_id, {"completed"})
+            assert done["output_text"] == "done"
+
+    asyncio.run(run())
+
+
+def test_stored_responses_are_isolated_per_foundry_user():
+    store = InMemoryResponseStore()
+    app = Agent(response_store=store)
+
+    @app.responses()
+    async def reply(text: str):
+        return f"ok:{text}"
+
+    owner = {"x-agent-user-id": "user-a"}
+    other = {"x-agent-user-id": "user-b"}
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            background = await test.client.post(
+                "/responses",
+                json={"input": "bg", "background": True},
+                headers=owner,
+            )
+            foreground = await test.client.post(
+                "/responses", json={"input": "fg"}, headers=owner
+            )
+            for response_id in (background.json()["id"], foreground.json()["id"]):
+                assert store.records[response_id]["user_id"] == "user-a"
+                for headers in (other, {}):
+                    paths = (
+                        ("get", f"/responses/{response_id}"),
+                        ("get", f"/responses/{response_id}/input_items"),
+                        ("post", f"/responses/{response_id}/cancel"),
+                        ("delete", f"/responses/{response_id}"),
+                    )
+                    for method, path in paths:
+                        hidden = await getattr(test.client, method)(path, headers=headers)
+                        assert hidden.status_code == 404, (method, path, headers)
+                assert (
+                    await test.client.get(f"/responses/{response_id}", headers=owner)
+                ).status_code == 200
+                assert response_id in store.records
+
+            anonymous = await test.client.post("/responses", json={"input": "anon"})
+            anon_id = anonymous.json()["id"]
+            assert store.records[anon_id]["user_id"] is None
+            assert (await test.client.get(f"/responses/{anon_id}")).status_code == 200
+            assert (
+                await test.client.get(f"/responses/{anon_id}", headers=other)
+            ).status_code == 404
 
     asyncio.run(run())
 

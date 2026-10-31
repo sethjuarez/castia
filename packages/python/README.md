@@ -272,7 +272,8 @@ app = Agent(name="my-agent", response_store=store)
 | --- | --- |
 | Lifecycle | `queued` → `in_progress` → `completed`, `failed`, or `cancelled`. Non-terminal snapshots have `output: []` and `usage: null`. |
 | `update` | An atomic compare-and-set on `response.status`. It returns `False` on a mismatch or a missing record, and it never upserts. This is how a cancel or delete wins over a late completion. |
-| Store errors | Raise from the store; don't return `None`. Castia answers `503 store_unavailable`, and when `create` fails, no work starts. |
+| Per-user isolation | Each record stores the caller's Foundry `x-agent-user-id` as `user_id` (`None` without one). `GET`, `input_items`, `cancel`, and `DELETE` return `404` when the caller's user id differs. It is ownership metadata, not a lookup key; records stay keyed by response id. |
+| Store errors | Raise from the store; don't return `None`. Castia answers `503 store_unavailable`: when `create` fails no work starts, and when a cancel write fails the cancel is not reported as done. |
 | Foreground turns | Stored through the same store (unless `store: false`). A failed write is logged and never fails the turn. |
 | Not supported | `background` with `store: false` returns `400`. `background` with `stream: true` returns `400`. `GET ...?stream=true` returns `400`. |
 | Execution | Bound to a process. The store makes state visible on every replica, but a restart abandons in-flight work, and on shutdown Castia marks local work `failed` on a best-effort basis. A cancel from another replica records `cancelled`, but the worker keeps running until it finishes and its result is discarded. Expiring stale `queued`/`in_progress` records is the store owner's job. |

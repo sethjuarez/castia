@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import inspect
 from collections import OrderedDict
-from typing import Protocol, TypedDict, runtime_checkable
+from typing import NotRequired, Protocol, TypedDict, runtime_checkable
 
 __all__ = [
     "ResponseStore",
@@ -40,12 +40,16 @@ class StoredResponse(TypedDict):
     key and its ``status`` is the compare-and-set field). ``input_items`` are
     the normalized items served by ``GET /responses/{id}/input_items``.
     ``background`` marks records created by ``background=true``; only those
-    can be cancelled.
+    can be cancelled. ``user_id`` is the Foundry ``x-agent-user-id`` of the
+    caller that created the record (``None`` without one); Castia answers
+    ``404`` when a later caller's user id differs. It is ownership metadata,
+    not a lookup key: records stay keyed by response id.
     """
 
     response: dict
     input_items: list[dict]
     background: bool
+    user_id: NotRequired[str | None]
 
 
 @runtime_checkable

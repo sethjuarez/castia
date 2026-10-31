@@ -335,12 +335,15 @@ async def _save_terminal_response(
     responses_store: ResponseStore,
     response: dict,
     input_items: list[dict],
+    *,
+    user_id: str | None,
 ) -> None:
     """Persist a finished foreground response; storage failure never fails the turn."""
     record: StoredResponse = {
         "response": deepcopy(response),
         "input_items": input_items,
         "background": False,
+        "user_id": user_id,
     }
     try:
         await responses_store.create(record)
@@ -348,19 +351,31 @@ async def _save_terminal_response(
         logger.exception("Could not store response %s.", response.get("id"))
 
 
+class _StoreWriteError(Exception):
+    """A store write kept failing after retries."""
+
+
 async def _transition(
     responses_store: ResponseStore,
     record: StoredResponse,
     *,
     expected_status: str,
+    raise_errors: bool = False,
 ) -> bool:
-    """Compare-and-set a record's status, retrying transient store failures."""
+    """Compare-and-set a record's status, retrying transient store failures.
+
+    Returns ``False`` only when the compare-and-set loses. When the store keeps
+    failing, raises :class:`_StoreWriteError` if ``raise_errors`` is set and
+    otherwise logs and returns ``False``.
+    """
     response_id = record["response"]["id"]
     for attempt in range(1, _STORE_WRITE_ATTEMPTS + 1):
         try:
             return await responses_store.update(record, expected_status=expected_status)
-        except Exception:
+        except Exception as exc:
             if attempt == _STORE_WRITE_ATTEMPTS:
+                if raise_errors:
+                    raise _StoreWriteError(response_id) from exc
                 logger.exception(
                     "Could not move background response %s from %s to %s.",
                     response_id,
@@ -932,6 +947,7 @@ class _BackgroundResponses:
                 "response": response,
                 "input_items": input_items,
                 "background": True,
+                "user_id": context.user_id,
             }
 
         def snapshot(status: str, error: dict | None = None) -> StoredResponse:
@@ -1030,7 +1046,8 @@ def _register_wire(
 
         @app.post("/responses")
         async def responses(request: Request) -> Response:
-            with _request_scope(request):
+            with _request_scope(request) as request_context:
+                owner = request_context.user_id
                 try:
                     body = await request.json()
                 except Exception:  # noqa: BLE001 - malformed JSON is a protocol error
@@ -1106,6 +1123,7 @@ def _register_wire(
                             body.get("input"), response_id=response_id
                         ),
                         "background": True,
+                        "user_id": owner,
                     }
                     queued = deepcopy(record["response"])
                     try:
@@ -1282,6 +1300,7 @@ def _register_wire(
                                             **response_options,
                                         ),
                                         input_items,
+                                        user_id=owner,
                                     )
                                 yield emit(
                                     "response.completed",
@@ -1314,6 +1333,7 @@ def _register_wire(
                                     responses_store,
                                     failed_event["response"],
                                     input_items,
+                                    user_id=owner,
                                 )
                             terminal_status = "failed"
                             yield emit("response.failed", failed_event)
@@ -1350,18 +1370,23 @@ def _register_wire(
                         responses_store,
                         body_out,
                         _responses_input_items(body.get("input"), response_id=response_id),
+                        user_id=owner,
                     )
                 return JSONResponse(body_out)
 
         logger.info("Serving responses protocol on POST /responses")
 
-        async def _load(response_id: str) -> StoredResponse | JSONResponse:
+        async def _load(
+            response_id: str, request: Request
+        ) -> StoredResponse | JSONResponse:
             try:
                 record = await responses_store.get(response_id)
             except Exception:
                 logger.exception("Could not read response %s.", response_id)
                 return _store_unavailable()
-            if record is None:
+            # Another user's record is reported as missing, never as forbidden.
+            caller = _header_value(request, FOUNDRY_USER_ID_HEADER)
+            if record is None or record.get("user_id") != caller:
                 return _not_found_response(response_id)
             return record
 
@@ -1374,13 +1399,16 @@ def _register_wire(
                     code="unsupported_parameter",
                     param="stream",
                 )
-            record = await _load(response_id)
+            record = await _load(response_id, request)
             if isinstance(record, JSONResponse):
                 return record
             return JSONResponse(record["response"])
 
         @app.delete("/responses/{response_id}")
-        async def delete_response(response_id: str) -> Response:
+        async def delete_response(response_id: str, request: Request) -> Response:
+            record = await _load(response_id, request)
+            if isinstance(record, JSONResponse):
+                return record
             try:
                 deleted = await responses_store.delete(response_id)
             except Exception:
@@ -1396,30 +1424,40 @@ def _register_wire(
             )
 
         @app.post("/responses/{response_id}/cancel")
-        async def cancel_response(response_id: str) -> Response:
-            record = await _load(response_id)
+        async def cancel_response(response_id: str, request: Request) -> Response:
+            record = await _load(response_id, request)
             if isinstance(record, JSONResponse):
                 return record
             status = record["response"].get("status")
-            if record.get("background") and status in NON_TERMINAL_STATUSES:
+            # Status only moves forward (queued -> in_progress -> terminal), so a
+            # cancel that loses to the worker retries at most once more.
+            for _ in range(len(NON_TERMINAL_STATUSES)):
+                if not (record.get("background") and status in NON_TERMINAL_STATUSES):
+                    break
                 cancelled = deepcopy(record["response"])
                 cancelled.update(
                     status="cancelled", output=[], output_text="", usage=None
                 )
-                swapped = await _transition(
-                    responses_store,
-                    {
-                        "response": cancelled,
-                        "input_items": record["input_items"],
-                        "background": True,
-                    },
-                    expected_status=status,
-                )
+                try:
+                    swapped = await _transition(
+                        responses_store,
+                        {
+                            "response": cancelled,
+                            "input_items": record["input_items"],
+                            "background": True,
+                            "user_id": record.get("user_id"),
+                        },
+                        expected_status=status,
+                        raise_errors=True,
+                    )
+                except _StoreWriteError:
+                    logger.exception("Could not cancel response %s.", response_id)
+                    return _store_unavailable()
                 if swapped:
-                    background_runner.cancel_local(response_id)
+                    if background_runner is not None:
+                        background_runner.cancel_local(response_id)
                     return JSONResponse(cancelled)
-                # Lost the race to the worker or another cancel: report what won.
-                record = await _load(response_id)
+                record = await _load(response_id, request)
                 if isinstance(record, JSONResponse):
                     return record
                 status = record["response"].get("status")
@@ -1433,7 +1471,7 @@ def _register_wire(
 
         @app.get("/responses/{response_id}/input_items")
         async def response_input_items(response_id: str, request: Request) -> Response:
-            record = await _load(response_id)
+            record = await _load(response_id, request)
             if isinstance(record, JSONResponse):
                 return record
             try:
