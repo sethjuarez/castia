@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/sethjuarez/castia/compare/python-v0.17.0...python-v0.18.0) (2026-11-03)
+
+
+### Features
+
+* **python:** forward Prompty loop options and conversation history through PromptyRunner ([#118](https://github.com/sethjuarez/castia/issues/118)) ([9940e58](https://github.com/sethjuarez/castia/commit/9940e5849db349e63e65244040c527babeeb2589))
+
 ## [0.17.0](https://github.com/sethjuarez/castia/compare/python-v0.16.0...python-v0.17.0) (2026-10-31)
 
 
