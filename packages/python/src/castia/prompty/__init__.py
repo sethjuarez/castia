@@ -513,7 +513,13 @@ def prompty_agent_from_config(
                 kind="string",
                 description="The external user turn text.",
                 required=True,
-            )
+            ),
+            prompty.Property(
+                name="history",
+                kind="thread",
+                description="Prior conversation messages, oldest first.",
+                required=False,
+            ),
         ],
         model=prompty.Model(
             id=resolved.model,
@@ -526,7 +532,7 @@ def prompty_agent_from_config(
             format=Jinja2Format(),
             parser=PromptyParser(),
         ),
-        instructions="system:\n" + resolved.instructions + "\n\nuser:\n{{ text }}",
+        instructions="system:\n" + resolved.instructions + "\n\n{{ history }}\n\nuser:\n{{ text }}",
         metadata={
             "castia.agent_config_source": resolved.source,
             "castia.optimizer_contract": ".agent_configs",
@@ -540,6 +546,40 @@ def load_prompty_agent(path: str | os.PathLike[str], *, allowed_file_roots: Sequ
     return prompty.load(str(path), allowed_file_roots=allowed_file_roots)
 
 
+@dataclass(frozen=True)
+class PromptyLoopOptions:
+    """Prompty agent-loop options, forwarded to ``prompty.turn_async``.
+
+    Set runner-wide defaults on the runner; pass a replacement per turn with
+    ``runner.turn(text, loop=dataclasses.replace(runner.loop, cancel=token))``.
+    ``None`` (and ``parallel_tool_calls=False``) leaves Prompty's default.
+    """
+
+    guardrails: Any = None
+    on_event: Callable[..., Any] | None = None
+    cancel: Any = None
+    steering: Any = None
+    context_budget: int | None = None
+    compaction: Any = None
+    parallel_tool_calls: bool = False
+    max_llm_retries: int | None = None
+
+    def turn_kwargs(self) -> dict[str, Any]:
+        values = {
+            "guardrails": self.guardrails,
+            "on_event": self.on_event,
+            "cancel": self.cancel,
+            "steering": self.steering,
+            "context_budget": self.context_budget,
+            "compaction": self.compaction,
+            "max_llm_retries": self.max_llm_retries,
+        }
+        kwargs = {key: value for key, value in values.items() if value is not None}
+        if self.parallel_tool_calls:
+            kwargs["parallel_tool_calls"] = True
+        return kwargs
+
+
 @dataclass
 class PromptyRunner:
     """Tiny async adapter around Prompty's top-level invocation pipeline."""
@@ -547,15 +587,29 @@ class PromptyRunner:
     agent: object
     tool_functions: Mapping[str, Callable[..., Any]] | None = None
     max_iterations: int = 10
+    loop: PromptyLoopOptions = field(default_factory=PromptyLoopOptions)
 
-    async def turn(self, text: str, *, activity: object | None = None, **inputs: object) -> str:
+    async def turn(
+        self,
+        text: str,
+        *,
+        activity: object | None = None,
+        loop: PromptyLoopOptions | None = None,
+        **inputs: object,
+    ) -> str:
         """Run one external user turn through Prompty and return text.
 
         ``activity`` is the identity-bearing turn activity handed to Castia
         :class:`~castia.inference.tools.Tool` impls (for example
         ``graph_tools()``), matching ``Model.respond_with_tools(activity=...)``.
         When omitted, the ambient Activity turn is used if there is one.
-        ``activity`` is reserved and is never sent as a Prompty input.
+
+        ``loop`` replaces the runner's :class:`PromptyLoopOptions` for this turn
+        (for a cancellation token, steering handle, or turn-scoped guardrails).
+        ``activity`` and ``loop`` are reserved and never sent as Prompty inputs.
+        Pass prior messages as ``history=[{"role": ..., "content": ...}]`` to
+        agents built from ``AgentConfig``. Prompty's ``GuardrailError`` and
+        ``CancelledError`` propagate to the caller.
         """
         prompty = _prompty()
         timeline = _TurnTimeline(include_content=_content_recording_enabled(), events=[])
@@ -567,6 +621,7 @@ class PromptyRunner:
                 {"text": text, **inputs},
                 tools=_traced_tool_functions(self.tool_functions or {}),
                 max_iterations=self.max_iterations,
+                **(loop if loop is not None else self.loop).turn_kwargs(),
             )
         finally:
             _CURRENT_ACTIVITY.reset(activity_token)
@@ -775,6 +830,7 @@ def configured_prompty_runner(
     tool_functions: Mapping[str, Callable[..., Any]] | None = None,
     max_iterations: int = 10,
     enable_otel: bool | None = None,
+    loop: PromptyLoopOptions | None = None,
 ) -> PromptyRunner:
     """Create an experimental Prompty-backed runner.
 
@@ -785,7 +841,8 @@ def configured_prompty_runner(
     ``tools`` accepts Prompty tool definitions and Castia
     :class:`~castia.inference.tools.Tool` s (such as ``graph_tools()``) in any
     mix; Castia tools are projected with :func:`prompty_tools_from_castia`.
-    Explicit ``tool_functions`` win on a name clash.
+    Explicit ``tool_functions`` win on a name clash. ``loop`` sets runner-wide
+    Prompty agent-loop options (see :class:`PromptyLoopOptions`).
     """
     if enable_otel is not None:
         register_prompty_otel_tracing(enable_content_recording=enable_otel)
@@ -809,6 +866,7 @@ def configured_prompty_runner(
         agent,
         tool_functions=functions,
         max_iterations=max_iterations,
+        loop=loop or PromptyLoopOptions(),
     )
 
 
@@ -826,6 +884,7 @@ def prompty_runner_provider(
     connection_name: str = DEFAULT_FOUNDRY_CONNECTION,
     max_iterations: int = 10,
     enable_otel: bool | None = None,
+    loop: PromptyLoopOptions | None = None,
 ) -> Callable[[], Awaitable[PromptyRunner]]:
     """Return an async provider that builds (once) and caches a Prompty runner.
 
@@ -841,7 +900,8 @@ def prompty_runner_provider(
     ``tools/list``, with descriptions taken from ``toolbox_descriptions`` or
     the config's optimizer ``tool_definitions``. A failed preflight raises
     :class:`ToolboxRuntimeConfigError` with its diagnostics. ``tools`` may mix
-    Castia ``Tool`` objects and Prompty tool definitions.
+    Castia ``Tool`` objects and Prompty tool definitions. ``loop`` sets
+    runner-wide Prompty agent-loop options (see :class:`PromptyLoopOptions`).
     """
     cached: list[PromptyRunner] = []
     lock = asyncio.Lock()
@@ -861,6 +921,7 @@ def prompty_runner_provider(
                 connection_name=connection_name,
                 max_iterations=max_iterations,
                 enable_otel=enable_otel,
+                loop=loop,
             )
             cached.append(runner)
             return runner
@@ -878,6 +939,7 @@ async def _build_prompty_runner(
     connection_name: str,
     max_iterations: int,
     enable_otel: bool | None,
+    loop: PromptyLoopOptions | None = None,
 ) -> PromptyRunner:
     resolved_config = config if isinstance(config, AgentConfig) else load_agent_config(config)
     toolbox_defs: list[object] = []
@@ -914,6 +976,7 @@ async def _build_prompty_runner(
         tool_functions=toolbox_functions,
         max_iterations=max_iterations,
         enable_otel=enable_otel,
+        loop=loop,
     )
 
 
@@ -1314,6 +1377,7 @@ __all__ = [
     "DEFAULT_TOOLBOX_CONNECTION",
     "McpToolboxError",
     "PromptyIntegrationError",
+    "PromptyLoopOptions",
     "PromptyRunner",
     "ToolboxMcpClient",
     "ToolboxPreflightResult",

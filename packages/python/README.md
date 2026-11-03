@@ -527,13 +527,32 @@ async def reply(text: str, activity: Activity) -> str:
 | `toolbox` | `None` uses the toolbox when `TOOLBOX_*` env resolves, `True` requires it, `False` disables it, a list requires exactly those names. A failed preflight raises `ToolboxRuntimeConfigError`. |
 | `toolbox_descriptions` | Description overrides; optimizer `tool_definitions` in the config win. |
 
-`PromptyRunner.turn(text, *, activity=None, **inputs)` passes `activity` to
+`PromptyRunner.turn(text, *, activity=None, loop=None, **inputs)` passes `activity` to
 Castia tools that accept it (for example agentic-user Graph tools); without it,
 the ambient Activity turn is used. `activity` is reserved and is not a template
 input. `@app.responses()` handlers cannot take an `Activity`; there, call
 `turn(text)` and tools see no activity. Use `prompty_tools_from_castia(tools)` to get the Prompty definitions and
 callables yourself, or `configured_prompty_runner(config, tools=...)` for the
 lower-level, uncached builder.
+
+Prompty's agent-loop options are available too. Set runner-wide defaults with
+`loop=PromptyLoopOptions(...)` on `prompty_runner_provider` or
+`configured_prompty_runner`. To change them for one turn, pass a replacement:
+`runner.turn(text, loop=dataclasses.replace(runner.loop, cancel=token))`. An
+explicit `None` in the replacement clears that option for the turn.
+
+| `PromptyLoopOptions` field | Behavior |
+| --- | --- |
+| `guardrails` | `prompty.Guardrails(input=, output=, tool=)`. Denied input/output raises `prompty.GuardrailError`. |
+| `on_event` | Prompty loop event callback (turn, LLM, tool, steering events). |
+| `cancel`, `steering` | `prompty.CancellationToken` / `prompty.Steering`; usually set per turn. |
+| `context_budget`, `compaction` | Trim or summarize the conversation when it exceeds the budget. |
+| `parallel_tool_calls`, `max_llm_retries` | Forwarded as-is; unset keeps Prompty's default. |
+
+Agents built from `AgentConfig` also accept `history` on `turn()`: prior
+messages (`[{"role": ..., "content": ...}]`, oldest first) rendered between the
+system prompt and the new turn. `activity` and `loop` are reserved `turn()`
+keywords and are never sent as Prompty template inputs.
 
 Telemetry matches the `Model` path:
 

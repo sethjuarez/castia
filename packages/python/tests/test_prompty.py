@@ -31,7 +31,8 @@ def test_prompty_agent_from_config_projects_optimizer_config():
 
     assert agent.name == "castia-prompty-agent"
     assert agent.inputs[0].name == "text"
-    assert agent.instructions == "system:\nAnswer from policy.\n\nuser:\n{{ text }}"
+    assert (agent.inputs[1].name, agent.inputs[1].kind, agent.inputs[1].required) == ("history", "thread", False)
+    assert agent.instructions == "system:\nAnswer from policy.\n\n{{ history }}\n\nuser:\n{{ text }}"
     assert agent.model.id == "gpt-6-astra"
     assert agent.model.provider == "foundry"
     assert agent.model.api_type == "responses"
@@ -45,8 +46,120 @@ def test_configured_prompty_runner_wraps_in_memory_agent():
         enable_otel=False,
     )
 
-    assert runner.agent.instructions == "system:\nBe brief.\n\nuser:\n{{ text }}"
+    assert runner.agent.instructions == "system:\nBe brief.\n\n{{ history }}\n\nuser:\n{{ text }}"
     assert runner.agent.model.id == "gpt-4o"
+
+
+@pytest.mark.parametrize(
+    ("history", "expected"),
+    [
+        (None, [("system", "Be brief."), ("user", "now?")]),
+        ([], [("system", "Be brief."), ("user", "now?")]),
+        (
+            [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}],
+            [("system", "Be brief."), ("user", "hi"), ("assistant", "hello"), ("user", "now?")],
+        ),
+    ],
+)
+def test_prompty_agent_from_config_renders_history_between_system_and_turn(history, expected):
+    agent = prompty_agent_from_config(AgentConfig("gpt-4o", "Be brief.", "default"))
+    inputs = {"text": "now?"} if history is None else {"text": "now?", "history": history}
+
+    messages = asyncio.run(prompty.prepare_async(agent, inputs))
+
+    assert [(message.role, message.text) for message in messages] == expected
+
+
+def test_prompty_runner_turn_omits_unset_loop_options(monkeypatch):
+    runner = configured_prompty_runner(AgentConfig("gpt-4o", "Be brief.", "default"), enable_otel=False)
+    calls = []
+
+    async def fake_turn_async(agent, inputs, **kwargs):
+        calls.append(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
+
+    asyncio.run(runner.turn("hello"))
+
+    assert set(calls[0]) == {"tools", "max_iterations"}
+
+
+def test_prompty_runner_turn_forwards_loop_options_and_per_turn_replacement(monkeypatch):
+    from dataclasses import replace
+
+    def runner_events(*args):
+        return None
+
+    runner_guardrails = prompty.Guardrails()
+    loop = castia_prompty.PromptyLoopOptions(
+        guardrails=runner_guardrails,
+        on_event=runner_events,
+        context_budget=4000,
+        compaction="summarize.prompty",
+        parallel_tool_calls=True,
+        max_llm_retries=2,
+    )
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Be brief.", "default"), enable_otel=False, loop=loop
+    )
+    cancel = prompty.CancellationToken()
+    steering = prompty.Steering()
+    calls = []
+
+    async def fake_turn_async(agent, inputs, **kwargs):
+        calls.append((inputs, kwargs))
+        return "ok"
+
+    monkeypatch.setattr(prompty, "turn_async", fake_turn_async)
+
+    asyncio.run(runner.turn("hello", history=[{"role": "user", "content": "hi"}]))
+    asyncio.run(
+        runner.turn(
+            "again",
+            loop=replace(runner.loop, cancel=cancel, steering=steering, guardrails=None),
+        )
+    )
+
+    first_inputs, first = calls[0]
+    assert first_inputs == {"text": "hello", "history": [{"role": "user", "content": "hi"}]}
+    assert first["guardrails"] is runner_guardrails
+    assert first["on_event"] is runner_events
+    assert (first["context_budget"], first["compaction"]) == (4000, "summarize.prompty")
+    assert (first["parallel_tool_calls"], first["max_llm_retries"]) == (True, 2)
+    assert "cancel" not in first and "steering" not in first
+    second_inputs, second = calls[1]
+    assert second_inputs == {"text": "again"}
+    assert "guardrails" not in second
+    assert second["on_event"] is runner_events
+    assert second["cancel"] is cancel
+    assert second["steering"] is steering
+    assert runner.loop is loop
+
+
+def test_prompty_runner_turn_input_guardrail_sees_history_and_denies_before_model():
+    seen = []
+    events = []
+
+    def deny(messages):
+        seen.append([(message.role, message.text) for message in messages])
+        return prompty.GuardrailResult(allowed=False, reason="blocked")
+
+    runner = configured_prompty_runner(
+        AgentConfig("gpt-4o", "Be brief.", "default"),
+        enable_otel=False,
+        loop=castia_prompty.PromptyLoopOptions(
+            guardrails=prompty.Guardrails(input=deny),
+            on_event=lambda *args: events.append(args[0]),
+        ),
+    )
+
+    with pytest.raises(prompty.GuardrailError, match="blocked"):
+        asyncio.run(runner.turn("now?", history=[{"role": "user", "content": "hi"}]))
+
+    assert seen == [[("system", "Be brief."), ("user", "hi"), ("user", "now?")]]
+    assert events[0] == "turn_start"
+    assert events[-1] == "turn_end"
 
 
 def test_prompty_runner_turn_does_not_request_structured_cast(monkeypatch):
@@ -871,6 +984,19 @@ def test_prompty_runner_provider_skips_toolbox_without_endpoint(monkeypatch):
 
     assert events == [("connection", "foundry-default")]
     assert list(runner.agent.tools or []) == []
+
+
+def test_prompty_runner_provider_passes_loop_options(monkeypatch):
+    _provider_fakes(monkeypatch)
+    monkeypatch.setattr(castia_prompty, "resolve_toolbox_endpoint", lambda env=None: None)
+    loop = castia_prompty.PromptyLoopOptions(context_budget=1234)
+    provider = castia_prompty.prompty_runner_provider(
+        AgentConfig("gpt-4o", "x", "default"), enable_otel=False, loop=loop
+    )
+
+    runner = asyncio.run(provider())
+
+    assert runner.loop is loop
 
 
 def test_prompty_runner_provider_raises_and_retries_failed_preflight(monkeypatch):
