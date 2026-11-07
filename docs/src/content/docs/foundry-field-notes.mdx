@@ -1,0 +1,68 @@
+---
+title: Foundry field notes
+description: What a real Foundry build taught us about evals, optimization, RFT, and tracing, and what Castia should handle.
+---
+
+These notes come from building a classification agent on Castia and taking it
+through three rungs: a large-model baseline, an Agent Optimizer pass, and a
+small model fine-tuned with RFT. Each item says what went wrong, what to do today,
+and what Castia should handle, default, or warn about.
+
+Status labels:
+
+- **Handled**: Castia already does this.
+- **Proposed**: Castia doesn't do this yet. Use the workaround.
+
+## Hosting
+
+| What we hit | What to do | Castia |
+| --- | --- | --- |
+| Foundry evals call the agent with `background=true`. 0.15.0 rejected it with 400. | Pass a `ResponseStore` to `Agent(response_store=...)`. | **Handled** since 0.16.0. Without a store, the 400 says why. |
+| Agent versions are immutable. The `AZURE_AI_MODEL_DEPLOYMENT_NAME` env var labels usage in Optimizer and Monitor, even when code calls a different model. Our large-model versions were labelled with the small model's name. | Keep the env var equal to the model the agent really calls. Fix it before you create the version. | **Proposed:** warn at startup when `Model(deployment=...)` differs from `AZURE_AI_MODEL_DEPLOYMENT_NAME`. |
+| Apps that call the agent without a version pin drift from the version you evaluated. | Pin `agent_version` in callers and eval configs. | **Proposed:** warn in `castia optimize` and eval runs when the version is unpinned. |
+
+## Tracing and Monitor
+
+| What we hit | What to do | Castia |
+| --- | --- | --- |
+| Foundry Traces and Monitor ignore spans without `microsoft.foundry.project.id`. Monitor showed $0 and 0 tokens. | Set `FOUNDRY_PROJECT_RESOURCE_ID` in `azure.yaml`. | **Handled** when the env var is set (`castia.observe`). **Proposed:** log a warning when it isn't. |
+| Caller, platform and agent spans were separate traces. | Send `traceparent` on every call to the hosted agent. | **Handled** on the agent side. **Proposed:** a client helper that injects it. |
+| Human review (confirm or override) should show on the Foundry trace. | Emit a `gen_ai.evaluation.result` event inside the `invoke_agent` span after the review is saved. | **Proposed:** a small `record_human_evaluation(...)` helper. |
+| Trace view returned 400 once App Insights held ~81K spans, because evals share it. | Use a separate App Insights per stage. Use Conversation view meanwhile. | Docs only. This is a portal bug. |
+
+## Evaluation
+
+| What we hit | What to do | Castia |
+| --- | --- | --- |
+| 20-row evals moved in 5-point steps. 150 rows × 5 runs gave stable means (81.5 / 87.3 / 94.5). | Use small sets for probes and 150+ rows × several runs for claims. Report mean and range. | **Proposed:** warn when n < 50 and print n beside every score. |
+| 20 concurrent runs failed 48-76 of 319 rows (`TARGET_INVOCATION_FAILED`, judge throttling). | Keep three or fewer runs in flight. Reject runs with too few scored rows. | **Proposed:** bounded concurrency and a row-completeness check (for example ≤10 errors, ≥95% scored). |
+| A knowledge-base quota ran out and every tool call returned `PaymentRequired`. Accuracy fell 13 points and looked like a regression. | Watch tool error rates during evals. | **Proposed:** count tool errors per run and mark runs over a threshold invalid. |
+| Foundry's generated rubric gave the key dimension 9 of 39 weight, so a wrong answer could pass. | Make the must-be-right dimension a gate (weight 10, others 1, pass 0.5). | **Proposed:** a `gate=True` dimension option, with the brief stored in the repo. Foundry doesn't keep the brief. |
+| Evaluator names stayed the same while behavior changed between versions (gold-blind v2, gold-aware v3). | Pin evaluator versions in every eval. | **Proposed:** fail when an evaluator reference has no version. |
+| Run DELETE returned `deleted: false`, and runs disappeared hours later. | Poll until the run is gone. | **Proposed:** `delete(..., wait=True)` that polls and raises on timeout. |
+| Runs can't be renamed after creation. | Name them right at submit. | **Proposed:** a required, templated run name (`<rung> · n<rows>`). |
+
+## Optimization
+
+| What we hit | What to do | Castia |
+| --- | --- | --- |
+| Turn-level evaluators (rubric, code graders, `string_check`) passed submit and failed at run time. `evaluation_level: turn` returns 400. | Use conversation-level evaluators and leave `evaluation_level` unset. | **Proposed:** preflight evaluator level before submit. |
+| Run-time rows keep only `query` and `ground_truth`, so graders reading other fields score nothing. | Put everything the grader needs in those two fields. | **Proposed:** check every `item.*` reference against the serialized dataset and the pass-through fields. |
+| Long jobs (50 candidates, separate validation set) ended `Failed` after hours with good candidates inside. The service-side cause has since been fixed. | Read candidates from the job detail, not the status. Keep runs short. | **Proposed:** list and apply candidates from failed jobs. Default to a small pilot (≤10 candidates, 20 rows) before a big run. |
+| A 150-row job hit the 6-hour cap still scoring the baseline. | Start with 12-20 rows. | **Proposed:** print an estimate (rows × candidates × measured row time) and require confirmation above a limit. |
+| The optimizer score went up while exact accuracy didn't. The score is the mean of the evaluators on a subsample. | Score candidates on the real held-out metric before applying. | **Proposed:** label it "optimizer score" in output, and offer `castia optimize verify` against a held-out eval. |
+| Prompts grew to ~120 lines and memorized training rows, including wrong mappings. | Diff the candidate prompt, look for copied rows, and gate on a disjoint set. | **Proposed:** a diff that flags verbatim training text in candidates. |
+| "Maximum consecutive stall limit" on a `SUCCEEDED` job looks like a failure. | Treat it as early stopping. | **Proposed:** print "stopped early (no improvement)". |
+
+## Fine-tuning (RFT)
+
+| What we hit | What to do | Castia |
+| --- | --- | --- |
+| On one model, RFT reward ignored the grader: an always-true grader scored ~0.5, not 1.0. | Before a real job, run an always-true probe and compare trainer reward with an offline grade of the base model. | **Proposed:** `castia ft probe` that does both and blocks the job if reward and offline score diverge. |
+| The `graders/run` sandbox returns 0.0 for every Python grader. `string_check` works. | Prefer `string_check`. Validate Python graders offline. | **Proposed:** don't trust `graders/run` for Python; run the grader locally against sample rows instead. |
+| `batch_size: -1` returns `400 batchSize must be in [1,256]`. | Omit `batch_size` for auto. | **Proposed:** drop `-1`/`auto` in `--batch-size` instead of sending it. |
+| There's no `max_steps`. Steps are about rows ÷ batch size. | Size the training set for the steps you want. | **Proposed:** print the estimated steps and cost before submit. |
+| `estimated_finish` includes GPU queue time (showed ~2 days; trained in ~3 h). | Watch state and step events. | **Proposed:** show queue time and training time separately in status. |
+| Deleting a fine-tune job deletes its model. | Inventory before cleanup. | **Proposed:** confirm before deleting a job that has a deployed model. |
+| Jobs that succeed can still be worse on held-out data. | Deploy, evaluate, then promote. | **Proposed:** keep "train", "evaluate" and "promote" as separate steps with separate approvals. |
+| RFT costs $40/h on the developer tier, and a deployment costs ~$8.64/day. | Require explicit spend approval. | **Proposed:** a spend gate on submit and a reminder for idle deployments. |
