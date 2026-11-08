@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/sethjuarez/castia/compare/python-v0.18.0...python-v0.18.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **runtime:** collapse nested ifs in history to satisfy ruff SIM102 ([#121](https://github.com/sethjuarez/castia/issues/121)) ([cd25e4a](https://github.com/sethjuarez/castia/commit/cd25e4af6a2eaefe1906178729dae9b1fa06c52e))
+
 ## [0.18.0](https://github.com/sethjuarez/castia/compare/python-v0.17.0...python-v0.18.0) (2026-11-03)
 
 
