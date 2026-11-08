@@ -34,6 +34,7 @@ export default defineConfig({
           label: "Reference",
           items: [
             { label: "SDK map", slug: "framework" },
+            { label: "Foundry field notes", slug: "foundry-field-notes" },
           ],
         },
       ],
