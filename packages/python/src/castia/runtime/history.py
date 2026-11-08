@@ -83,16 +83,15 @@ def model_input_items(items: Iterable[object]) -> list[dict]:
                         else "{}",
                     }
                 )
-        elif kind == "function_call_output":
-            if isinstance(item.get("call_id"), str):
-                output = item.get("output")
-                normalized.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": item["call_id"],
-                        "output": output if isinstance(output, str) else "",
-                    }
-                )
+        elif kind == "function_call_output" and isinstance(item.get("call_id"), str):
+            output = item.get("output")
+            normalized.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": item["call_id"],
+                    "output": output if isinstance(output, str) else "",
+                }
+            )
     return _paired_tool_calls(normalized)
 
 
@@ -137,9 +136,11 @@ def _paired_tool_calls(items: list[dict]) -> list[dict]:
             if previous is not None:
                 keep[previous] = False
             pending[item["call_id"]] = index
-        elif kind == "function_call_output":
-            if pending.pop(item["call_id"], None) is None:
-                keep[index] = False
+        elif (
+            kind == "function_call_output"
+            and pending.pop(item["call_id"], None) is None
+        ):
+            keep[index] = False
     for index in pending.values():
         keep[index] = False
     return [item for item, kept in zip(items, keep) if kept]
