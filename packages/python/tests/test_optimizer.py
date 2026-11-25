@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from castia.__main__ import main
 from castia.optimizing.jobs import (
+    CandidateResolutionError,
     OptimizerClient,
     apply_candidate_config,
     build_optimizer_request,
     load_optimizer_state,
+    resolve_candidate_config,
 )
 
 
@@ -58,6 +62,10 @@ def _eval_config() -> dict:
     }
 
 
+def _opt(request: dict) -> dict:
+    return request["optimization_configuration"]
+
+
 def test_build_optimizer_request_inlines_tools_and_dataset(tmp_path: Path):
     _write_agent_config(tmp_path)
     (tmp_path / "data.jsonl").write_text(
@@ -67,16 +75,21 @@ def test_build_optimizer_request_inlines_tools_and_dataset(tmp_path: Path):
 
     request = build_optimizer_request(eval_config=_eval_config(), root=tmp_path)
 
-    assert request["agent"]["agent_name"] == "optimizer-smoke"
-    assert request["options"]["eval_model"] == "gpt-4o"
-    assert request["options"]["optimization_model"] == "gpt-5-mini"
-    opt = request["options"]["optimization_config"]
-    assert opt["model"] == "gpt-4o"
-    assert opt["system_prompt"] == "Use the web tool carefully.\n"
-    assert opt["tools"][0]["function"]["name"] == "web"
-    assert request["train_dataset"] == {
-        "type": "inline",
-        "items": [{"query": "hello", "answer": "world"}],
+    assert request["target_configuration"] == {"type": "foundry_agent", "name": "optimizer-smoke"}
+    assert request["optimization_model_configuration"] == {"model": "gpt-5-mini"}
+    opt = _opt(request)
+    assert opt["type"] == "agent_optimization"
+    assert opt["candidate_search_configuration"] == {"max_candidates": 2}
+    baseline = opt["baseline_agent_configuration"]
+    assert baseline["current_model"] == "gpt-4o"
+    assert baseline["system_prompt"] == "Use the web tool carefully.\n"
+    assert baseline["tools"][0]["function"]["name"] == "web"
+    evaluation = opt["evaluation_configuration"]
+    assert evaluation["evaluation_model"] == {"model": "gpt-4o"}
+    assert evaluation["evaluators"] == [{"name": "smoke-core", "version": "1"}]
+    assert evaluation["training_set"] == {
+        "type": "target_completion",
+        "source": {"type": "inline", "test_cases": [{"query": "hello", "ground_truth": "world"}]},
     }
 
 
@@ -86,7 +99,7 @@ def test_build_optimizer_request_accepts_azd_tools_file_alias(tmp_path: Path):
 
     request = build_optimizer_request(eval_config=_eval_config(), root=tmp_path)
 
-    assert request["options"]["optimization_config"]["tools"][0]["function"]["name"] == "web"
+    assert _opt(request)["baseline_agent_configuration"]["tools"][0]["function"]["name"] == "web"
 
 
 def test_build_optimizer_request_falls_back_when_agent_config_is_app_relative(
@@ -103,22 +116,142 @@ def test_build_optimizer_request_falls_back_when_agent_config_is_app_relative(
         config_dir="src/agent/.agent_configs",
     )
 
-    assert request["options"]["optimization_config"]["tools"][0]["function"]["name"] == "web"
+    assert _opt(request)["baseline_agent_configuration"]["tools"][0]["function"]["name"] == "web"
 
 
 def test_build_optimizer_request_uses_registered_dataset_reference(tmp_path: Path):
     _write_agent_config(tmp_path)
     config = _eval_config()
-    config.pop("dataset")
-    config["dataset"] = {"name": "smoke-data", "version": "3"}
+    config["dataset"] = {"name": "smoke-data", "version": 3}
 
     request = build_optimizer_request(eval_config=config, root=tmp_path)
 
-    assert request["train_dataset"] == {
-        "type": "reference",
+    assert _opt(request)["evaluation_configuration"]["training_set"]["source"] == {
+        "type": "dataset_reference",
         "name": "smoke-data",
         "version": "3",
     }
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda c: c["options"].update(max_stalls=3), "options.max_stalls is not supported"),
+        (lambda c: c["options"].update(evaluation_level="turn"), "evaluation_level is not supported"),
+        (lambda c: c.update(dataset={"name": "smoke-data"}), "dataset.version is required"),
+        (
+            lambda c: c["options"].update(optimization_config={"temperature": 0.2}),
+            "unsupported keys: temperature",
+        ),
+    ],
+)
+def test_build_optimizer_request_rejects_unsupported_inputs(tmp_path: Path, mutate, message):
+    _write_agent_config(tmp_path)
+    (tmp_path / "data.jsonl").write_text('{"query":"hello"}\n', encoding="utf-8")
+    config = _eval_config()
+    mutate(config)
+
+    with pytest.raises(ValueError, match=message):
+        build_optimizer_request(eval_config=config, root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ('{"query":"q","answer":"a","expected":"b"}', "conflicting ground truth"),
+        ('{"query":"q","context":"c"}', "unsupported fields context"),
+        ('{"answer":"a"}', "'query' must be non-empty text"),
+    ],
+)
+def test_build_optimizer_request_validates_dataset_rows(tmp_path: Path, row, message):
+    _write_agent_config(tmp_path)
+    (tmp_path / "data.jsonl").write_text(row + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        build_optimizer_request(eval_config=_eval_config(), root=tmp_path)
+
+
+def test_build_optimizer_request_traces_selects_skill_optimization(tmp_path: Path):
+    config = _eval_config()
+    config.pop("dataset")
+    config["options"].pop("max_candidates")
+    config["traces"] = {
+        "resource_id": "/subscriptions/s/resourceGroups/r/providers/microsoft.insights/components/a",
+        "window": {"start_time": "2026-01-01T00:00:00Z", "end_time": "2026-01-02T00:00:00Z"},
+        "training_split_ratio": 0.8,
+    }
+
+    opt = _opt(build_optimizer_request(eval_config=config, root=tmp_path))
+
+    assert opt["type"] == "skill_optimization"
+    assert opt["training_split_ratio"] == 0.8
+    context = opt["context"][0]
+    assert context["trace_connection_configuration"]["agent_name"] == "optimizer-smoke"
+    assert context["trace_window"]["type"] == "fixed"
+    assert "training_set" not in opt["evaluation_configuration"]
+
+    config["dataset"] = {"local_uri": "data.jsonl"}
+    with pytest.raises(ValueError, match="cannot be combined with dataset"):
+        build_optimizer_request(eval_config=config, root=tmp_path)
+    config.pop("dataset")
+    config["traces"]["window"]["end_time"] = "2026-01-02T00:00:00"
+    with pytest.raises(ValueError, match="must include a timezone"):
+        build_optimizer_request(eval_config=config, root=tmp_path)
+
+
+def _job() -> dict:
+    return {
+        "id": "opt_1",
+        "status": "succeeded",
+        "optimization_configuration": {
+            "type": "agent_optimization",
+            "baseline_agent_configuration": {
+                "system_prompt": "base prompt",
+                "current_model": "gpt-4o",
+                "tools": [{"type": "function", "function": {"name": "web", "description": "old"}}],
+            },
+        },
+    }
+
+
+def test_resolve_candidate_config_prefers_config_json_and_merges_tool_mutations():
+    candidate = {
+        "candidate_id": "cand_1",
+        "status": "completed",
+        "output": {
+            "mutations": [
+                {"type": "instructions", "value": "mutated prompt"},
+                {
+                    "type": "tools",
+                    "value": [{"type": "function", "function": {"name": "web", "description": "new"}}],
+                },
+            ]
+        },
+    }
+
+    config = resolve_candidate_config(
+        _job(), candidate, {"instructions": "file prompt", "model": "gpt-5-mini"}
+    )
+
+    assert config["instructions"] == "file prompt"
+    assert config["model"] == "gpt-5-mini"
+    assert config["tools"] == [{"type": "function", "function": {"name": "web", "description": "new"}}]
+
+
+@pytest.mark.parametrize(
+    ("candidate", "message"),
+    [
+        ({"candidate_id": "cand_0", "status": "completed", "output": {}}, "likely the baseline"),
+        ({"candidate_id": "cand_1", "status": "failed"}, "only completed candidates"),
+        (
+            {"candidate_id": "cand_1", "output": {"mutations": [{"type": "temperature", "value": 1}]}},
+            "unsupported or malformed mutation",
+        ),
+    ],
+)
+def test_resolve_candidate_config_refuses_unresolvable_candidates(candidate, message):
+    with pytest.raises(CandidateResolutionError, match=message):
+        resolve_candidate_config(_job(), candidate, None)
 
 
 def test_apply_candidate_config_writes_runtime_candidate_layout(tmp_path: Path):
@@ -145,15 +278,36 @@ def test_apply_candidate_config_writes_runtime_candidate_layout(tmp_path: Path):
     )
 
 
-def test_optimizer_client_uses_expected_rest_paths(monkeypatch):
+def test_optimizer_client_uses_ga_rest_paths(monkeypatch):
     calls: list[tuple[str, str, object]] = []
+    base = "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs"
+    candidate = {
+        "candidate_id": "cand 1",
+        "status": "completed",
+        "files": [{"path": "config.json", "type": "config"}],
+        "output": {"mutations": [{"type": "instructions", "value": "x"}]},
+    }
+    pages = {
+        f"{base}/opt_1/candidates?api-version=v1": {
+            "data": [{"candidate_id": "a"}], "has_more": True, "last_id": "a",
+        },
+        f"{base}/opt_1/candidates?after=a&api-version=v1": {"data": [{"candidate_id": "b"}]},
+        f"{base}/opt_1/candidates/cand%201?expand=mutations&api-version=v1": candidate,
+        f"{base}/opt_1?api-version=v1": _job(),
+    }
 
     class Response:
+        def __init__(self, url):
+            self.url = url
+
         def raise_for_status(self) -> None:
             return None
 
         def json(self) -> dict:
-            return {"id": "opt_1"}
+            return pages.get(self.url, {"id": "opt_1"})
+
+        def read(self) -> bytes:
+            return b'{"instructions": "from file", "model": "gpt-5-mini"}'
 
     class FakePipelineClient:
         def __init__(self, *, base_url, policies):
@@ -161,9 +315,9 @@ def test_optimizer_client_uses_expected_rest_paths(monkeypatch):
             assert policies
 
         def send_request(self, request):
-            assert request.headers["Foundry-Features"] == "AgentsOptimization=V2Preview"
+            assert "Foundry-Features" not in request.headers
             calls.append((request.method, request.url, getattr(request, "content", None)))
-            return Response()
+            return Response(request.url)
 
     class Credential:
         pass
@@ -175,35 +329,19 @@ def test_optimizer_client_uses_expected_rest_paths(monkeypatch):
     )
 
     client.start({"x": 1})
-    client.status("opt_1")
+    client.estimate({"x": 1})
     client.cancel("opt_1")
-    client.candidate_config("opt_1", "cand_1")
+    assert [c["candidate_id"] for c in client.list_candidates("opt_1")] == ["a", "b"]
+    config = client.candidate_config("opt_1", "cand 1")
 
-    assert calls == [
-        (
-            "POST",
-            "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs?api-version=v1",
-            '{"inputs": {"x": 1}}',
-        ),
-        (
-            "GET",
-            "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1?api-version=v1",
-            None,
-        ),
-        (
-            "POST",
-            "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1:cancel?api-version=v1",
-            None,
-        ),
-        (
-            "GET",
-            (
-                "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/"
-                "opt_1/candidates/cand_1/config?api-version=v1"
-            ),
-            None,
-        ),
-    ]
+    assert calls[0] == ("POST", f"{base}?api-version=v1", '{"x": 1}')
+    assert calls[1] == ("POST", f"{base}:estimate?api-version=v1", '{"x": 1}')
+    assert calls[2] == ("POST", f"{base}/opt_1:cancel?api-version=v1", None)
+    assert calls[-1][1] == (
+        f"{base}/opt_1/files?path=config.json&candidate_id=cand+1&api-version=v1"
+    )
+    assert config["instructions"] == "from file"
+    assert config["model"] == "gpt-5-mini"
 
 
 def test_optimize_run_dry_run_prints_payload_without_submitting(
@@ -246,7 +384,7 @@ def test_optimize_run_dry_run_prints_payload_without_submitting(
     out = capsys.readouterr().out
     assert rc == 0
     assert "result        : dry-run (nothing submitted)" in out
-    assert '"optimization_model": "gpt-5-mini"' in out
+    assert '"optimization_model_configuration": {' in out
     assert '"name": "web"' in out
 
 
@@ -277,7 +415,8 @@ def test_optimize_run_waits_and_saves_state_in_config_dir(
             self.endpoint = endpoint
 
         def start(self, request):
-            assert request["options"]["optimization_config"]["tools"][0]["function"]["name"] == "web"
+            tools = request["optimization_configuration"]["baseline_agent_configuration"]["tools"]
+            assert tools[0]["function"]["name"] == "web"
             return {"id": "opt_1", "status": "queued"}
 
         def status(self, job_id):
@@ -303,3 +442,77 @@ def test_optimize_run_waits_and_saves_state_in_config_dir(
     assert rc == 0
     assert state.job_id == "opt_1"
     assert "status        : succeeded" in out
+
+
+ENDPOINT = "https://example.ai.azure.com/api/projects/p"
+
+
+def _fake_client(monkeypatch, job: dict, calls: list) -> None:
+    class FakeClient:
+        def __init__(self, endpoint):
+            assert endpoint == ENDPOINT
+
+        def status(self, job_id):
+            return job
+
+        def estimate(self, request):
+            calls.append(("estimate", request["target_configuration"]["name"]))
+            return {"estimated_cost": {"total": 1.5}}
+
+        def start(self, request):  # pragma: no cover - must not run
+            raise AssertionError("submitted")
+
+        def candidate_config(self, job_id, candidate_id):
+            calls.append(("candidate_config", candidate_id))
+            return {"instructions": "x"}
+
+    monkeypatch.setattr("castia.optimizing.jobs.OptimizerClient", FakeClient)
+
+
+def test_optimize_apply_best_refuses_when_baseline_wins(tmp_path: Path, capsys, monkeypatch):
+    calls: list = []
+    job = {
+        "id": "opt_1",
+        "status": "succeeded",
+        "result": {"candidate_summary": {"baseline_id": "cand_0", "best_id": "cand_0"}},
+    }
+    _fake_client(monkeypatch, job, calls)
+
+    rc = main(["optimize", "apply", "--job-id", "opt_1", "--project-endpoint", ENDPOINT,
+               "--config-dir", str(tmp_path)])
+
+    assert rc == 1
+    assert "baseline cand_0 is best; nothing to apply" in capsys.readouterr().out
+    assert calls == []
+
+
+def test_optimize_status_exits_nonzero_for_skipped_job(capsys, monkeypatch):
+    _fake_client(monkeypatch, {"id": "opt_1", "status": "skipped"}, [])
+
+    rc = main(["optimize", "status", "opt_1", "--project-endpoint", ENDPOINT])
+
+    assert rc == 1
+    assert "status        : skipped" in capsys.readouterr().out
+
+
+def test_optimize_run_estimate_starts_no_job(tmp_path: Path, capsys, monkeypatch):
+    _write_agent_config(tmp_path)
+    (tmp_path / "data.jsonl").write_text('{"query":"hello"}\n', encoding="utf-8")
+    config = tmp_path / "eval.yaml"
+    config.write_text(
+        "agent:\n  name: optimizer-smoke\nevaluators:\n  - name: smoke-core\n"
+        "dataset:\n  local_uri: data.jsonl\n"
+        "options:\n  eval_model: gpt-4o\n  optimization_model: gpt-5-mini\n",
+        encoding="utf-8",
+    )
+    calls: list = []
+    _fake_client(monkeypatch, {}, calls)
+
+    rc = main(["optimize", "run", "--config", str(config), "--config-dir",
+               str(tmp_path / ".agent_configs"), "--project-endpoint", ENDPOINT, "--estimate"])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert calls == [("estimate", "optimizer-smoke")]
+    assert "estimate only (no job started)" in out
+    assert not (tmp_path / ".agent_configs" / ".castia").exists()

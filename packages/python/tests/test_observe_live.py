@@ -237,7 +237,10 @@ def test_toolbox_model_answer_without_tool_evidence_is_failure(response):
 
 
 def test_optimizer_reads_only_selected_job_candidate_and_never_applies():
-    adapter = Adapter({"status": "Completed"}, {"instructions": "PRIVATE CONTENT"})
+    adapter = Adapter({"status": "succeeded"}, {
+        "candidate_id": "candidate", "status": "completed",
+        "output": {"mutations": [{"type": "instructions", "value": "PRIVATE CONTENT"}]},
+    })
     report = report_for(
         ["optimizer.status", "optimizer.candidate"], adapter, project_endpoint=URL,
         optimizer_job_id="job/escaped", optimizer_candidate_id="candidate",
@@ -245,15 +248,19 @@ def test_optimizer_reads_only_selected_job_candidate_and_never_applies():
     assert report.passed
     assert all(call[0] == "GET" for call in adapter.calls)
     assert "job%2Fescaped" in adapter.calls[0][1]
-    assert adapter.calls[1][1].endswith("/candidates/candidate/config?api-version=v1")
-    assert adapter.calls[0][2]["headers"]["Foundry-Features"] == "AgentsOptimization=V2Preview"
+    assert adapter.calls[1][1].endswith("/candidates/candidate?expand=mutations&api-version=v1")
+    assert "Foundry-Features" not in (adapter.calls[0][2].get("headers") or {})
     assert "PRIVATE CONTENT" not in report.to_json()
+
+
+def _bounded_request(maximum):
+    return {"optimization_configuration": {"candidate_search_configuration": {"max_candidates": maximum}}}
 
 
 def optimizer_config(**kwargs):
     return LiveConfig(
         project_endpoint=URL, allow_optimizer_submit=True,
-        optimizer_request={"options": {"max_candidates": 1}},
+        optimizer_request=_bounded_request(1),
         optimizer_timeout_seconds=4, optimizer_poll_seconds=2,
         limits=Limits(max_requests=5, max_seconds=15), **kwargs,
     )
@@ -264,14 +271,14 @@ def test_optimizer_submit_requires_opt_in_and_valid_candidate_bound():
     with pytest.raises(ObserveError) as caught:
         probes["optimizer.run"]()
     assert caught.value.category == "prerequisite"
-    for request in [{}, {"options": {"max_candidates": 4}}, {"options": {"max_candidates": True}}]:
+    for request in [{}, _bounded_request(4), _bounded_request(True), {"options": {"max_candidates": 1}}]:
         with pytest.raises(ValueError):
             LiveConfig(project_endpoint=URL, allow_optimizer_submit=True, optimizer_request=request)
 
 
 def test_optimizer_bounded_poll_timeout_cancels_and_reports_uncertain_remote_cost():
     clock = Clock()
-    adapter = Adapter({"id": "job"}, {"status": "Running"}, {"status": "Running"}, {})
+    adapter = Adapter({"id": "job"}, {"status": "in_progress"}, {"status": "in_progress"}, {})
     probes = live_probes(optimizer_config(), adapter=adapter, clock=clock, sleep=clock.sleep)
     result = probes["optimizer.run"]()
     assert result.status == "fail" and result.category == "timeout"
@@ -279,13 +286,13 @@ def test_optimizer_bounded_poll_timeout_cancels_and_reports_uncertain_remote_cos
     assert result.evidence["cleanup_pending"] is True
     assert result.evidence["remote_job_may_be_running"] is True
     assert adapter.calls[-1][1].endswith("/job:cancel?api-version=v1")
-    assert adapter.calls[0][2]["json_body"] == {"inputs": {"options": {"max_candidates": 1}}}
+    assert adapter.calls[0][2]["json_body"] == _bounded_request(1)
     assert len(adapter.calls) == 4
     assert result.evidence["cost"] is None
 
 
 def test_optimizer_success_does_not_cancel_or_apply():
-    adapter = Adapter({"id": "job"}, {"status": "Completed"})
+    adapter = Adapter({"id": "job"}, {"status": "succeeded"})
     result = live_probes(optimizer_config(), adapter=adapter)["optimizer.run"]()
     assert result.status == "pass" and len(adapter.calls) == 2
     assert result.evidence["applied"] is False and result.evidence["deployed"] is False
@@ -313,10 +320,10 @@ def test_optimizer_cancellation_failure_is_not_swallowed():
 def test_optimizer_request_budget_reserves_cancellation():
     config = LiveConfig(
         project_endpoint=URL, allow_optimizer_submit=True,
-        optimizer_request={"options": {"max_candidates": 1}},
+        optimizer_request=_bounded_request(1),
         limits=Limits(max_requests=3), optimizer_poll_seconds=.001,
     )
-    adapter = Adapter({"id": "job"}, {"status": "Running"}, {})
+    adapter = Adapter({"id": "job"}, {"status": "in_progress"}, {})
     result = live_probes(config, adapter=adapter)["optimizer.run"]()
     assert len(adapter.calls) == 3
     assert result.category == "budget"
@@ -386,9 +393,9 @@ def test_report_json_is_serializable_for_live_outcomes():
     assert json.loads(report.to_json())["passed"] is True
 
 
-@pytest.mark.parametrize("id_key", ["operation_id", "operationId", "id", "job_id", "jobId"])
+@pytest.mark.parametrize("id_key", ["id", "job_id"])
 def test_optimizer_recognizes_existing_client_job_id_aliases(id_key):
-    adapter = Adapter({id_key: "job"}, {"status": "Completed"})
+    adapter = Adapter({id_key: "job"}, {"status": "succeeded"})
     result = live_probes(optimizer_config(), adapter=adapter)["optimizer.run"]()
     assert result.status == "pass" and result.evidence["job_id"] == "job"
 
@@ -445,10 +452,10 @@ def test_finetuning_submission_cannot_be_enabled_by_endpoint_configuration(path)
     "payload",
     [
         {}, [], {"status": 7}, {"status": "SECRET"},
-        {"status": "Succeeded", "operation_id": "wrong-job"},
-        {"status": "Succeeded", "result": []},
-        {"status": "Succeeded", "result": {"best": 7}},
-        {"status": "Succeeded", "result": {"candidates": ["bad-shape"]}},
+        {"status": "Completed"}, {"status": "succeeded", "id": "wrong-job"},
+        {"status": "succeeded", "result": []},
+        {"status": "succeeded", "result": {"candidate_summary": []}},
+        {"status": "succeeded", "result": {"candidate_summary": {"best_id": 7}}},
     ],
 )
 def test_optimizer_status_schema_and_identity_are_validated(payload):
@@ -464,9 +471,11 @@ def test_optimizer_status_schema_and_identity_are_validated(payload):
 @pytest.mark.parametrize(
     "payload",
     [
-        {}, [], {"unexpected": "SECRET"}, {"model": 1}, {"model": ""},
-        {"system_prompt": []}, {"tools": "not-tools"}, {"skills": [7]},
-        {"temperature": float("nan")}, {"temperature": True}, {"temperature": 5},
+        {}, [], {"candidate_id": "other", "status": "completed"},
+        {"candidate_id": "known-candidate"},
+        {"candidate_id": "known-candidate", "status": "completed", "output": []},
+        {"candidate_id": "known-candidate", "status": "completed", "output": {"mutations": [7]}},
+        {"candidate_id": "known-candidate", "status": "completed", "files": [{"type": "config"}]},
     ],
 )
 def test_optimizer_candidate_schema_is_validated(payload):
@@ -482,9 +491,9 @@ def test_optimizer_candidate_schema_is_validated(payload):
 def test_optimizer_candidate_validates_known_configuration_fields_without_recording_content():
     report = report_for(
         ["optimizer.candidate"], Adapter({
-            "model": "gpt-5-mini", "system_prompt": "SECRET",
-            "tools": [{"type": "function", "function": {"name": "tool"}}],
-            "skills": [], "temperature": 0,
+            "candidate_id": "candidate", "status": "completed",
+            "output": {"mutations": [{"type": "instructions", "value": "SECRET"}]},
+            "files": [{"path": "config.json", "type": "config"}],
         }), project_endpoint=URL, optimizer_job_id="known-job", optimizer_candidate_id="candidate",
     )
     assert report.passed and "SECRET" not in report.to_json()

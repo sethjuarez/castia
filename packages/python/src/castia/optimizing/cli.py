@@ -92,6 +92,9 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                          help="confirm a run larger than the pilot limits")
     opt_run.add_argument("--dry-run", dest="dry_run", action="store_true",
                          help="print payload and submit nothing")
+    opt_run.add_argument("--estimate", action="store_true",
+                         help="validate the payload with the service and print a cost "
+                              "estimate; starts no job")
     opt_run.add_argument("--no-wait", dest="no_wait", action="store_true",
                          help="submit and return without polling once")
     opt_run.add_argument("--poll-interval", dest="poll_interval", type=float, default=15,
@@ -236,6 +239,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         build_optimizer_request,
         job_id,
         load_eval_config,
+        request_summary,
         save_optimizer_state,
     )
 
@@ -276,7 +280,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
             )
         try:
             details = verify_cli.fetch_agent_version(
-                seed_endpoint, request["agent"]["agent_name"], args.from_version
+                seed_endpoint, request_summary(request)["agent"], args.from_version
             )
             request, seeded = seed_from_version(
                 request, details, agent_version=args.from_version
@@ -286,12 +290,13 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         print(f"seeded from   : version {args.from_version} ({', '.join(seeded)})",
               file=sys.stderr if as_json else sys.stdout)
 
-    tools = request["options"]["optimization_config"].get("tools") or []
-    tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+    summary = request_summary(request)
+    tool_names = summary["tools"]
     if not as_json:
-        print(f"agent         : {request['agent']['agent_name']}")
-        print(f"eval model    : {request['options']['eval_model']}")
-        print(f"optimize model: {request['options']['optimization_model']}")
+        print(f"agent         : {summary['agent']}")
+        print(f"job type      : {summary['type']}")
+        print(f"eval model    : {summary['eval_model']}")
+        print(f"optimize model: {summary['optimization_model']}")
         print(f"tools         : {_format_list(tool_names)}")
 
     from castia.optimizing.preflight import (
@@ -371,6 +376,25 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         )
 
     live = {"network": True, "billable": True, "mutating": True}
+
+    if args.estimate:
+        try:
+            service_estimate = OptimizerClient(endpoint).estimate(request)
+        except (RuntimeError, TypeError) as exc:
+            return _fail(args, "optimize run", exc, effects={"network": True})
+        if as_json:
+            emit_envelope(command_envelope(
+                "optimize run", status="estimate",
+                result={"tools": tool_names, "estimate": service_estimate, "submitted": False},
+                next_actions=["rerun without --estimate to submit a billable optimizer job"],
+                effects={"network": True},
+            ))
+            return 0
+        print("estimate      :")
+        print(_json.dumps(service_estimate, indent=2))
+        print("result        : estimate only (no job started)")
+        return 0
+
     try:
         response = OptimizerClient(endpoint).start(request)
     except RuntimeError as exc:
@@ -384,7 +408,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         OptimizerState(
             job_id=str(submitted_job_id),
             project_endpoint=endpoint,
-            agent_name=str(request["agent"]["agent_name"]),
+            agent_name=str(summary["agent"]),
         ),
         config_dir=config_dir,
     )
@@ -437,13 +461,17 @@ def _optimizer_status(args: argparse.Namespace, *, command: str, effects: dict) 
             __import__("time").sleep(args.poll_interval)
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
         return _fail(args, command, exc, effects=effects)
-    code = 0 if _status_name(status) != "failed" else 1
+    code = 1 if _status_name(status) in {"failed", "cancelled", "skipped"} else 0
     if as_json:
         emit_envelope(_optimizer_status_envelope(command, job_id, status, effects=effects))
     return code
 
 def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effects: dict) -> dict:
-    from castia.optimizing.jobs import best_candidate_id, is_terminal_status
+    from castia.optimizing.jobs import (
+        best_candidate_id,
+        candidate_summary,
+        is_terminal_status,
+    )
 
     name = _status_name(status)
     progress = status.get("progress") or {}
@@ -474,10 +502,11 @@ def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effec
             "progress": progress,
             "candidates": summary,
             "best_candidate_id": best,
+            "candidate_summary": candidate_summary(status),
             "job": status,
         },
         diagnostics=[diagnostic("error", f"optimizer job {name}", "job_failed")]
-        if name == "failed" else [],
+        if name in {"failed", "cancelled", "skipped"} else [],
         next_actions=next_actions,
         effects=effects,
     )
@@ -508,7 +537,7 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
     from castia.optimizing.jobs import (
         OptimizerClient,
         apply_candidate_config,
-        best_candidate_id,
+        candidate_summary,
     )
 
     effects = {"network": True, "mutating": True}
@@ -517,9 +546,31 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
         client = OptimizerClient(endpoint)
         candidate = args.candidate
         if candidate == "best":
-            candidate = best_candidate_id(client.status(job_id))
+            job = client.status(job_id)
+            job_status = str(job.get("status", "")).lower()
+            if job_status != "succeeded":
+                raise ValueError(
+                    f"job {job_id} is {job_status or 'unknown'}; 'best' needs a succeeded "
+                    "job (pass --candidate <id> to apply a specific candidate)"
+                )
+            summary = candidate_summary(job)
+            candidate = summary.get("best_id")
             if not candidate:
-                raise ValueError("could not resolve best candidate from job status")
+                raise ValueError("job result has no candidate_summary.best_id")
+            if candidate == summary.get("baseline_id"):
+                if wants_json(args):
+                    emit_envelope(command_envelope(
+                        "optimize apply", status="baseline_best",
+                        result={"job_id": job_id, "candidate_id": candidate, "applied": False},
+                        diagnostics=[diagnostic(
+                            "warning", f"baseline {candidate} is best; nothing to apply",
+                            "baseline_best",
+                        )],
+                        effects={"network": True},
+                    ))
+                else:
+                    print(f"result        : baseline {candidate} is best; nothing to apply")
+                return 1
         config = client.candidate_config(job_id, candidate)
         plan = apply_candidate_config(candidate, config, config_dir=config_dir)
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
@@ -556,35 +607,31 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
     print(f"next          : {next_step}")
     return 0
 def _print_optimizer_status(status: dict) -> None:
+    from castia.optimizing.jobs import candidate_summary
     from castia.optimizing.jobs import job_id as optimizer_job_id
     from castia.optimizing.verify import termination_label
 
     print(f"job           : {optimizer_job_id(status)}")
+    status_name = status.get("status")
     label = termination_label(status)
-    state = status.get("status")
-    if label and str(state or "").lower() in {"succeeded", "completed"}:
-        print(f"status        : {state} ({label})")
+    if label and str(status_name or "").lower() in {"succeeded", "completed"}:
+        print(f"status        : {status_name} ({label})")
     else:
-        print(f"status        : {state}")
+        print(f"status        : {status_name}")
         if label:
             print(f"note          : {label}")
-    progress = status.get("progress") or {}
-    if progress:
-        print(f"baseline optimizer score: {progress.get('baseline_score', '-')}")
-        print(f"best optimizer score    : {progress.get('best_score', '-')}")
-        print(f"completed     : {progress.get('candidates_completed', '-')}")
-    result = status.get("result") or {}
-    candidates = result.get("candidates") if isinstance(result, dict) else None
-    if isinstance(candidates, list):
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            print(
-                "candidate     : "
-                f"{candidate.get('name')} "
-                f"{candidate.get('candidate_id') or candidate.get('candidateId')} "
-                f"optimizer_score={candidate.get('avg_score') or candidate.get('score')}"
-            )
+    summary = candidate_summary(status)
+    if summary:
+        print(f"completed     : {summary.get('completed_candidate_count', '-')}")
+        print(f"baseline      : {summary.get('baseline_id', '-')} "
+              f"score={summary.get('baseline_score', '-')}")
+        print(f"best          : {summary.get('best_id', '-')} "
+              f"score={summary.get('best_score', '-')}")
+    error = status.get("error")
+    if isinstance(error, dict) and error:
+        print(f"error         : {error.get('code', '')} {error.get('message', '')}".rstrip())
+    for warning in status.get("warnings") or []:
+        print(f"warning       : {warning}")
 
 def _load_evaluator_definitions(specs: list[str]) -> dict:
     """Load ``[NAME=]PATH`` evaluator definitions keyed by evaluator name."""

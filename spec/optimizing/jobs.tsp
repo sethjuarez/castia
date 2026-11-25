@@ -32,10 +32,20 @@ interface OptimizerJobsRuntime {
       maxCandidates: null,
     },
     expected: #{
-      agent: #{ agent_name: "optimizer-smoke", agent_version: "" },
-      evaluators: #[#{ name: "smoke-core", version: "1" }],
-      options: #{ eval_model: "gpt-4o", optimization_model: "gpt-5-mini", optimization_config: #{ `model`: "gpt-4o", system_prompt: "Use the web tool carefully.\n", skills: #[], tools: #[#{ `type`: "function", `function`: #{ name: "web" } }] }, max_candidates: 2 },
-      train_dataset: #{ `type`: "inline", items: #[#{ query: "hello", answer: "world" }] },
+      target_configuration: #{ `type`: "foundry_agent", name: "optimizer-smoke" },
+      optimization_model_configuration: #{ `model`: "gpt-5-mini" },
+      optimization_configuration: #{
+        `type`: "agent_optimization",
+        goal: "improve_quality",
+        evaluation_configuration: #{
+          training_set: #{ `type`: "target_completion", source: #{ `type`: "inline", test_cases: #[#{ query: "hello", ground_truth: "world" }] } },
+          evaluators: #[#{ name: "smoke-core", version: "1" }],
+          evaluation_model: #{ `model`: "gpt-4o" },
+        },
+        candidate_search_configuration: #{ max_candidates: 2 },
+        baseline_agent_configuration: #{ system_prompt: "Use the web tool carefully.\n", current_model: "gpt-4o", skills: #[], tools: #[#{ `type`: "function", `function`: #{ name: "web" } }] },
+        agent_optimization_space: #{},
+      },
     },
   })
   @vector(#{
@@ -58,17 +68,23 @@ interface OptimizerJobsRuntime {
       maxCandidates: null,
     },
     expected: #{
-      agent: #{ agent_name: "optimizer-smoke", agent_version: "" },
-      evaluators: #[#{ name: "smoke-core" }],
-      options: #{ eval_model: "gpt-4o", optimization_model: "gpt-5-mini", optimization_config: #{ skills: #[] } },
-      train_dataset: #{ `type`: "reference", name: "smoke-data", version: "3" },
+      target_configuration: #{ `type`: "foundry_agent", name: "optimizer-smoke" },
+      optimization_model_configuration: #{ `model`: "gpt-5-mini" },
+      optimization_configuration: #{
+        `type`: "agent_optimization",
+        goal: "improve_quality",
+        evaluation_configuration: #{ training_set: #{ `type`: "target_completion", source: #{ `type`: "dataset_reference", name: "smoke-data", version: "3" } }, evaluators: #[#{ name: "smoke-core" }], evaluation_model: #{ `model`: "gpt-4o" } },
+        candidate_search_configuration: #{},
+        baseline_agent_configuration: #{ skills: #[], tools: #[] },
+        agent_optimization_space: #{},
+      },
     },
   })
   @vector(#{
     name: "optimizer-request-agent-model-wins-over-baseline",
     stage: "callable",
     input: #{
-      evalConfig: #{ agent: #{ name: "optimizer-smoke", `model`: "gpt-agent" }, evaluators: #["smoke-core"], dataset: #{ name: "smoke-data" }, options: #{ evalModel: "gpt-4o", optimizationModel: "gpt-5-mini", evaluationLevel: "medium", maxStalls: 3, maxConcurrentAgentRuns: 2 } },
+      evalConfig: #{ agent: #{ name: "optimizer-smoke", `model`: "gpt-agent" }, evaluators: #["smoke-core"], dataset: #{ name: "smoke-data", version: "3" }, options: #{ evalModel: "gpt-4o", optimizationModel: "gpt-5-mini", maxConcurrentAgentRuns: 2 } },
       baseline: #{ `model`: "gpt-baseline" },
       datasetItems: null,
       validationItems: null,
@@ -79,10 +95,16 @@ interface OptimizerJobsRuntime {
       maxCandidates: null,
     },
     expected: #{
-      agent: #{ agent_name: "optimizer-smoke", agent_version: "" },
-      evaluators: #[#{ name: "smoke-core" }],
-      options: #{ eval_model: "gpt-4o", optimization_model: "gpt-5-mini", optimization_config: #{ `model`: "gpt-agent", skills: #[] }, evaluation_level: "medium", max_stalls: 3, max_concurrent_agent_runs: 2 },
-      train_dataset: #{ `type`: "reference", name: "smoke-data" },
+      target_configuration: #{ `type`: "foundry_agent", name: "optimizer-smoke" },
+      optimization_model_configuration: #{ `model`: "gpt-5-mini" },
+      optimization_configuration: #{
+        `type`: "agent_optimization",
+        goal: "improve_quality",
+        evaluation_configuration: #{ training_set: #{ `type`: "target_completion", source: #{ `type`: "dataset_reference", name: "smoke-data", version: "3" } }, evaluators: #[#{ name: "smoke-core" }], evaluation_model: #{ `model`: "gpt-4o" }, max_concurrent_agent_runs: 2 },
+        candidate_search_configuration: #{},
+        baseline_agent_configuration: #{ current_model: "gpt-agent", skills: #[], tools: #[] },
+        agent_optimization_space: #{},
+      },
     },
   })
   @vector(#{
@@ -100,10 +122,16 @@ interface OptimizerJobsRuntime {
       maxCandidates: null,
     },
     expected: #{
-      agent: #{ agent_name: "optimizer-smoke", agent_version: "" },
-      evaluators: #[#{ name: "smoke-core" }],
-      options: #{ eval_model: "gpt-4o", optimization_model: "gpt-5-mini", optimization_config: #{ skills: #[] } },
-      train_dataset: #{ `type`: "inline", items: #[#{ query: "hello" }] },
+      target_configuration: #{ `type`: "foundry_agent", name: "optimizer-smoke" },
+      optimization_model_configuration: #{ `model`: "gpt-5-mini" },
+      optimization_configuration: #{
+        `type`: "agent_optimization",
+        goal: "improve_quality",
+        evaluation_configuration: #{ training_set: #{ `type`: "target_completion", source: #{ `type`: "inline", test_cases: #[#{ query: "hello" }] } }, evaluators: #[#{ name: "smoke-core" }], evaluation_model: #{ `model`: "gpt-4o" } },
+        candidate_search_configuration: #{},
+        baseline_agent_configuration: #{ skills: #[], tools: #[] },
+        agent_optimization_space: #{},
+      },
     },
   })
   @vector(#{
@@ -112,6 +140,18 @@ interface OptimizerJobsRuntime {
     input: #{ evalConfig: #{ evaluators: #["smoke"], dataset: #{ name: "data" }, options: #{ evalModel: "gpt-4o", optimizationModel: "gpt-5-mini" } }, baseline: #{}, datasetItems: null, validationItems: null, agentName: null, agentVersion: null, evalModel: null, optimizeModel: null, maxCandidates: null },
     expectedError: #{ message: "agent.name is required (or pass --agent)" },
   })
+  @vector(#{
+    name: "optimizer-request-rejects-preview-only-options",
+    stage: "callable",
+    input: #{ evalConfig: #{ agent: #{ name: "optimizer-smoke" }, evaluators: #["smoke"], dataset: #{ name: "data", version: "1" }, options: #{ evalModel: "gpt-4o", optimizationModel: "gpt-5-mini", maxStalls: 3 } }, baseline: #{}, datasetItems: null, validationItems: null, agentName: null, agentVersion: null, evalModel: null, optimizeModel: null, maxCandidates: null },
+    expectedError: #{ message: "options.max_stalls is not supported: the GA optimizer has no stall budget; drop it" },
+  })
+  @vector(#{
+    name: "optimizer-request-registered-dataset-requires-version",
+    stage: "callable",
+    input: #{ evalConfig: #{ agent: #{ name: "optimizer-smoke" }, evaluators: #["smoke"], dataset: #{ name: "data" }, options: #{ evalModel: "gpt-4o", optimizationModel: "gpt-5-mini" } }, baseline: #{}, datasetItems: null, validationItems: null, agentName: null, agentVersion: null, evalModel: null, optimizeModel: null, maxCandidates: null },
+    expectedError: #{ message: "dataset.version is required for a registered dataset (dataset.name='data')" },
+  })
   optimizerRequest(evalConfig: unknown, baseline: unknown, datasetItems: unknown, validationItems: unknown, agentName: string | null, agentVersion: string | null, evalModel: string | null, optimizeModel: string | null, maxCandidates: int32 | null): unknown;
 
   @sync
@@ -119,25 +159,37 @@ interface OptimizerJobsRuntime {
     name: "optimizer-start-rest-request",
     stage: "callable",
     input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p/", action: "start", jobId: null, candidateId: null, body: #{ x: 1 } },
-    expected: #{ method: "POST", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs?api-version=v1", headers: #{ `Foundry-Features`: "AgentsOptimization=V2Preview", `Content-Type`: "application/json" }, body: #{ inputs: #{ x: 1 } } },
+    expected: #{ method: "POST", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs?api-version=v1", headers: #{ `Content-Type`: "application/json" }, body: #{ x: 1 } },
   })
   @vector(#{
-    name: "optimizer-candidate-config-rest-request",
+    name: "optimizer-candidate-rest-request",
     stage: "callable",
-    input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p", action: "candidate_config", jobId: "opt_1", candidateId: "cand_1", body: null },
-    expected: #{ method: "GET", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1/candidates/cand_1/config?api-version=v1", headers: #{ `Foundry-Features`: "AgentsOptimization=V2Preview" }, body: null },
+    input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p", action: "candidate", jobId: "opt_1", candidateId: "cand_1", body: null },
+    expected: #{ method: "GET", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1/candidates/cand_1?expand=mutations&api-version=v1", headers: #{}, body: null },
+  })
+  @vector(#{
+    name: "optimizer-candidate-config-file-rest-request",
+    stage: "callable",
+    input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p", action: "candidate_config_file", jobId: "opt_1", candidateId: "cand_1", body: null },
+    expected: #{ method: "GET", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1/files?path=config.json&candidate_id=cand_1&api-version=v1", headers: #{}, body: null },
+  })
+  @vector(#{
+    name: "optimizer-estimate-rest-request",
+    stage: "callable",
+    input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p", action: "estimate", jobId: null, candidateId: null, body: #{ x: 1 } },
+    expected: #{ method: "POST", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs:estimate?api-version=v1", headers: #{ `Content-Type`: "application/json" }, body: #{ x: 1 } },
   })
   @vector(#{
     name: "optimizer-status-rest-request",
     stage: "callable",
     input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p", action: "status", jobId: "opt_1", candidateId: null, body: null },
-    expected: #{ method: "GET", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1?api-version=v1", headers: #{ `Foundry-Features`: "AgentsOptimization=V2Preview" }, body: null },
+    expected: #{ method: "GET", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1?api-version=v1", headers: #{}, body: null },
   })
   @vector(#{
     name: "optimizer-cancel-rest-request",
     stage: "callable",
     input: #{ projectEndpoint: "https://example.ai.azure.com/api/projects/p", action: "cancel", jobId: "opt_1", candidateId: null, body: null },
-    expected: #{ method: "POST", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1:cancel?api-version=v1", headers: #{ `Foundry-Features`: "AgentsOptimization=V2Preview" }, body: null },
+    expected: #{ method: "POST", url: "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1:cancel?api-version=v1", headers: #{}, body: null },
   })
   @vector(#{
     name: "optimizer-status-requires-job-id",
@@ -149,33 +201,22 @@ interface OptimizerJobsRuntime {
 
   @sync
   @vector(#{ name: "optimizer-terminal-statuses", stage: "callable", input: #{ status: "cancelled" }, expected: true })
-  @vector(#{ name: "optimizer-nonterminal-status", stage: "callable", input: #{ status: "running" }, expected: false })
+  @vector(#{ name: "optimizer-skipped-is-terminal", stage: "callable", input: #{ status: "skipped" }, expected: true })
+  @vector(#{ name: "optimizer-nonterminal-status", stage: "callable", input: #{ status: "in_progress" }, expected: false })
   terminalOptimizerStatus(status: string | null): boolean;
 
   @sync
   @vector(#{
-    name: "optimizer-best-candidate-explicit-best",
+    name: "optimizer-best-candidate-from-candidate-summary",
     stage: "callable",
-    input: #{ status: #{ result: #{ bestCandidateId: "cand_2" } } },
+    input: #{ status: #{ result: #{ candidate_summary: #{ baseline_id: "cand_0", best_id: "cand_2" } } } },
     expected: "cand_2",
   })
   @vector(#{
-    name: "optimizer-best-candidate-by-score",
+    name: "optimizer-best-candidate-absent-without-summary",
     stage: "callable",
-    input: #{ status: #{ result: #{ candidates: #[#{ candidate_id: "low", avg_score: 0.1 }, #{ candidateId: "high", score: 0.9 }] } } },
-    expected: "high",
-  })
-  @vector(#{
-    name: "optimizer-best-candidate-first-tie-wins",
-    stage: "callable",
-    input: #{ status: #{ result: #{ candidates: #[#{ candidate_id: "first", score: 0.5 }, #{ candidate_id: "second", score: 0.5 }] } } },
-    expected: "first",
-  })
-  @vector(#{
-    name: "optimizer-best-candidate-falsy-score-falls-through",
-    stage: "callable",
-    input: #{ status: #{ result: #{ candidates: #[#{ candidate_id: "chosen", avg_score: 0, score: 0.9 }] } } },
-    expected: "chosen",
+    input: #{ status: #{ result: #{ candidates: #[#{ candidate_id: "legacy", score: 0.9 }] } } },
+    expected: null,
   })
   bestOptimizerCandidateId(status: unknown): string | null;
 
@@ -183,7 +224,7 @@ interface OptimizerJobsRuntime {
   @vector(#{
     name: "optimizer-job-id-extraction",
     stage: "callable",
-    input: #{ payload: #{ operationId: "opt_1" } },
+    input: #{ payload: #{ id: "opt_1" } },
     expected: "opt_1",
   })
   optimizerJobId(payload: unknown): string | null;
