@@ -79,7 +79,9 @@ def configure_observability(
 
     azure_monitor_connection_string = _azure_monitor_connection_string()
     _configure_azure_core_tracing()
-    identity_processors = _build_agent_identity_processors()
+    identity_processors = _build_agent_identity_processors(
+        exporting=bool(azure_monitor_connection_string) or bool(agent_version)
+    )
     a365_plan = _plan_a365_export()
     # The distro instruments azure-ai-projects during setup; publish the GenAI
     # flag first so that call agrees with Castia's decision instead of warning.
@@ -231,7 +233,7 @@ def _fastapi_instrumentation_options() -> dict[str, list[str]]:
     return {"exclude_spans": ["send", "receive"]}
 
 
-def _build_agent_identity_processors() -> list[SpanProcessor]:
+def _build_agent_identity_processors(*, exporting: bool = False) -> list[SpanProcessor]:
     """Build the span processor that stamps hosted-agent identity onto spans.
 
     The Foundry Traces view's run-list query only surfaces an operation when at
@@ -252,8 +254,13 @@ def _build_agent_identity_processors() -> list[SpanProcessor]:
     with ``trace.get_tracer_provider().add_span_processor(...)`` does NOT work:
     the global provider is not the export provider, so the attributes never reach
     App Insights. Values come from the platform-injected ``FOUNDRY_AGENT_NAME`` /
-    ``FOUNDRY_AGENT_VERSION`` and the ``FOUNDRY_PROJECT_RESOURCE_ID`` we set in
-    ``azure.yaml``. Best-effort: telemetry must never break startup.
+    ``FOUNDRY_AGENT_VERSION`` and the project ARM resource ID from
+    ``FOUNDRY_PROJECT_RESOURCE_ID``, ``AZURE_AI_PROJECT_RESOURCE_ID`` or
+    ``AZURE_AI_PROJECT_ID``. Hosted manifests cannot author ``FOUNDRY_*`` env
+    vars, so ``azure.yaml`` declares ``AZURE_AI_PROJECT_RESOURCE_ID``. When
+    ``exporting`` and no project ID resolves, log a warning: Monitor shows $0
+    and 0 tokens for spans without it. Best-effort: telemetry must never break
+    startup.
     """
     try:
         name = os.environ.get("FOUNDRY_AGENT_NAME", "castia-agent")
@@ -275,6 +282,14 @@ def _build_agent_identity_processors() -> list[SpanProcessor]:
         if project_id:
             span_attributes["microsoft.foundry.project.id"] = project_id
             span_attributes["gen_ai.azure_ai_project.id"] = project_id
+        elif exporting:
+            _logger.warning(
+                "Foundry project resource ID is unset (FOUNDRY_PROJECT_RESOURCE_ID / "
+                "AZURE_AI_PROJECT_RESOURCE_ID / AZURE_AI_PROJECT_ID); spans will lack "
+                "microsoft.foundry.project.id and Foundry Monitor will show $0 and 0 "
+                "tokens. Declare AZURE_AI_PROJECT_RESOURCE_ID in the azure.yaml service "
+                "env. Run `python -m castia doctor` to check."
+            )
 
         if not span_attributes:
             _logger.warning(

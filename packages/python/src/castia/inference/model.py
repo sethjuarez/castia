@@ -16,12 +16,37 @@ configured before the instrumented azure/openai libraries load.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
 
 from castia.observe.tracing import trace_attribute, trace_context_headers, trace_step
 from castia.runtime.usage import record_response_usage
+
+_logger = logging.getLogger(__name__)
+_warned_deployment_mismatches: set[tuple[str, str]] = set()
+
+
+def _warn_deployment_mismatch(deployment: str) -> None:
+    """Warn once when code calls a model other than the labelled deployment.
+
+    Foundry Optimizer and Monitor label an agent version with
+    ``AZURE_AI_MODEL_DEPLOYMENT_NAME``, not with the model the code calls.
+    """
+    configured = (os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME") or "").strip()
+    pair = (deployment, configured)
+    if not configured or deployment == configured or pair in _warned_deployment_mismatches:
+        return
+    _warned_deployment_mismatches.add(pair)
+    _logger.warning(
+        "Model(deployment=%r) differs from AZURE_AI_MODEL_DEPLOYMENT_NAME=%r. "
+        "Foundry Optimizer and Monitor label this agent version with the env var, "
+        "so usage will be attributed to the wrong model. Set the env var to the "
+        "deployment the agent really calls before creating the version.",
+        deployment,
+        configured,
+    )
 
 # Reasoning-effort levels accepted by the Responses API for reasoning models
 # (o-series, gpt-5, and their RFT-fine-tuned variants). A plain chat model
@@ -176,6 +201,8 @@ class Model:
         account_endpoint: str | None = None,
     ) -> None:
         self._deployment = deployment or os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"]
+        if deployment:
+            _warn_deployment_mismatch(deployment)
         self._instructions = instructions
         self._tool_definitions = tuple(tool_definitions)
         # An explicit level wins; otherwise MODEL_REASONING_EFFORT lets an

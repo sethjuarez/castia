@@ -499,7 +499,9 @@ def run_azd(argv: Sequence[str], *, cwd: str | os.PathLike | None = None) -> int
             f"{exe!r} is not on PATH -- install the Azure Developer CLI and the "
             "azure.ai.agents extension (azd extension install azure.ai.agents)."
         )
-    return subprocess.run(list(argv), cwd=cwd, check=False).returncode
+    from castia.delivery.azd import azd_subprocess_env
+
+    return subprocess.run(list(argv), cwd=cwd, env=azd_subprocess_env(), check=False).returncode
 
 
 def _tracked_instruction_file(root: str | os.PathLike = ".") -> str | None:

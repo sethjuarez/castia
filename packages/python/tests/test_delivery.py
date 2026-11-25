@@ -52,6 +52,8 @@ def test_azd_pins_project_and_deploys_only_named_service(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr("castia.delivery.azd.shutil.which", lambda _: "azd.exe")
     monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://unrelated.invalid")
+    monkeypatch.delenv("AZD_ALPHA_ENABLE_AGENTS_MANAGED_HARNESS", raising=False)
+    monkeypatch.delenv("AZD_ALPHA_ENABLE_AGENTS_RBAC_WARNINGS", raising=False)
 
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
@@ -70,6 +72,8 @@ def test_azd_pins_project_and_deploys_only_named_service(tmp_path, monkeypatch):
     assert calls[0][1]["env"]["AZURE_AI_PROJECT_ENDPOINT"] == ENDPOINT
     assert calls[0][1]["env"]["AZURE_AI_PROJECT_ID"] == RESOURCE
     assert calls[0][1]["env"]["AZURE_SUBSCRIPTION_ID"] == SUBSCRIPTION
+    assert calls[0][1]["env"]["AZD_ALPHA_ENABLE_AGENTS_MANAGED_HARNESS"] == "true"
+    assert calls[0][1]["env"]["AZD_ALPHA_ENABLE_AGENTS_RBAC_WARNINGS"] == "true"
     assert receipt.project_resource_id == RESOURCE
     assert all("provision" not in argv for argv, _ in calls)
 

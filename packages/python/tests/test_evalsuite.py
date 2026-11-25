@@ -2,13 +2,14 @@
 
 No Azure, no credentials, no ``azd``: the argv builders are pure, ``read_rubric``
 / ``validate_suite`` are filesystem-only, and the one impure seam (``run_azd``)
-is exercised only through its ``shutil.which`` guard.
+is exercised only through monkeypatched ``shutil.which``/``subprocess.run``.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -316,3 +317,22 @@ def test_cli_rubric_compile_writes_wire_file(tmp_path: Path, capsys):
         {"id": "o", "description": "d", "weight": 4},
     ]
     assert "(gate)" in capsys.readouterr().out
+
+
+def test_run_azd_sets_agents_opt_ins_without_overriding_user_values(monkeypatch):
+    seen = {}
+
+    def fake_run(argv, *, cwd, env, check):
+        seen.update(env)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(evalsuite.shutil, "which", lambda _exe: "azd")
+    monkeypatch.setattr(evalsuite.subprocess, "run", fake_run)
+    monkeypatch.setenv("AZD_ALPHA_ENABLE_AGENTS_VOICE", "false")
+    monkeypatch.delenv("AZD_ALPHA_ENABLE_AGENTS_LONG_RUNNING", raising=False)
+    monkeypatch.delenv("AZD_ALPHA_ENABLE_AGENTS_RBAC_WARNINGS", raising=False)
+
+    assert run_azd(["azd", "ai", "agent", "eval", "run"]) == 0
+    assert seen["AZD_ALPHA_ENABLE_AGENTS_LONG_RUNNING"] == "true"
+    assert seen["AZD_ALPHA_ENABLE_AGENTS_RBAC_WARNINGS"] == "true"
+    assert seen["AZD_ALPHA_ENABLE_AGENTS_VOICE"] == "false"
