@@ -9,7 +9,6 @@ There is deliberately no fine-tuning submission, candidate apply, or deployment.
 from __future__ import annotations
 
 import json
-import math
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -25,12 +24,10 @@ from castia.observe.telemetry import (
 )
 
 AI_SCOPE = "https://ai.azure.com/.default"
-OPTIMIZER_HEADERS = {"Foundry-Features": "AgentsOptimization=V2Preview"}
 OPTIMIZER_STATUSES = frozenset({
-    "notstarted", "not_started", "queued", "pending", "running", "inprogress",
-    "in_progress", "completed", "succeeded", "failed", "cancelled", "canceled",
-    "cancelling", "canceling",
+    "queued", "in_progress", "succeeded", "failed", "cancelled", "skipped",
 })
+OPTIMIZER_TERMINAL = frozenset({"succeeded", "failed", "cancelled", "skipped"})
 
 
 def _no_finetuning(url: str) -> None:
@@ -45,7 +42,7 @@ def _optimizer_status(payload: Any, *, expected_id: str | None = None) -> str:
     status = payload.get("status")
     if not isinstance(status, str) or status.lower() not in OPTIMIZER_STATUSES:
         raise ObserveError("invalid_response", "Optimizer status is missing or unrecognized.")
-    for key in ("operation_id", "operationId", "id", "job_id", "jobId"):
+    for key in ("id", "job_id"):
         if key in payload and (
             not isinstance(payload[key], str) or not payload[key]
             or (expected_id is not None and payload[key] != expected_id)
@@ -55,41 +52,46 @@ def _optimizer_status(payload: Any, *, expected_id: str | None = None) -> str:
     if result is not None:
         if not isinstance(result, Mapping):
             raise ObserveError("invalid_response", "Optimizer result must be an object or null.")
-        for key in ("best", "best_candidate_id", "bestCandidateId"):
-            if key in result and result[key] is not None and not isinstance(result[key], str):
-                raise ObserveError("invalid_response", "Optimizer best-candidate identity must be text.")
-        if "candidates" in result and (
-            not isinstance(result["candidates"], list)
-            or any(not isinstance(candidate, Mapping) for candidate in result["candidates"])
-        ):
-            raise ObserveError("invalid_response", "Optimizer candidates must be an object list.")
+        summary = result.get("candidate_summary")
+        if summary is not None:
+            if not isinstance(summary, Mapping):
+                raise ObserveError("invalid_response", "Optimizer candidate_summary must be an object.")
+            for key in ("baseline_id", "best_id"):
+                if summary.get(key) is not None and not isinstance(summary[key], str):
+                    raise ObserveError("invalid_response", "Optimizer candidate identities must be text.")
     return status.lower()
 
 
-def _candidate_config(payload: Any) -> None:
+def _optimizer_max_candidates(request: Mapping[str, Any]) -> Any:
+    configuration = request.get("optimization_configuration")
+    search = configuration.get("candidate_search_configuration") if isinstance(configuration, Mapping) else None
+    return search.get("max_candidates") if isinstance(search, Mapping) else None
+
+
+def _candidate(payload: Any, *, expected_id: str) -> None:
     if not isinstance(payload, Mapping):
-        raise ObserveError("invalid_response", "Optimizer candidate config must be an object.")
-    fields = {"model", "instructions", "system_prompt", "tools", "skills", "temperature"}
-    if not any(key in payload and payload[key] is not None for key in fields):
-        raise ObserveError("invalid_response", "Optimizer candidate config has no recognized configuration fields.")
-    for key in ("model", "instructions", "system_prompt"):
-        if key in payload and payload[key] is not None and (
-            not isinstance(payload[key], str) or (key == "model" and not payload[key].strip())
+        raise ObserveError("invalid_response", "Optimizer candidate must be an object.")
+    if payload.get("candidate_id") != expected_id:
+        raise ObserveError("invalid_response", "Optimizer returned an invalid or mismatched candidate identity.")
+    if not isinstance(payload.get("status"), str):
+        raise ObserveError("invalid_response", "Optimizer candidate status is missing.")
+    output = payload.get("output")
+    if output is not None:
+        if not isinstance(output, Mapping):
+            raise ObserveError("invalid_response", "Optimizer candidate output must be an object.")
+        mutations = output.get("mutations")
+        if mutations is not None and (
+            not isinstance(mutations, list)
+            or any(not isinstance(item, Mapping) or not isinstance(item.get("type"), str)
+                   for item in mutations)
         ):
-            raise ObserveError("invalid_response", "Optimizer model/prompt fields must contain valid text.")
-    for key in ("tools", "skills"):
-        if key in payload and payload[key] is not None and (
-            not isinstance(payload[key], list)
-            or any(not isinstance(item, Mapping) for item in payload[key])
-        ):
-            raise ObserveError("invalid_response", "Optimizer tools/skills must be object lists.")
-    if payload.get("temperature") is not None:
-        value = payload["temperature"]
-        if (
-            isinstance(value, bool) or not isinstance(value, (int, float))
-            or not math.isfinite(value) or not 0 <= value <= 2
-        ):
-            raise ObserveError("invalid_response", "Optimizer temperature must be a finite number from 0 to 2.")
+            raise ObserveError("invalid_response", "Optimizer mutations must be typed objects.")
+    files = payload.get("files")
+    if files is not None and (
+        not isinstance(files, list)
+        or any(not isinstance(item, Mapping) or not isinstance(item.get("path"), str) for item in files)
+    ):
+        raise ObserveError("invalid_response", "Optimizer candidate files must be path objects.")
 
 
 @dataclass(frozen=True)
@@ -175,9 +177,8 @@ class LiveConfig:
         if self.allow_optimizer_submit:
             if not self.optimizer_request or not self.project_endpoint:
                 raise ValueError("optimizer submission requires project_endpoint and optimizer_request")
-            options = self.optimizer_request.get("options", {})
-            maximum = options.get("max_candidates") if isinstance(options, Mapping) else None
-            positive(maximum, "optimizer options.max_candidates", integer=True)
+            maximum = _optimizer_max_candidates(self.optimizer_request)
+            positive(maximum, "optimizer candidate_search_configuration.max_candidates", integer=True)
             if maximum > 3:
                 raise ValueError("observe optimizer probes support at most 3 candidates")
             if self.limits.max_requests < 3 or self.limits.max_seconds <= self.cleanup_timeout_seconds:
@@ -537,17 +538,17 @@ class LiveProbes(dict):
              "tool_error_count": errors, "usage": _usage(response)},
         )
 
-    def _optimizer_url(self, suffix: str = "") -> str:
+    def _optimizer_url(self, suffix: str = "", query: str = "") -> str:
         if not self.config.project_endpoint:
             raise ObserveError("prerequisite", "A selected project endpoint is required.")
-        return self.config.project_endpoint.rstrip("/") + "/agent_optimization_jobs" + suffix + "?api-version=v1"
+        return (self.config.project_endpoint.rstrip("/") + "/agent_optimization_jobs" + suffix
+                + "?" + query + "api-version=v1")
 
     def optimizer_status(self) -> ProbeResult:
         if not self.config.optimizer_job_id:
             raise ObserveError("prerequisite", "A selected optimizer job is required.")
         result = self._request(
             "GET", self._optimizer_url("/" + quote(self.config.optimizer_job_id, safe="")),
-            headers=OPTIMIZER_HEADERS,
         )
         status = _optimizer_status(result, expected_id=self.config.optimizer_job_id)
         return ProbeResult("pass", "Selected optimizer job status is readable.",
@@ -558,11 +559,11 @@ class LiveProbes(dict):
             raise ObserveError("prerequisite", "Selected optimizer job and candidate IDs are required.")
         suffix = (
             "/" + quote(self.config.optimizer_job_id, safe="") + "/candidates/"
-            + quote(self.config.optimizer_candidate_id, safe="") + "/config"
+            + quote(self.config.optimizer_candidate_id, safe="")
         )
-        result = self._request("GET", self._optimizer_url(suffix), headers=OPTIMIZER_HEADERS)
-        _candidate_config(result)
-        return ProbeResult("pass", "Selected optimizer candidate config is readable.")
+        result = self._request("GET", self._optimizer_url(suffix, "expand=mutations&"))
+        _candidate(result, expected_id=self.config.optimizer_candidate_id)
+        return ProbeResult("pass", "Selected optimizer candidate is readable.")
 
     def optimizer_run(self) -> ProbeResult:
         if not self.config.allow_optimizer_submit:
@@ -579,12 +580,11 @@ class LiveProbes(dict):
         )
         try:
             result = self._request(
-                "POST", self._optimizer_url(), body={"inputs": dict(self.config.optimizer_request or {})},
-                headers=OPTIMIZER_HEADERS, timeout=max(.001, deadline - self.clock()),
+                "POST", self._optimizer_url(), body=dict(self.config.optimizer_request or {}),
+                timeout=max(.001, deadline - self.clock()),
             )
             identifier = next(
-                (result[key] for key in ("operation_id", "operationId", "id", "job_id", "jobId")
-                 if result.get(key)),
+                (result[key] for key in ("id", "job_id") if result.get(key)),
                 None,
             )
             if not isinstance(identifier, str) or not identifier:
@@ -598,12 +598,12 @@ class LiveProbes(dict):
             while self.clock() < deadline:
                 result = self._request(
                     "GET", self._optimizer_url("/" + quote(identifier, safe="")),
-                    headers=OPTIMIZER_HEADERS, timeout=deadline - self.clock(),
+                    timeout=deadline - self.clock(),
                 )
                 status = _optimizer_status(result, expected_id=identifier)
-                if status in {"completed", "succeeded", "failed", "cancelled", "canceled"}:
+                if status in OPTIMIZER_TERMINAL:
                     terminal = True
-                    passed = status in {"completed", "succeeded"}
+                    passed = status == "succeeded"
                     outcome = ProbeResult(
                         "pass" if passed else "fail", "Optimizer reached a terminal state.",
                         None if passed else "service",
@@ -633,7 +633,7 @@ class LiveProbes(dict):
                 try:
                     cancellation = self._request(
                         "POST", self._optimizer_url("/" + quote(identifier, safe="") + ":cancel"),
-                        headers=OPTIMIZER_HEADERS, cleanup=True,
+                        cleanup=True,
                         timeout=self.config.cleanup_timeout_seconds,
                     )
                     if not isinstance(cancellation, Mapping) or cancellation.get("error"):
@@ -642,9 +642,7 @@ class LiveProbes(dict):
                         _optimizer_status(cancellation, expected_id=identifier)
                         if "status" in cancellation else None
                     )
-                    confirmed = cancellation_status in {
-                        "completed", "succeeded", "failed", "cancelled", "canceled",
-                    }
+                    confirmed = cancellation_status in OPTIMIZER_TERMINAL
                     outcome = ProbeResult(
                         outcome.status, outcome.diagnostic, outcome.category,
                         {

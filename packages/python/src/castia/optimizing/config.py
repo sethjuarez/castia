@@ -10,9 +10,16 @@ optimizing an agent optimizes the exact config it serves in production.
 Resolution is delegated to :func:`azure.ai.agentserver.optimization.load_config`,
 which prefers an inline ``OPTIMIZATION_CONFIG`` JSON blob, then the resolver API
 (``OPTIMIZATION_CANDIDATE_ID`` + endpoint), then the local ``.agent_configs/``
-directory, then ``None``. When that package or a config source is absent we
-degrade to environment defaults, so an agent runs identically with or without
-the optimizer installed.
+directory, then ``None``. When that package or every config source is absent
+we degrade to environment defaults, so an agent runs identically with or
+without the optimizer installed. A source that is *present but unusable*
+(malformed inline JSON, unreadable tools file, resolver error, empty candidate
+instructions) raises :class:`CandidateConfigError` instead of silently serving
+defaults. A requested ``OPTIMIZATION_CANDIDATE_ID`` that falls back to baseline
+logs a warning with the config hash, or raises when strict
+(``strict=True`` / ``CASTIA_OPTIMIZATION_STRICT=1``). ``CASTIA_OPTIMIZATION_LENIENT=1``
+restores the old degrade-to-defaults behavior. Resolution is not cached, so
+each call reflects the currently injected candidate.
 
 The optimizer's on-disk contract (``.agent_configs/<candidate>/``):
 
@@ -31,11 +38,12 @@ agent's :class:`~castia.inference.tools.Tool` list by name.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -64,20 +72,61 @@ class AgentConfig:
     instructions: str | None
     source: str
     tool_definitions: tuple[dict, ...] = ()
+    config_hash: str = field(default="", compare=False)
 
     def apply_tools(self, tools: list[Tool | dict]) -> list[Tool | dict]:
         """Return ``tools`` with any optimizer-rewritten descriptions applied."""
         return apply_optimized_tools(tools, self.tool_definitions)
 
 
-def load_agent_config(config_dir: str | os.PathLike | None = None) -> AgentConfig:
+class CandidateConfigError(RuntimeError):
+    """An optimizer config source was present but could not be used."""
+
+
+STRICT_ENV = "CASTIA_OPTIMIZATION_STRICT"
+LENIENT_ENV = "CASTIA_OPTIMIZATION_LENIENT"
+_CANDIDATE_ENV = "OPTIMIZATION_CANDIDATE_ID"
+_INLINE_ENV = "OPTIMIZATION_CONFIG"
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _config_hash(model: str, instructions: str | None, tools: tuple[dict, ...]) -> str:
+    payload = json.dumps(
+        {"model": model, "instructions": instructions, "tools": list(tools)},
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _default_config(model: str) -> AgentConfig:
+    return AgentConfig(model, None, "default", (), _config_hash(model, None, ()))
+
+
+def load_agent_config(
+    config_dir: str | os.PathLike | None = None, *, strict: bool | None = None
+) -> AgentConfig:
     """Resolve the agent's model + instructions (+ tools), preferring an optimizer config.
 
-    Best-effort and non-fatal: any failure degrades to environment defaults so
-    startup never breaks because of the optimizer integration. Pass ``config_dir``
-    to anchor the local ``.agent_configs`` lookup explicitly; by default it honors
-    an ``OPTIMIZATION_LOCAL_DIR`` override and otherwise lets ``load_config()``
-    resolve ``.agent_configs`` next to the entrypoint.
+    A config source that is present but unusable raises
+    :class:`CandidateConfigError` instead of silently serving defaults: a
+    malformed or empty inline ``OPTIMIZATION_CONFIG``, an unreadable
+    ``metadata.yaml`` or ``tools.json``, or an optimizer candidate with no
+    instructions. When ``OPTIMIZATION_CANDIDATE_ID`` is set but resolution falls
+    back to the baseline or defaults, a warning names the candidate and the
+    served config hash; ``strict=True`` (or ``CASTIA_OPTIMIZATION_STRICT=1``)
+    turns that fallback into an error too. ``strict=False`` (or
+    ``CASTIA_OPTIMIZATION_LENIENT=1``) restores the old best-effort behavior,
+    logging every failure and serving environment defaults. A missing
+    optimization package always degrades to defaults.
+
+    Pass ``config_dir`` to anchor the local ``.agent_configs`` lookup
+    explicitly; by default it honors an ``OPTIMIZATION_LOCAL_DIR`` override and
+    otherwise lets ``load_config()`` resolve ``.agent_configs`` next to the
+    entrypoint.
 
     Directory-resolution gotcha: ``load_config()`` resolves a relative
     ``.agent_configs`` against ``__main__.__file__``'s directory -- correct under
@@ -87,41 +136,127 @@ def load_agent_config(config_dir: str | os.PathLike | None = None) -> AgentConfi
     identically no matter how the process is launched.
     """
     default_model = os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", "gpt-4o")
+    if strict is None:
+        strict = True if _env_flag(STRICT_ENV) else (False if _env_flag(LENIENT_ENV) else None)
+    lenient = strict is False
+    candidate_id = os.environ.get(_CANDIDATE_ENV, "").strip()
 
     try:
         from azure.ai.agentserver.optimization import load_config
     except Exception:  # noqa: BLE001 - package absent; run as a plain agent
         _logger.info("optimization package absent; using env defaults")
-        return AgentConfig(default_model, None, "default")
+        return _default_config(default_model)
 
     try:
+        _check_inline_config()
         config = load_config(config_dir=config_dir)
-    except Exception:  # never let config resolution break startup
-        _logger.warning("load_config() failed; using env defaults", exc_info=True)
-        return AgentConfig(default_model, None, "default")
+        if config is not None:
+            _check_local_artifact(config)
+    except Exception as exc:
+        if lenient:
+            _logger.warning(
+                "optimizer config failed (lenient); using env defaults", exc_info=True
+            )
+            return _default_config(default_model)
+        if isinstance(exc, CandidateConfigError):
+            raise
+        raise CandidateConfigError(f"optimizer config could not be loaded: {exc}") from exc
 
     if config is None:
-        _logger.info("no optimization config found; using env defaults")
-        return AgentConfig(default_model, None, "default")
+        result = _default_config(default_model)
+    else:
+        # compose_instructions() returns the prompt with any discovered skills
+        # appended; empty string -> None so the model call omits instructions.
+        instructions = config.compose_instructions() or None
+        model = config.model or default_model
+        tool_definitions = tuple(config.tool_definitions or ())
+        if not tool_definitions:
+            # azd ai agent optimize currently writes/reads the local metadata key as
+            # "tools_file", while azure-ai-agentserver-optimization reads "tool_file".
+            # Tolerate the azd spelling so applied candidates still affect runtime.
+            tool_definitions = tuple(_load_azd_tools_file_definitions(config))
+        result = AgentConfig(
+            model,
+            instructions,
+            config.source,
+            tool_definitions,
+            _config_hash(model, instructions, tool_definitions),
+        )
+        if instructions is None and _served_candidate(config.source, candidate_id) and not lenient:
+            raise CandidateConfigError(
+                f"optimizer candidate {candidate_id!r} from {config.source} has no instructions"
+            )
 
-    # compose_instructions() returns the prompt with any discovered skills
-    # appended; empty string -> None so the model call omits instructions.
-    instructions = config.compose_instructions() or None
-    model = config.model or default_model
-    tool_definitions = tuple(config.tool_definitions or ())
-    if not tool_definitions:
-        # azd ai agent optimize currently writes/reads the local metadata key as
-        # "tools_file", while azure-ai-agentserver-optimization reads "tool_file".
-        # Tolerate the azd spelling so applied candidates still affect runtime.
-        tool_definitions = tuple(_load_azd_tools_file_definitions(config))
+    if candidate_id and not _served_candidate(result.source, candidate_id):
+        message = (
+            f"{_CANDIDATE_ENV}={candidate_id!r} did not resolve; serving "
+            f"{result.source} config (hash {result.config_hash}) instead"
+        )
+        if strict:
+            raise CandidateConfigError(message)
+        _logger.warning(message)
+
     _logger.info(
-        "optimization config source=%s | model=%s | prompt_len=%d | tools=%d",
-        config.source,
-        model,
-        len(instructions or ""),
-        len(tool_definitions),
+        "optimization config source=%s | hash=%s | model=%s | prompt_len=%d | tools=%d",
+        result.source,
+        result.config_hash,
+        result.model,
+        len(result.instructions or ""),
+        len(result.tool_definitions),
     )
-    return AgentConfig(model, instructions, config.source, tool_definitions)
+    return result
+
+
+def _served_candidate(source: str, candidate_id: str) -> bool:
+    """Whether ``source`` is the requested candidate rather than a fallback."""
+    if source.startswith("env:"):
+        return True
+    if not candidate_id:
+        return False
+    if source == f"api:candidate:{candidate_id}":
+        return True
+    return source.startswith("local:") and Path(source.removeprefix("local:")).name == candidate_id
+
+
+def _check_inline_config() -> None:
+    raw = os.environ.get(_INLINE_ENV)
+    if raw is None or not raw.strip():
+        if raw is not None and raw != "":
+            raise CandidateConfigError(f"{_INLINE_ENV} is set but blank")
+        return
+    try:
+        loaded = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CandidateConfigError(f"{_INLINE_ENV} is not valid JSON: {exc}") from exc
+    if not isinstance(loaded, dict) or not loaded:
+        raise CandidateConfigError(f"{_INLINE_ENV} must be a non-empty JSON object")
+    instructions = loaded.get("instructions")
+    if not isinstance(instructions, str) or not instructions.strip():
+        raise CandidateConfigError(f"{_INLINE_ENV} must include non-empty instructions")
+
+
+def _check_local_artifact(config: object) -> None:
+    source = getattr(config, "source", "")
+    if not isinstance(source, str) or not source.startswith("local:"):
+        return
+    candidate_path = Path(source.removeprefix("local:"))
+    metadata_path = candidate_path / "metadata.yaml"
+    names = {"tools.json"}
+    if metadata_path.is_file():
+        for key in ("tool_file", "tools_file"):
+            value = _metadata_value(metadata_path, key)
+            if value:
+                names.add(value)
+    for name in sorted(names):
+        path = Path(name) if Path(name).is_absolute() else candidate_path / name
+        if not path.is_file():
+            continue
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CandidateConfigError(f"invalid tools file {path}: {exc}") from exc
+        if not isinstance(loaded, list):
+            raise CandidateConfigError(f"invalid tools file {path}: expected a JSON list")
 
 
 def _load_azd_tools_file_definitions(config: object) -> list[dict]:

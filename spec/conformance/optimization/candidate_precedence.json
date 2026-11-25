@@ -32,7 +32,7 @@
       "kind": "default",
       "env": [],
       "affected_by_config_dir": false,
-      "notes": "No config resolved -> the SDK bridge degrades to environment defaults (env model, no instructions), so the agent runs identically with or without the optimizer."
+      "notes": "No config resolved -> the SDK bridge degrades to environment defaults (env model, no instructions), so the agent runs identically with or without the optimizer. A source that is present but unusable fails loudly instead (see README)."
     }
   ]
 }

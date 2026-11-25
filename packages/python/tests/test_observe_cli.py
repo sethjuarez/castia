@@ -91,7 +91,9 @@ def test_saved_config_does_not_silently_authorize_optimizer_submission(monkeypat
         "config.json": {
             "allow_optimizer_submit": True,
             "project_endpoint": "https://example.com/projects/project",
-            "optimizer_request": {"options": {"max_candidates": 1}},
+            "optimizer_request": {
+                "optimization_configuration": {"candidate_search_configuration": {"max_candidates": 1}},
+            },
         },
     })
     assert invoke("suite", "run", "--suite", "suite.json", "--config", "config.json", "--dry-run") == 0

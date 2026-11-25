@@ -64,6 +64,9 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                          help="baseline candidate folder (default: baseline)")
     opt_run.add_argument("--dry-run", dest="dry_run", action="store_true",
                          help="print payload and submit nothing")
+    opt_run.add_argument("--estimate", action="store_true",
+                         help="validate the payload with the service and print a cost "
+                              "estimate; starts no job")
     opt_run.add_argument("--no-wait", dest="no_wait", action="store_true",
                          help="submit and return without polling once")
     opt_run.add_argument("--poll-interval", dest="poll_interval", type=float, default=15,
@@ -164,6 +167,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         build_optimizer_request,
         job_id,
         load_eval_config,
+        request_summary,
         save_optimizer_state,
     )
 
@@ -189,14 +193,12 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
 
     import json as _json
 
-    print(f"agent         : {request['agent']['agent_name']}")
-    print(f"eval model    : {request['options']['eval_model']}")
-    print(f"optimize model: {request['options']['optimization_model']}")
-    tools = request["options"]["optimization_config"].get("tools") or []
-    print(
-        "tools         : "
-        f"{_format_list([t.get('function', {}).get('name', '?') for t in tools])}"
-    )
+    summary = request_summary(request)
+    print(f"agent         : {summary['agent']}")
+    print(f"job type      : {summary['type']}")
+    print(f"eval model    : {summary['eval_model']}")
+    print(f"optimize model: {summary['optimization_model']}")
+    print(f"tools         : {_format_list(summary['tools'])}")
 
     if args.dry_run:
         print("payload       :")
@@ -214,6 +216,17 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         )
         return 2
 
+    if args.estimate:
+        try:
+            estimate = OptimizerClient(endpoint).estimate(request)
+        except (RuntimeError, TypeError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print("estimate      :")
+        print(_json.dumps(estimate, indent=2))
+        print("result        : estimate only (no job started)")
+        return 0
+
     try:
         response = OptimizerClient(endpoint).start(request)
     except RuntimeError as exc:
@@ -228,7 +241,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         OptimizerState(
             job_id=str(submitted_job_id),
             project_endpoint=endpoint,
-            agent_name=str(request["agent"]["agent_name"]),
+            agent_name=str(summary["agent"]),
         ),
         config_dir=config_dir,
     )
@@ -263,8 +276,9 @@ def _cmd_optimize_status(args: argparse.Namespace) -> int:
         while True:
             status = client.status(job_id)
             _print_optimizer_status(status)
-            if not args.watch or is_terminal_status(status.get("status")):
-                return 0 if str(status.get("status", "")).lower() != "failed" else 1
+            state_name = str(status.get("status", "")).lower()
+            if not args.watch or is_terminal_status(state_name):
+                return 1 if state_name in {"failed", "cancelled", "skipped"} else 0
             __import__("time").sleep(args.poll_interval)
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -293,9 +307,10 @@ def _cmd_optimize_cancel(args: argparse.Namespace) -> int:
 
 def _cmd_optimize_apply(args: argparse.Namespace) -> int:
     from castia.optimizing.jobs import (
+        CandidateResolutionError,
         OptimizerClient,
         apply_candidate_config,
-        best_candidate_id,
+        candidate_summary,
         load_optimizer_state,
     )
 
@@ -311,11 +326,27 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
         client = OptimizerClient(endpoint)
         candidate = args.candidate
         if candidate == "best":
-            candidate = best_candidate_id(client.status(job_id))
+            job = client.status(job_id)
+            job_status = str(job.get("status", "")).lower()
+            if job_status != "succeeded":
+                raise ValueError(
+                    f"job {job_id} is {job_status or 'unknown'}; 'best' needs a succeeded "
+                    "job (pass --candidate <id> to apply a specific candidate)"
+                )
+            summary = candidate_summary(job)
+            candidate = summary.get("best_id")
             if not candidate:
-                raise ValueError("could not resolve best candidate from job status")
+                raise ValueError("job result has no candidate_summary.best_id")
+            if candidate == summary.get("baseline_id"):
+                print(
+                    f"result        : baseline {candidate} is best; nothing to apply",
+                )
+                return 1
         config = client.candidate_config(job_id, candidate)
         plan = apply_candidate_config(candidate, config, config_dir=config_dir)
+    except CandidateResolutionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -335,27 +366,23 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
     return 0
 
 def _print_optimizer_status(status: dict) -> None:
+    from castia.optimizing.jobs import candidate_summary
     from castia.optimizing.jobs import job_id as optimizer_job_id
 
     print(f"job           : {optimizer_job_id(status)}")
     print(f"status        : {status.get('status')}")
-    progress = status.get("progress") or {}
-    if progress:
-        print(f"baseline score: {progress.get('baseline_score', '-')}")
-        print(f"best score    : {progress.get('best_score', '-')}")
-        print(f"completed     : {progress.get('candidates_completed', '-')}")
-    result = status.get("result") or {}
-    candidates = result.get("candidates") if isinstance(result, dict) else None
-    if isinstance(candidates, list):
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            print(
-                "candidate     : "
-                f"{candidate.get('name')} "
-                f"{candidate.get('candidate_id') or candidate.get('candidateId')} "
-                f"score={candidate.get('avg_score') or candidate.get('score')}"
-            )
+    summary = candidate_summary(status)
+    if summary:
+        print(f"completed     : {summary.get('completed_candidate_count', '-')}")
+        print(f"baseline      : {summary.get('baseline_id', '-')} "
+              f"score={summary.get('baseline_score', '-')}")
+        print(f"best          : {summary.get('best_id', '-')} "
+              f"score={summary.get('best_score', '-')}")
+    error = status.get("error")
+    if isinstance(error, dict) and error:
+        print(f"error         : {error.get('code', '')} {error.get('message', '')}".rstrip())
+    for warning in status.get("warnings") or []:
+        print(f"warning       : {warning}")
 
 def _resolve_config_dir(config_dir: str, *, root=None):
     from pathlib import Path as _Path
