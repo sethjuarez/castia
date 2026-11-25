@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from copy import deepcopy
 
 import pytest
@@ -380,6 +381,46 @@ def test_streaming_and_background_turns_see_history():
     expected = [("user", "one"), ("assistant", "echo:one")]
     assert _texts(seen[1]) == expected
     assert _texts(seen[2]) == expected
+
+
+def test_response_and_item_ids_use_the_foundry_platform_format():
+    platform_id = re.compile(r"(resp|msg)_([0-9a-f]{16}00)[0-9a-f]{32}")
+    store = RecordStore()
+    app = _echo_app(store, [])
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            foreground = (
+                await test.client.post("/responses", json={"input": "one"}, headers=USER)
+            ).json()
+            streamed = await test.client.post(
+                "/responses", json={"input": "two", "stream": True}, headers=USER
+            )
+            queued = (
+                await test.client.post(
+                    "/responses", json={"input": "three", "background": True}, headers=USER
+                )
+            ).json()
+            for _ in range(200):
+                background = (
+                    await test.client.get(f"/responses/{queued['id']}", headers=USER)
+                ).json()
+                if background["status"] == "completed":
+                    break
+                await asyncio.sleep(0.01)
+            return foreground, streamed.text, background
+
+    foreground, streamed, background = asyncio.run(run())
+    for body in (foreground, background):
+        response = platform_id.fullmatch(body["id"])
+        assert response and response.group(1) == "resp", body["id"]
+        message = platform_id.fullmatch(body["output"][0]["id"])
+        assert message and message.group(1) == "msg"
+        assert message.group(2) == response.group(2)
+    streamed_ids = re.findall(r'"id":"((?:resp|msg)_[^"]+)"', streamed)
+    assert streamed_ids and all(platform_id.fullmatch(i) for i in streamed_ids)
+    assert server._platform_id("resp") != server._platform_id("resp")
+    assert platform_id.fullmatch(server._platform_id("msg", "resp_legacy"))
 
 
 def test_store_false_reads_history_without_writing():

@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import socket
 import subprocess
 import time
@@ -81,6 +82,30 @@ from castia.runtime.request_context import (
 from castia.runtime.usage import TurnUsage, usage_scope
 
 logger = logging.getLogger(__name__)
+
+
+_PLATFORM_PARTITION_SUFFIX = "00"
+_PLATFORM_PARTITION_LENGTH = 18
+_PLATFORM_BODY_LENGTH = _PLATFORM_PARTITION_LENGTH + 32
+
+
+def _platform_id(prefix: str, like: str | None = None) -> str:
+    """Mint ``{prefix}_{16 hex}00{32 hex}``, the Foundry Responses id format.
+
+    Foundry rejects other shapes as ``400 Malformed identifier`` when fetching
+    a response by id. ``like`` reuses an existing id's partition key so items
+    are co-located with their response, as the agentserver ``IdGenerator`` does.
+    """
+    partition = None
+    if like:
+        body = like.partition("_")[2]
+        if (
+            len(body) == _PLATFORM_BODY_LENGTH
+            and body[16:_PLATFORM_PARTITION_LENGTH] == _PLATFORM_PARTITION_SUFFIX
+        ):
+            partition = body[:_PLATFORM_PARTITION_LENGTH]
+    partition = partition or f"{secrets.token_hex(8)}{_PLATFORM_PARTITION_SUFFIX}"
+    return f"{prefix}_{partition}{uuid4().hex}"
 # The root logger sits at WARNING, so INFO records (including the unknown-invoke
 # ack below) are dropped before the OTel handler can export them to App Insights.
 # Pin this module to INFO so invoke routing is observable in the traces table.
@@ -210,7 +235,7 @@ def _responses_body(
         message["status"] = "incomplete" if status == "failed" else status
 
     return {
-        "id": response_id or f"resp_{uuid4().hex}",
+        "id": response_id or _platform_id("resp"),
         "object": "response",
         "created_at": created_at or int(time.time()),
         "status": status,
@@ -1312,7 +1337,7 @@ class _BackgroundResponses:
                 completed = _responses_body(
                     reply,
                     response_id=response_id,
-                    output_item_id=f"msg_{uuid4().hex}",
+                    output_item_id=_platform_id("msg", response_id),
                     created_at=created_at,
                     usage=usage,
                     **response_options,
@@ -1433,7 +1458,7 @@ def _register_wire(
                 )
                 store = body.get("store") is not False
                 if background:
-                    response_id = f"resp_{uuid4().hex}"
+                    response_id = _platform_id("resp")
                     record: StoredResponse = {
                         "response": _background_snapshot(
                             response_id=response_id,
@@ -1490,8 +1515,8 @@ def _register_wire(
                             sequence_number += 1
                             return emit_raw(_sse_event(event_type, payload))
 
-                        response_id = f"resp_{uuid4().hex}"
-                        output_item_id = f"msg_{uuid4().hex}"
+                        response_id = _platform_id("resp")
+                        output_item_id = _platform_id("msg", response_id)
                         created_at = int(time.time())
                         input_items = _responses_input_items(
                             body.get("input"), response_id=response_id
@@ -1686,7 +1711,7 @@ def _register_wire(
                         media_type="text/event-stream",
                     )
 
-                response_id = f"resp_{uuid4().hex}"
+                response_id = _platform_id("resp")
                 async with tool_capture.tool_capture_scope(
                     "responses",
                     input_text=text,
@@ -1699,7 +1724,7 @@ def _register_wire(
                         reply = await responses_dispatch(text)
                         dev_diagnostics.record_output(reply)
                         tool_capture.record_output(reply)
-                output_item_id = f"msg_{uuid4().hex}"
+                output_item_id = _platform_id("msg", response_id)
                 created_at = int(time.time())
                 body_out = _responses_body(
                     reply,
