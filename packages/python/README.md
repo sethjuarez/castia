@@ -926,9 +926,20 @@ python -m castia eval generate --agent my-agent --max-samples 25
 # Re-upload locally edited rubric/dataset files as a new version:
 python -m castia eval update --evaluator-only
 
-# Submit a scored run against the deployed agent (billable):
-python -m castia eval run
+# Submit a scored run against the deployed agent (billable). The run is
+# named "<rung> · n<rows>" (rows default to the eval.yaml dataset line count):
+python -m castia eval run --rung baseline
+
+# Delete a run and block until Foundry confirms it is gone:
+python -m castia eval delete --eval-id <eval-id> --run-id <run-id> --wait --timeout 600
 ```
+
+Foundry runs can't be renamed after submit, so a live `eval run` needs
+`--rung` (or an explicit `--name`, which warns when it isn't templated).
+Foundry deletes are asynchronous: `DELETE` can return `deleted: false` with a
+`location`. `eval delete --wait` polls that location (or the resource itself)
+until it is gone, and exits 1 on timeout instead of leaving a timed cleanup
+script behind. It reads `FOUNDRY_PROJECT_ENDPOINT` or `--project-endpoint`.
 
 `check` is a pure, offline referential-integrity gate: it resolves every
 evaluator/dataset `local_uri` and validates each rubric dimensions file.
