@@ -70,6 +70,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                          help=f"path to .agent_configs (default: {DEFAULT_CONFIG_DIR})")
     opt_run.add_argument("--candidate", default="baseline",
                          help="baseline candidate folder (default: baseline)")
+    opt_run.add_argument("--from-version", dest="from_version", default=None,
+                         metavar="VERSION",
+                         help="seed instructions/model/tools from a deployed agent version "
+                              "(reads the project; implies --agent-version)")
     opt_run.add_argument("--evaluator-definition", dest="evaluator_definitions",
                          action="append", default=[], metavar="[NAME=]PATH",
                          help="local evaluator definition (JSON/YAML) to preflight "
@@ -135,6 +139,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     opt_apply.add_argument("--config-dir", default=DEFAULT_CONFIG_DIR,
                            help=f"path to .agent_configs (default: {DEFAULT_CONFIG_DIR})")
     opt_apply.set_defaults(func=_cmd_optimize_apply)
+
+    from castia.optimizing.verify_cli import register_verify_commands
+
+    register_verify_commands(optsub)
     optimize.set_defaults(func=_cmd_optimize)
 
     for parser in (optimize, opt_run, opt_status, opt_cancel, opt_apply):
@@ -253,6 +261,31 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
 
     import json as _json
 
+    if args.from_version:
+        from castia.optimizing import verify_cli
+        from castia.optimizing.verify import seed_from_version
+
+        seed_endpoint = args.project_endpoint or __import__("os").environ.get(
+            "FOUNDRY_PROJECT_ENDPOINT"
+        )
+        if not seed_endpoint:
+            return _fail(
+                args, "optimize run",
+                "--from-version reads the project: set FOUNDRY_PROJECT_ENDPOINT "
+                "(or pass --project-endpoint)",
+            )
+        try:
+            details = verify_cli.fetch_agent_version(
+                seed_endpoint, request["agent"]["agent_name"], args.from_version
+            )
+            request, seeded = seed_from_version(
+                request, details, agent_version=args.from_version
+            )
+        except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
+            return _fail(args, "optimize run", f"--from-version {args.from_version}: {exc}")
+        print(f"seeded from   : version {args.from_version} ({', '.join(seeded)})",
+              file=sys.stderr if as_json else sys.stdout)
+
     tools = request["options"]["optimization_config"].get("tools") or []
     tool_names = [t.get("function", {}).get("name", "?") for t in tools]
     if not as_json:
@@ -269,8 +302,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
     try:
         definitions = _load_evaluator_definitions(args.evaluator_definitions)
     except (OSError, TypeError, ValueError, ModuleNotFoundError) as exc:
-        print(f"error: --evaluator-definition: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize run", f"--evaluator-definition: {exc}")
     check = preflight_request(
         request,
         evaluators=cfg.get("evaluators") or [],
@@ -281,7 +313,16 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         hourly_usd=args.hourly_usd,
     )
     estimate = check.estimate
-    print(f"estimate      : {estimate.line()}")
+    if as_json and check.problems:
+        emit_envelope(command_envelope(
+            "optimize run", status="blocked",
+            result={"tools": tool_names, "estimate": estimate.line(), "submitted": False},
+            diagnostics=[diagnostic("warning", w, "preflight") for w in check.warnings]
+            + [diagnostic("error", p, "preflight") for p in check.problems],
+            next_actions=["fix the preflight problems, then rerun"],
+        ))
+        return 1
+    print(f"estimate      : {estimate.line()}", file=sys.stderr if as_json else sys.stdout)
     for warning in check.warnings:
         print(f"warning       : {warning}", file=sys.stderr)
     for problem in check.problems:
@@ -304,6 +345,14 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         return 0
 
     if estimate.needs_approval and not args.approve_run:
+        if as_json:
+            emit_envelope(error_envelope(
+                "optimize run",
+                "needs approval (" + "; ".join(estimate.reasons) + "); run a pilot "
+                "(<= 20 rows, <= 10 candidates) or pass --approve-run",
+                code="approval_required",
+            ))
+            return 1
         print(
             "result        : NEEDS APPROVAL ("
             + "; ".join(estimate.reasons)
@@ -508,13 +557,21 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
     return 0
 def _print_optimizer_status(status: dict) -> None:
     from castia.optimizing.jobs import job_id as optimizer_job_id
+    from castia.optimizing.verify import termination_label
 
     print(f"job           : {optimizer_job_id(status)}")
-    print(f"status        : {status.get('status')}")
+    label = termination_label(status)
+    state = status.get("status")
+    if label and str(state or "").lower() in {"succeeded", "completed"}:
+        print(f"status        : {state} ({label})")
+    else:
+        print(f"status        : {state}")
+        if label:
+            print(f"note          : {label}")
     progress = status.get("progress") or {}
     if progress:
-        print(f"baseline score: {progress.get('baseline_score', '-')}")
-        print(f"best score    : {progress.get('best_score', '-')}")
+        print(f"baseline optimizer score: {progress.get('baseline_score', '-')}")
+        print(f"best optimizer score    : {progress.get('best_score', '-')}")
         print(f"completed     : {progress.get('candidates_completed', '-')}")
     result = status.get("result") or {}
     candidates = result.get("candidates") if isinstance(result, dict) else None
@@ -526,7 +583,7 @@ def _print_optimizer_status(status: dict) -> None:
                 "candidate     : "
                 f"{candidate.get('name')} "
                 f"{candidate.get('candidate_id') or candidate.get('candidateId')} "
-                f"score={candidate.get('avg_score') or candidate.get('score')}"
+                f"optimizer_score={candidate.get('avg_score') or candidate.get('score')}"
             )
 
 def _load_evaluator_definitions(specs: list[str]) -> dict:

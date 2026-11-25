@@ -2,6 +2,7 @@ pub mod config_resolver;
 pub mod jobs;
 pub mod preflight;
 pub mod tools;
+pub mod verify;
 
 pub use config_resolver::CastiaAgentConfigResolver;
 pub use jobs::{
@@ -14,3 +15,4 @@ pub use tools::{
     apply_optimized_tool_definitions, apply_optimized_toolbox_tools, tools_json,
     OPTIMIZER_TOOL_DEFINITIONS_KEY,
 };
+pub use verify::*;
