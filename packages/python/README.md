@@ -921,6 +921,30 @@ Foundry. Deployment is still an `azd` handoff: set
 `OPTIMIZATION_CANDIDATE_ID=<candidate-id>`, then deploy the hosted agent with
 your existing `azd` workflow.
 
+**Preflight.** `optimize run` checks the request offline before anything is
+submitted, including with `--dry-run`. Problems block the run with exit 1:
+
+- **Evaluator level.** It rejects `options.evaluation_level: turn` (the service
+  returns 400). It also rejects turn-level evaluators (`string_check`, `python`,
+  `rubric`, and similar), which pass submit and then fail at run time.
+- **`item.*` references.** Every `{{item.<field>}}` in an evaluator's
+  `initialization_parameters`, or in a local definition passed with
+  `--evaluator-definition [NAME=]PATH`, must be a field the optimizer passes to
+  evaluators. That depends on the evaluator's registration type: `prompt`
+  evaluators get `query` and `ground_truth`, while `rubric` and unknown types get
+  only `query`. Anything else (for example `retrieval_context`) is dropped and
+  scores against nothing. The field must also be present in every inline dataset
+  row. If the service contract changes, override the list with
+  `--passthrough-field`.
+- **Size.** It prints rows × (candidates + baseline) × `--row-seconds` (default
+  30 s) ÷ concurrency, plus a cost if you pass `--hourly-usd`. It warns when the
+  estimate passes the 6-hour service cap. A run bigger than the pilot limits
+  (20 rows, 10 candidates, 1 hour), or with an unknown row count (pass `--rows`
+  for registered datasets), needs `--approve-run`.
+
+The limits and field lists live in
+`spec/conformance/optimization/preflight.json`.
+
 For local functional checks, use `python -m castia observe drift` with an
 explicit project configuration and your local Azure credentials. See
 [the lifecycle guide](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md)
