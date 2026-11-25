@@ -42,6 +42,41 @@ MCP endpoint shape. Keep `python -m castia optimize --check` or the default dev
 optimizer drift check in CI so Agent-declared tools stay aligned with
 `.agent_configs/baseline/tools.json`.
 
+### Doctor
+
+`python -m castia doctor` runs offline checks for the values that make Foundry
+attribute usage correctly:
+
+- **Project resource ID.** It must be the project ARM ID, both locally and in the
+  hosted `azure.yaml` env. Use `AZURE_AI_PROJECT_RESOURCE_ID:
+  ${AZURE_AI_PROJECT_ID}`, because `FOUNDRY_*` names are reserved there.
+- **Model deployment.** `AZURE_AI_MODEL_DEPLOYMENT_NAME` must match the
+  `Model(...)` literals, the optimizer baseline and `azure.yaml`.
+- **Toolboxes.** It flags any singular `toolbox:` key in `azure.yaml`. azd ai
+  agents 1.0.0-beta.22 and later require a `toolboxes:` list.
+
+Warnings exit 0. `--json` prints the report.
+
+`python -m castia doctor quota --region <location> [--model gpt-4.1]` is a
+read-only ARM GET. It lists the meters for a model, with each kind in its own
+group:
+
+- base-model serving
+- fine-tuned serving
+- developer tier
+- batch
+- the regional fine-tuned deployment count
+
+Each meter is independent, so a full serving meter doesn't mean fine-tune
+quota is full. Quota also isn't a guarantee of regional capacity. Meter names
+don't always match deployment names (for example, `gpt4.1` for serving and
+`gpt-4.1` for batch), so the model match ignores dashes.
+
+Castia calls a toolbox through its own `toolbox_mcp_tool` spec, using an Entra
+token for the toolbox audience. It doesn't generate `toolboxes:` entries in
+`azure.yaml`. Those entries, and any request-header bindings on toolbox
+connections, are authored for azd. Castia neither reads nor rewrites them.
+
 The [consumer agent guide](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md)
 has a complete Responses application,
 native MCP setup, credentials, and executable offline tests.

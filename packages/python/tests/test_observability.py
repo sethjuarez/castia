@@ -699,6 +699,20 @@ def test_custom_filters_do_not_suppress_semantic_or_toolbox_spans(monkeypatch):
 
 
 
+def test_agent_identity_processor_warns_when_project_id_unset(monkeypatch, caplog):
+    for key in ("FOUNDRY_PROJECT_RESOURCE_ID", "AZURE_AI_PROJECT_RESOURCE_ID", "AZURE_AI_PROJECT_ID"):
+        monkeypatch.delenv(key, raising=False)
+
+    with caplog.at_level("WARNING", logger=observability._logger.name):
+        observability._build_agent_identity_processors()
+    assert "project resource ID is unset" not in caplog.text
+
+    with caplog.at_level("WARNING", logger=observability._logger.name):
+        observability._build_agent_identity_processors(exporting=True)
+    assert "project resource ID is unset" in caplog.text
+    assert "$0 and 0" in caplog.text
+
+
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):
     from castia.observe.tracing import invoke_agent
 
