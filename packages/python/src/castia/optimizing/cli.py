@@ -70,6 +70,22 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                          help=f"path to .agent_configs (default: {DEFAULT_CONFIG_DIR})")
     opt_run.add_argument("--candidate", default="baseline",
                          help="baseline candidate folder (default: baseline)")
+    opt_run.add_argument("--evaluator-definition", dest="evaluator_definitions",
+                         action="append", default=[], metavar="[NAME=]PATH",
+                         help="local evaluator definition (JSON/YAML) to preflight "
+                              "for item.* references and level; repeatable")
+    opt_run.add_argument("--passthrough-field", dest="passthrough_fields",
+                         action="append", default=None, metavar="FIELD",
+                         help="row field the optimizer passes to evaluators "
+                              "(default: by evaluator type, query for rubric, query and ground_truth for prompt); repeatable")
+    opt_run.add_argument("--rows", type=int, default=None,
+                         help="row count for the estimate when the dataset is registered")
+    opt_run.add_argument("--row-seconds", dest="row_seconds", type=float, default=None,
+                         help="measured seconds per row per candidate (default: 30)")
+    opt_run.add_argument("--hourly-usd", dest="hourly_usd", type=float, default=None,
+                         help="optional hourly rate for the cost estimate")
+    opt_run.add_argument("--approve-run", dest="approve_run", action="store_true",
+                         help="confirm a run larger than the pilot limits")
     opt_run.add_argument("--dry-run", dest="dry_run", action="store_true",
                          help="print payload and submit nothing")
     opt_run.add_argument("--no-wait", dest="no_wait", action="store_true",
@@ -245,6 +261,35 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         print(f"optimize model: {request['options']['optimization_model']}")
         print(f"tools         : {_format_list(tool_names)}")
 
+    from castia.optimizing.preflight import (
+        DEFAULT_ROW_SECONDS,
+        preflight_request,
+    )
+
+    try:
+        definitions = _load_evaluator_definitions(args.evaluator_definitions)
+    except (OSError, TypeError, ValueError, ModuleNotFoundError) as exc:
+        print(f"error: --evaluator-definition: {exc}", file=sys.stderr)
+        return 2
+    check = preflight_request(
+        request,
+        evaluators=cfg.get("evaluators") or [],
+        definitions=definitions,
+        passthrough=args.passthrough_fields,
+        rows=args.rows,
+        row_seconds=args.row_seconds or DEFAULT_ROW_SECONDS,
+        hourly_usd=args.hourly_usd,
+    )
+    estimate = check.estimate
+    print(f"estimate      : {estimate.line()}")
+    for warning in check.warnings:
+        print(f"warning       : {warning}", file=sys.stderr)
+    for problem in check.problems:
+        print(f"problem       : {problem}", file=sys.stderr)
+    if check.problems:
+        print("result        : BLOCKED BY PREFLIGHT (nothing submitted)", file=sys.stderr)
+        return 1
+
     if args.dry_run:
         if as_json:
             emit_envelope(command_envelope(
@@ -257,6 +302,15 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         print(_json.dumps(request, indent=2))
         print("result        : dry-run (nothing submitted)")
         return 0
+
+    if estimate.needs_approval and not args.approve_run:
+        print(
+            "result        : NEEDS APPROVAL ("
+            + "; ".join(estimate.reasons)
+            + "). Run a pilot (<= 20 rows, <= 10 candidates) or pass --approve-run",
+            file=sys.stderr,
+        )
+        return 1
 
     endpoint = args.project_endpoint or __import__("os").environ.get(
         "FOUNDRY_PROJECT_ENDPOINT"
@@ -474,6 +528,32 @@ def _print_optimizer_status(status: dict) -> None:
                 f"{candidate.get('candidate_id') or candidate.get('candidateId')} "
                 f"score={candidate.get('avg_score') or candidate.get('score')}"
             )
+
+def _load_evaluator_definitions(specs: list[str]) -> dict:
+    """Load ``[NAME=]PATH`` evaluator definitions keyed by evaluator name."""
+
+    import json as _json
+    from pathlib import Path as _Path
+
+    definitions: dict = {}
+    for spec in specs or []:
+        name, sep, path = spec.partition("=")
+        if not sep:
+            name, path = "", spec
+        text = _Path(path).read_text(encoding="utf-8")
+        if path.lower().endswith((".yaml", ".yml")):
+            from castia.optimizing.jobs import _yaml
+
+            data = _yaml().load(text)
+        else:
+            data = _json.loads(text)
+        if not isinstance(data, dict):
+            raise TypeError(f"{path}: expected a mapping")
+        key = name or str(data.get("name") or "")
+        if not key:
+            raise ValueError(f"{path}: no 'name' field; use NAME=PATH")
+        definitions[key] = data
+    return definitions
 
 def _resolve_config_dir(config_dir: str, *, root=None):
     from pathlib import Path as _Path
