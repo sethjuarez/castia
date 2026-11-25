@@ -141,11 +141,13 @@ pub fn read_rubric(value: &Value) -> Value {
                     .get("always_applicable")
                     .map(python_truthy)
                     .unwrap_or(false);
+                let gate = object.get("gate").map(python_truthy).unwrap_or(false);
                 Some(json!({
                     "id": id,
                     "description": description,
                     "weight": weight,
                     "always_applicable": always_applicable,
+                    "gate": gate,
                 }))
             })
             .collect(),
@@ -283,6 +285,17 @@ pub fn validate_suite(path: impl AsRef<Path>) -> Result<Value, EvaluationSuiteEr
                 problems.push(format!(
                     "evaluator '{}': dimension '{}' has no description",
                     label, dim_label
+                ));
+            }
+            if dimension
+                .get("gate")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                problems.push(format!(
+                    "evaluator '{}': dimension '{}' is an uncompiled gate -- run 'python -m castia eval rubric compile' and reference the compiled file",
+                    label,
+                    if id.is_empty() { format!("#{}", index + 1) } else { id.to_string() }
                 ));
             }
         }

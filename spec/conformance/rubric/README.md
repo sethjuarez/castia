@@ -14,6 +14,10 @@ and that every castia SDK must read. It was validated against a live
     wins.
   - **`weight`** is a number.
 - The trailing catch-all entry may carry **`always_applicable: true`**.
+- An authored (source) rubric may carry **`gate: true`** on a must-pass
+  dimension. Readers report it as `gate` (default `false`). It is a Castia
+  authoring flag, not a Foundry field: compile it into weights before upload,
+  and treat a referenced rubric that still contains a gate as invalid.
 
 These two facts — the **`id`-not-`name`** key and the **bare-list** (no
 `dimensions:` wrapper) form — are what a reimplementation in any language must

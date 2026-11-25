@@ -102,6 +102,26 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                         help="print the resolved azd command and submit nothing")
     ev_run.set_defaults(func=_cmd_eval_run)
 
+    ev_rubric = evsub.add_parser("rubric", help="offline rubric authoring helpers")
+    rubric_sub = ev_rubric.add_subparsers(dest="rubric_command", required=True)
+    ev_compile = rubric_sub.add_parser(
+        "compile",
+        help="resolve gate: true dimensions into enforcing weights (offline)",
+    )
+    ev_compile.add_argument("source", help="authored rubric file (may contain gate: true)")
+    ev_compile.add_argument("--out", required=True, help="compiled dimensions file to write")
+    ev_compile.add_argument("--pass-threshold", dest="pass_threshold", type=float,
+                            default=0.5, help="rubric Likert pass threshold (default: 0.5)")
+    ev_compile.set_defaults(func=_cmd_eval_rubric_compile)
+
+    ev_tpl = evsub.add_parser("template", help="write an evaluator template (offline)")
+    ev_tpl.add_argument("kind", choices=["gold-aware"], help="template to write")
+    ev_tpl.add_argument("--out", default="evaluators", help="output folder (default: evaluators)")
+    ev_tpl.add_argument("--pass-threshold", dest="pass_threshold", type=float,
+                        default=0.5, help="rubric Likert pass threshold (default: 0.5)")
+    ev_tpl.add_argument("--force", action="store_true", help="overwrite existing files")
+    ev_tpl.set_defaults(func=_cmd_eval_template)
+
 
 def _format_list(protocols) -> str:
     return ", ".join(protocols) if protocols else "(none)"
@@ -212,3 +232,44 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
         no_prompt=args.no_prompt,
     )
     return _run_azd_argv(argv, dry_run=args.dry_run)
+
+def _cmd_eval_rubric_compile(args: argparse.Namespace) -> int:
+    import json
+    from pathlib import Path
+
+    from castia.evaluation.suite import compile_gates, read_rubric, rubric_to_wire
+
+    try:
+        dims = read_rubric(args.source)
+        compiled = compile_gates(dims, pass_threshold=args.pass_threshold)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not compiled:
+        print(f"error: {args.source} has no dimensions", file=sys.stderr)
+        return 2
+    Path(args.out).write_text(json.dumps(rubric_to_wire(compiled), indent=2) + "\n",
+                              encoding="utf-8")
+    gates = {d.id for d in dims if d.gate}
+    for d in compiled:
+        tag = "  (gate)" if d.id in gates else ""
+        print(f"dimension     : {d.id}  weight={d.weight:g}{tag}")
+    print(f"pass threshold: {args.pass_threshold:g}")
+    print(f"wrote         : {args.out}")
+    return 0
+
+def _cmd_eval_template(args: argparse.Namespace) -> int:
+    from castia.evaluation.templates import write_gold_aware_template
+
+    try:
+        paths = write_gold_aware_template(
+            args.out, pass_threshold=args.pass_threshold, overwrite=args.force
+        )
+    except (FileExistsError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for p in paths:
+        print(f"wrote         : {p}")
+    print("next          : reference gold_rubric.json as a rubric local_uri in eval.yaml;")
+    print("                keep gold_rubric.source.json as the authored brief")
+    return 0
