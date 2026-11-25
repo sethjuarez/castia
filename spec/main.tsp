@@ -31,6 +31,7 @@ import "./lifecycle/records.tsp";
 import "./lifecycle/storage.tsp";
 import "./lifecycle/operations.tsp";
 import "./lifecycle/acceptance.tsp";
+import "./lifecycle/output.tsp";
 import "./observe/records.tsp";
 import "./observe/suite.tsp";
 import "./observe/telemetry.tsp";

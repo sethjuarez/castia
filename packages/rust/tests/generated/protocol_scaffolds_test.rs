@@ -882,6 +882,31 @@ fn lifecycle_operations_runtime_compile_only_conformance() {
         Box::new(CompileOnlyLifecycleOperationsRuntime);
 }
 
+struct CompileOnlyLifecycleOutputRuntime;
+
+#[async_trait::async_trait]
+impl LifecycleOutputRuntime for CompileOnlyLifecycleOutputRuntime {
+    fn command_envelope(
+        &self,
+        command: &String,
+        status: &String,
+        result: &serde_json::Value,
+        diagnostics: &serde_json::Value,
+        next_actions: &Vec<String>,
+        effects: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("LifecycleOutputRuntime.commandEnvelope is a compile-only protocol scaffold.")
+    }
+    fn redact_secrets(&self, value: &serde_json::Value) -> serde_json::Value {
+        panic!("LifecycleOutputRuntime.redactSecrets is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn lifecycle_output_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn LifecycleOutputRuntime> = Box::new(CompileOnlyLifecycleOutputRuntime);
+}
+
 struct CompileOnlyLifecycleRecordsRuntime;
 
 #[async_trait::async_trait]

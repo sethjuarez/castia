@@ -62,6 +62,7 @@
         "InvokesRuntime",
         "LifecycleAcceptanceRuntime",
         "LifecycleOperationsRuntime",
+        "LifecycleOutputRuntime",
         "LifecycleRecordsRuntime",
         "LifecycleStorageRuntime",
         "Mention",
@@ -284,6 +285,13 @@
           "kind": "type",
           "group": "",
           "source": "lifecycle_operations_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleOutputRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_output_runtime",
           "protocol": true
         },
         {
@@ -2126,6 +2134,43 @@
           ]
         },
         {
+          "name": "LifecycleOutputRuntime",
+          "group": "",
+          "symbol": "LifecycleOutputRuntime",
+          "source": "lifecycle_output_runtime",
+          "methods": [
+            {
+              "name": "commandEnvelope",
+              "returns": "unknown",
+              "params": {
+                "command": "string",
+                "diagnostics": "unknown",
+                "effects": "unknown",
+                "nextActions": "string[]",
+                "result": "unknown",
+                "status": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "redactSecrets",
+              "returns": "unknown",
+              "params": {
+                "value": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
           "name": "LifecycleRecordsRuntime",
           "group": "",
           "symbol": "LifecycleRecordsRuntime",
@@ -3240,6 +3285,7 @@
         "invokes_runtime",
         "lifecycle_acceptance_runtime",
         "lifecycle_operations_runtime",
+        "lifecycle_output_runtime",
         "lifecycle_records_runtime",
         "lifecycle_storage_runtime",
         "mention",

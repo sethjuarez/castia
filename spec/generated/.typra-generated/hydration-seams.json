@@ -197,6 +197,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "LifecycleOutputRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleOutputRuntime",
+      "generatedSource": "lifecycle_output_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "LifecycleRecordsRuntime",
       "target": "rust",
       "group": "",

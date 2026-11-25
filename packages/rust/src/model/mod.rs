@@ -88,6 +88,9 @@ pub use lifecycle_acceptance_runtime::*;
 pub mod lifecycle_operations_runtime;
 pub use lifecycle_operations_runtime::*;
 
+pub mod lifecycle_output_runtime;
+pub use lifecycle_output_runtime::*;
+
 pub mod lifecycle_records_runtime;
 pub use lifecycle_records_runtime::*;
 
