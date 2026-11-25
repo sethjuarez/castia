@@ -219,7 +219,7 @@ def test_prompty_runner_wraps_tool_functions_in_tool_spans(monkeypatch):
     assert events == [("enter", "local_tool"), ("call", "canvas"), ("exit", "local_tool")]
 
 
-def _castia_lookup_tool(calls, *, kind="graph_iq"):
+def _castia_lookup_tool(calls, *, kind="graph_iq", span_name=None):
     from castia.inference.tools import Tool
 
     async def impl(activity, *, query: str, limit: int = 3) -> dict:
@@ -239,6 +239,7 @@ def _castia_lookup_tool(calls, *, kind="graph_iq"):
         },
         impl=impl,
         kind=kind,
+        span_name=span_name,
     )
 
 
@@ -709,7 +710,7 @@ def _recording_execute_tool(spans):
 
     @contextmanager
     def fake_execute_tool(name, **kwargs):
-        span = FakeSpan(f"execute_tool {name}", {"tool_type": kwargs.get("tool_type")})
+        span = FakeSpan(kwargs.get("span_name") or f"execute_tool {name}", {"tool_type": kwargs.get("tool_type")})
         spans.append(span)
         yield span
 
@@ -775,6 +776,21 @@ def test_traced_tool_preserves_signature_and_rewraps_on_identity_change(monkeypa
     renamed = castia_prompty._traced_tool("search", first)
     assert asyncio.run(renamed(query="x")) == "x"
     assert [(span.name, span.attributes["tool_type"]) for span in spans] == [("execute_tool search", None)]
+
+
+def test_traced_tool_keeps_span_name_override_through_rewrap(monkeypatch):
+    spans = []
+    monkeypatch.setattr("castia.observe.tracing.execute_tool", _recording_execute_tool(spans))
+    tool = _castia_lookup_tool([], span_name="execute_tool foundry_iq_retrieve")
+
+    _, functions = castia_prompty.prompty_tools_from_castia([tool])
+    rewrapped = castia_prompty._traced_tool_functions(functions)
+
+    assert rewrapped["lookup"] is functions["lookup"]
+    asyncio.run(rewrapped["lookup"](query="fees"))
+    assert [(s.name, s.attributes["tool_type"]) for s in spans] == [
+        ("execute_tool foundry_iq_retrieve", "graph_iq")
+    ]
 
 
 def test_toolbox_tool_handler_traces_kind_dispatch(monkeypatch):

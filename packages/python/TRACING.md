@@ -209,6 +209,10 @@ from the MCP schema with `toolbox_tools_from_mcp(...)` and pass those tools to
 wraps each remote MCP invocation in the same `execute_tool {name}` span used for
 local functions, with `gen_ai.tool.type = mcp` and the Responses call id when
 available. That is the Castia-owned path for Monitor-countable toolbox calls.
+`toolbox_function_tool(...)` builds the same kind of local tool with its own
+model-facing schema. Its `kind` sets `gen_ai.tool.type`, and `span_name`
+replaces the span name verbatim (`Tool.span_name` works for any local tool,
+including Prompty-projected ones).
 
 For local MCP toolbox calls, Castia also creates an explicit outbound HTTP client
 span around the JSON-RPC POST. The span is named from the request path, for

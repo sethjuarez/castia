@@ -33,6 +33,7 @@ from castia.integrations.toolbox import (
     platform_endpoint_env,
     resolve_toolbox_endpoint,
     serialize_mcp_result,
+    toolbox_function_tool,
     toolbox_mcp_tool,
     toolbox_token,
     toolbox_tools_from_mcp,
@@ -82,6 +83,7 @@ from castia.optimizing.config import (
     configured_model,
     load_agent_config,
     tools_json,
+    validate_optimized_tools,
 )
 from castia.runtime.application import (
     PUBLISHABLE_PROTOCOLS,
@@ -159,6 +161,7 @@ __all__ = [
     "serialize_mcp_result",
     "suggested_actions",
     "suppress_telemetry_spans",
+    "toolbox_function_tool",
     "toolbox_mcp_tool",
     "toolbox_token",
     "toolbox_tools_from_mcp",
@@ -167,5 +170,6 @@ __all__ = [
     "trace_attribute",
     "trace_step",
     "use_model",
+    "validate_optimized_tools",
     "validate_toolbox_endpoint",
 ]

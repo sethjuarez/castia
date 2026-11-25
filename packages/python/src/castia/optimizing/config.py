@@ -34,10 +34,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from castia.integrations.toolbox import (
     OPTIMIZER_TOOL_DEFINITIONS_KEY,
@@ -284,6 +284,90 @@ def tools_json(tools: list[Tool | dict]) -> list[dict]:
 def tools_json_names(tools: list[Tool | dict]) -> list[str]:
     """Return the optimizer-visible tool names represented by ``tools``."""
     return [item["function"]["name"] for item in tools_json(tools)]
+
+
+_FUNCTION_KEYS = frozenset({"name", "description", "parameters"})
+
+
+def validate_optimized_tools(
+    tools: list[Tool | dict],
+    tool_definitions: Sequence[Mapping[str, Any]],
+    *,
+    require_all: bool = True,
+) -> None:
+    """Fail loud when an optimizer candidate changes more than tool wording.
+
+    ``tool_definitions`` (a candidate ``tools.json``) may only rewrite what
+    :func:`apply_optimized_tools` applies: each tool's ``description`` and the
+    ``description`` of its top-level parameter properties. Anything else --
+    a renamed, missing (with ``require_all``), duplicate or unknown tool, an
+    extra envelope or function field (e.g. ``strict``), an empty description,
+    or any schema change -- raises :class:`ValueError`, so a candidate can't
+    be silently half-applied against the dispatched schema. Accepts nested
+    (``{"type":"function","function":{...}}``) and flat Responses entries.
+    """
+    baseline = {item["function"]["name"]: item["function"] for item in tools_json(tools)}
+    problems: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(tool_definitions):
+        where = f"tool_definitions[{index}]"
+        if not isinstance(item, Mapping) or item.get("type") != "function":
+            problems.append(f"{where}: expected a function tool entry.")
+            continue
+        nested = "function" in item
+        func = item.get("function") if nested else item
+        allowed = {"type", "function"} if nested else {"type", *_FUNCTION_KEYS}
+        if not isinstance(func, Mapping) or set(item) - allowed:
+            problems.append(f"{where}: changes the function-tool envelope.")
+            continue
+        name = func.get("name")
+        if name not in baseline:
+            problems.append(f"{where}: unknown tool {name!r}.")
+            continue
+        if name in seen:
+            problems.append(f"{where}: duplicate tool {name!r}.")
+            continue
+        seen.add(name)
+        extra = set(func) - _FUNCTION_KEYS - ({"type"} if not nested else set())
+        if extra:
+            problems.append(f"{name}: unsupported function fields {sorted(extra)}.")
+        description = func.get("description")
+        if not isinstance(description, str) or not description.strip():
+            problems.append(f"{name}: description must be non-empty text.")
+        problems.extend(
+            f"{name}: {issue}"
+            for issue in _parameter_wording_issues(baseline[name].get("parameters"), func.get("parameters"))
+        )
+    if require_all:
+        problems.extend(f"missing tool {name!r}." for name in baseline if name not in seen)
+    if problems:
+        raise ValueError("Optimized tool definitions change more than descriptions: " + " ".join(problems))
+
+
+def _parameter_wording_issues(current: object, candidate: object) -> list[str]:
+    if not isinstance(candidate, Mapping):
+        return ["parameters are missing or not an object."]
+    if not isinstance(current, Mapping):
+        return [] if candidate == current else ["parameters schema changed."]
+    cur_props = current.get("properties")
+    cand_props = candidate.get("properties")
+    if not isinstance(cur_props, Mapping) or not isinstance(cand_props, Mapping):
+        return [] if dict(candidate) == dict(current) else ["parameters schema changed."]
+    issues: list[str] = []
+    normalized: dict[str, Any] = {}
+    for prop, schema in cand_props.items():
+        base = cur_props.get(prop)
+        if isinstance(schema, Mapping) and isinstance(base, Mapping) and "description" in schema:
+            text = schema["description"]
+            if not isinstance(text, str) or not text.strip():
+                issues.append(f"parameter {prop!r} description must be non-empty text.")
+            schema = {k: v for k, v in schema.items() if k != "description"}
+            if "description" in base:
+                schema["description"] = base["description"]
+        normalized[prop] = schema
+    if {**candidate, "properties": normalized} != dict(current):
+        issues.append("parameters schema changed (only descriptions may change).")
+    return issues
 
 
 def configured_model(
