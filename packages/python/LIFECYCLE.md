@@ -328,6 +328,34 @@ invokes `azd deploy` for that service. It does not invoke `azd provision` or a
 separate endpoint-routing command. Review the authored manifest and its hooks;
 azd can execute those hooks and apply endpoint configuration during deployment.
 
+Castia's azd subprocesses (`AzdDeployment` and `python -m castia eval`) set
+the azure.ai.agents preview opt-ins that the extension reads from its own
+process environment:
+
+- `AZD_ALPHA_ENABLE_AGENTS_MANAGED_HARNESS`
+- `AZD_ALPHA_ENABLE_AGENTS_VOICE`
+- `AZD_ALPHA_ENABLE_AGENTS_LONG_RUNNING`
+- `AZD_ALPHA_ENABLE_AGENTS_RBAC_WARNINGS`, which keeps developer RBAC warnings
+  in deploy output from 1.0.0 on.
+
+All of them are set to `true` unless you have already set them, so an explicit
+`false` is kept.
+
+Since azure.ai.agents 1.0.0, a bare `image:` no longer skips container
+registry creation. To deploy a prebuilt image without building or creating an
+ACR, declare passthrough on the service:
+
+```yaml
+services:
+  my-agent:
+    host: azure.ai.agent
+    image: myregistry.azurecr.io/my-agent:1.2.3
+    docker:
+      imagePassthrough: true
+```
+
+`AZD_AGENT_SKIP_ACR=true` with a nonempty `image` does the same thing.
+
 ```python
 from castia.delivery import AzdDeployment
 
