@@ -51,20 +51,26 @@ interface EvaluationSuiteRuntime {
   @vector(#{
     name: "read-rubric-bare-list",
     stage: "callable",
-    input: #{ value: #[#{ id: "correct_outcome", description: "Correct", weight: 10 }, #{ id: "general_quality", description: "General", always_applicable: true }] },
-    expected: #[#{ id: "correct_outcome", description: "Correct", weight: 10.0, always_applicable: false }, #{ id: "general_quality", description: "General", weight: null, always_applicable: true }],
+    input: #{ value: #[#{ id: "correct_outcome", description: "Correct", weight: 10 }, #{ id: "general_quality", description: "General", always_applicable: true, gate: false }] },
+    expected: #[#{ id: "correct_outcome", description: "Correct", weight: 10.0, always_applicable: false, gate: false }, #{ id: "general_quality", description: "General", weight: null, always_applicable: true, gate: false }],
   })
   @vector(#{
     name: "read-rubric-wrapper-and-name-alias",
     stage: "callable",
     input: #{ value: #{ dimensions: #[#{ name: "legacy_slug", description: "d", weight: 1 }, #{ id: "wins", name: "loses", description: "d" }] } },
-    expected: #[#{ id: "legacy_slug", description: "d", weight: 1.0, always_applicable: false }, #{ id: "wins", description: "d", weight: null, always_applicable: false }],
+    expected: #[#{ id: "legacy_slug", description: "d", weight: 1.0, always_applicable: false, gate: false }, #{ id: "wins", description: "d", weight: null, always_applicable: false, gate: false }],
   })
   @vector(#{
     name: "read-rubric-python-coercions",
     stage: "callable",
     input: #{ value: #[#{ id: "", name: 2024, description: 5, always_applicable: "yes" }, #{ id: null, name: "fallback", description: "", always_applicable: 0 }] },
-    expected: #[#{ id: "2024", description: "5", weight: null, always_applicable: true }, #{ id: "fallback", description: "", weight: null, always_applicable: false }],
+    expected: #[#{ id: "2024", description: "5", weight: null, always_applicable: true, gate: false }, #{ id: "fallback", description: "", weight: null, always_applicable: false, gate: false }],
+  })
+  @vector(#{
+    name: "read-rubric-gate-flag",
+    stage: "callable",
+    input: #{ value: #[#{ id: "matches_ground_truth", description: "Agrees with gold", gate: true }, #{ id: "clarity", description: "Clear", weight: 1, gate: 0 }] },
+    expected: #[#{ id: "matches_ground_truth", description: "Agrees with gold", weight: null, always_applicable: false, gate: true }, #{ id: "clarity", description: "Clear", weight: 1.0, always_applicable: false, gate: false }],
   })
   readRubric(value: unknown): unknown;
 
@@ -126,6 +132,26 @@ interface EvaluationSuiteRuntime {
     ],
     input: #{ path: "$temp/eval.yaml" },
     expected: #{ ok: true, problems: #[], notes: #[], rubrics: #[#{ name: "smoke-core", count: 2 }] },
+  })
+  @vector(#{
+    name: "validate-suite-uncompiled-gate",
+    stage: "callable",
+    files: #[
+      #{ path: "eval.yaml", content: "evaluators:\n  - name: gold\n    version: '1'\n    local_uri: gold.source.json\n" },
+      #{ path: "gold.source.json", content: "[{\"id\":\"matches_ground_truth\",\"description\":\"Agrees with gold\",\"gate\":true},{\"id\":\"clarity\",\"description\":\"Clear\",\"weight\":1}]" },
+    ],
+    input: #{ path: "$temp/eval.yaml" },
+    expected: #{ ok: false, problems: #["evaluator 'gold': dimension 'matches_ground_truth' is an uncompiled gate -- run 'python -m castia eval rubric compile' and reference the compiled file"], notes: #[], rubrics: #[#{ name: "gold", count: 2 }] },
+  })
+  @vector(#{
+    name: "validate-suite-rubric-ground-truth-note",
+    stage: "callable",
+    files: #[
+      #{ path: "eval.yaml", content: "evaluators:\n  - name: gold\n    version: '1'\n    local_uri: gold.json\n" },
+      #{ path: "gold.json", content: "[{\"id\":\"matches_ground_truth\",\"description\":\"Agrees with {{ item.ground_truth }}\",\"weight\":3},{\"id\":\"clarity\",\"description\":\"Clear\",\"weight\":1}]" },
+    ],
+    input: #{ path: "$temp/eval.yaml" },
+    expected: #{ ok: true, problems: #[], notes: #["evaluator 'gold': rubric references {{item.ground_truth}}, but the Agent Optimizer strips ground_truth from rubric evaluator registrations -- for optimizer runs, register the gold check as a prompt evaluator"], rubrics: #[#{ name: "gold", count: 2 }] },
   })
   validateSuite(path: string): unknown;
 }

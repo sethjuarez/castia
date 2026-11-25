@@ -81,12 +81,17 @@ class RubricDimension:
     ``name``. ``always_applicable`` marks a catch-all dimension the grader scores
     on every sample regardless of relevance (the generator emits it on the
     trailing ``general_quality`` dimension).
+
+    ``gate`` is a Castia authoring flag, not a Foundry field: a gate dimension
+    must pass for the whole rubric to pass. :func:`compile_gates` turns gates
+    into wire weights that enforce this under a Likert ``pass_threshold``.
     """
 
     id: str
     description: str
     weight: float | None = None
     always_applicable: bool = False
+    gate: bool = False
 
 
 @dataclass(frozen=True)
@@ -210,14 +215,103 @@ def read_rubric(path: str | os.PathLike) -> list[RubricDimension]:
                 description=str(item.get("description") or ""),
                 weight=float(weight) if isinstance(weight, (int, float)) else None,
                 always_applicable=bool(item.get("always_applicable", False)),
+                gate=bool(item.get("gate", False)),
             )
         )
     return dims
 
 
+DEFAULT_PASS_THRESHOLD = 0.5
+
+
+def compile_gates(
+    dims: Sequence[RubricDimension],
+    *,
+    pass_threshold: float = DEFAULT_PASS_THRESHOLD,
+) -> list[RubricDimension]:
+    """Resolve ``gate=True`` dimensions into weights Foundry can score.
+
+    Foundry rubrics report one weighted mean against ``pass_threshold``; they
+    have no gate concept. A gate dimension that scores zero must pull the mean
+    below the threshold even when every other dimension is perfect. With ``k``
+    gates of weight ``G`` and non-gate weight total ``N`` that needs
+    ``G > N(1-t) / (1 - k(1-t))``, so this picks the smallest integer above
+    that bound (or the declared weight, if larger). Non-gate dimensions without
+    a weight default to 1. Raises :class:`ValueError` when the threshold is too
+    low for the number of gates; raise ``pass_threshold`` or use Boolean
+    scoring in that case. The returned dimensions have ``gate=False`` so the
+    result is a plain wire rubric.
+    """
+    t = float(pass_threshold)
+    if not 0.0 < t <= 1.0:
+        raise ValueError(f"pass_threshold must be in (0, 1], got {pass_threshold!r}")
+    gates = [d for d in dims if d.gate]
+    if not gates:
+        return [_plain(d, d.weight) for d in dims]
+
+    k = len(gates)
+    denominator = 1.0 - k * (1.0 - t)
+    if denominator <= 0:
+        raise ValueError(
+            f"{k} gate dimensions cannot all be enforced at pass_threshold={t}; "
+            f"raise pass_threshold above {(k - 1) / k:.3f} or use Boolean scoring"
+        )
+    others = sum(1.0 if d.weight is None else float(d.weight) for d in dims if not d.gate)
+    bound = others * (1.0 - t) / denominator
+    # Nudge before truncating: a bound landing exactly on an integer must round up.
+    gate_weight = float(int(bound + 1e-9) + 1)
+    out: list[RubricDimension] = []
+    for d in dims:
+        if d.gate:
+            declared = float(d.weight) if d.weight is not None else 0.0
+            out.append(_plain(d, max(gate_weight, declared)))
+        else:
+            out.append(_plain(d, 1.0 if d.weight is None else float(d.weight)))
+    return out
+
+
+def _plain(dim: RubricDimension, weight: float | None) -> RubricDimension:
+    return RubricDimension(
+        id=dim.id,
+        description=dim.description,
+        weight=weight,
+        always_applicable=dim.always_applicable,
+    )
+
+
+def rubric_to_wire(dims: Iterable[RubricDimension]) -> list[dict]:
+    """Serialize dimensions as the bare-list rubric file ``eval update`` uploads.
+
+    Raises :class:`ValueError` if a dimension still has ``gate=True``; run
+    :func:`compile_gates` first so an unenforced gate never reaches Foundry.
+    """
+    wire: list[dict] = []
+    for d in dims:
+        if d.gate:
+            raise ValueError(f"dimension {d.id!r} is a gate; compile_gates() it first")
+        entry: dict = {"id": d.id, "description": d.description}
+        if d.weight is not None:
+            entry["weight"] = int(d.weight) if float(d.weight).is_integer() else d.weight
+        if d.always_applicable:
+            entry["always_applicable"] = True
+        wire.append(entry)
+    return wire
+
+
 # --------------------------------------------------------------------------- #
 # Validation (pure, offline drift gate)                                        #
 # --------------------------------------------------------------------------- #
+
+
+GROUND_TRUTH_RUBRIC_NOTE = (
+    "evaluator {label!r}: rubric references {{{{item.ground_truth}}}}, but the Agent "
+    "Optimizer strips ground_truth from rubric evaluator registrations -- for "
+    "optimizer runs, register the gold check as a prompt evaluator"
+)
+
+
+def _references_ground_truth(text: str) -> bool:
+    return "{{item.ground_truth}}" in "".join(text.split())
 
 
 @dataclass
@@ -273,12 +367,20 @@ def validate_suite(suite: EvalSuite) -> SuitePlan:
             )
             continue
         plan.rubrics[label] = dims
+        if any(_references_ground_truth(d.description) for d in dims):
+            plan.notes.append(GROUND_TRUTH_RUBRIC_NOTE.format(label=label))
         for i, dim in enumerate(dims):
             if not dim.id:
                 plan.problems.append(f"evaluator {label!r}: dimension #{i + 1} has no id")
             if not dim.description:
                 plan.problems.append(
                     f"evaluator {label!r}: dimension {dim.id or f'#{i + 1}'!r} has no description"
+                )
+            if dim.gate:
+                plan.problems.append(
+                    f"evaluator {label!r}: dimension {dim.id or f'#{i + 1}'!r} is an "
+                    "uncompiled gate -- run 'python -m castia eval rubric compile' and "
+                    "reference the compiled file"
                 )
 
     for ds in suite.datasets:

@@ -908,6 +908,47 @@ The rubric dimensions file is a **bare JSON list** where each entry is keyed by
 pinned in the monorepo at
 [`spec/conformance/rubric/`](https://github.com/sethjuarez/castia/tree/main/spec/conformance/rubric).
 
+#### Gate dimensions and gold-aware evaluators
+
+Foundry rubrics score one weighted mean against a `pass_threshold`, so a
+must-be-right dimension can be outvoted. Mark it `gate: true` in an authored
+rubric and compile it:
+
+```bash
+python -m castia eval rubric compile rubric.source.json --out rubric.json --pass-threshold 0.5
+```
+
+`compile` sets each gate's weight just high enough that a zero on any gate
+fails the rubric even when every other dimension is perfect. With several
+gates, the threshold must exceed `(gates - 1) / gates`, or use Boolean scoring.
+Reference the compiled file from `eval.yaml`; `eval check` reports a referenced
+rubric that still contains `gate: true`. Keep the source file in the repo,
+because Foundry does not keep the brief. In Python, use
+`RubricDimension(..., gate=True)` with `compile_gates()` and `rubric_to_wire()`.
+
+Optimizer run-time rows keep only `query` and `ground_truth`. A gold-aware
+evaluator must read the reference from `{{item.ground_truth}}` and nothing
+else from the row. Write a starting point with:
+
+```bash
+python -m castia eval template gold-aware --out evaluators
+```
+
+It writes `gold_rubric.source.json` (a `matches_ground_truth` gate plus quality
+dimensions), the compiled `gold_rubric.json`, a `string_check` testing criterion
+(`gold_string_check.json`, case-insensitive match of `{{sample.output_text}}`
+against `{{item.ground_truth}}`), and sample `query`/`ground_truth` rows. The
+`string_check` shape follows the OpenAI evals testing-criteria format; confirm
+how your azd eval extension registers it before a billable run.
+
+> **Optimizer caveat (observed live):** when the Agent Optimizer registers
+> evaluators, a **prompt** evaluator keeps `ground_truth`, but a **rubric**
+> evaluator has it stripped. The rubric's `{{item.ground_truth}}` then arrives
+> empty and the gate scores against nothing, without any error. For optimizer
+> runs, register the gold check as a prompt evaluator. Keep the gated rubric for
+> `castia eval run` and other runs outside the optimizer. `eval check` adds a note
+> for every rubric that references `{{item.ground_truth}}`.
+
 ## Optimizer-readiness
 
 The Foundry **Agent Optimizer** searches for a better system prompt (and, when
