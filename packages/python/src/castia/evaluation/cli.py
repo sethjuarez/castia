@@ -113,6 +113,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     for parser in (ev_check, ev_gen, ev_up, ev_run):
         add_json_argument(parser)
 
+    from castia.evaluation import schedule
+
+    schedule.register_commands(evsub)
+
 
 def _format_list(protocols) -> str:
     return ", ".join(protocols) if protocols else "(none)"

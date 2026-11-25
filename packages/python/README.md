@@ -852,6 +852,38 @@ The rubric dimensions file is a **bare JSON list** where each entry is keyed by
 pinned in the monorepo at
 [`spec/conformance/rubric/`](https://github.com/sethjuarez/castia/tree/main/spec/conformance/rubric).
 
+### Scheduled and trace evaluations
+
+`eval schedule` manages timer-triggered evaluation rules (azure-ai-projects
+2.11 `evaluation_rules`). These rules score either the agent's recent traces
+or a dataset file, using an existing eval id:
+
+```bash
+# Score the last interval's traces every 6 hours (billable per occurrence):
+python -m castia eval schedule create support-traces --eval-id eval_123 \
+  --agent support --traces --every-hours 6 --max-traces 200
+
+# Score a dataset nightly at 09:00 and 21:00 UTC (`--cron` is also accepted):
+python -m castia eval schedule create support-nightly --eval-id eval_123 \
+  --agent support --agent-version 4 --dataset-file-id file-abc --daily-at 9,21
+
+python -m castia eval schedule list --agent support
+python -m castia eval schedule delete support-nightly
+```
+
+`eval traces` scores one window of recent traces right now with a
+`TraceSourceEvalRunDataSource`:
+
+```bash
+python -m castia eval traces --eval-id eval_123 --agent support --window 24h \
+  --max-traces 100 --filter-strategy smart_filtering
+```
+
+`--window` accepts `30m`, `24h` or `7d`. `schedule create` and `traces` take
+`--dry-run`, which prints the exact payload and makes no network calls. The
+payload builders (`castia.evaluation.schedule`) are pinned in
+[`spec/evaluation/schedule.tsp`](https://github.com/sethjuarez/castia/tree/main/spec/evaluation/schedule.tsp).
+
 ## Optimizer-readiness
 
 The Foundry **Agent Optimizer** searches for a better system prompt (and, when
@@ -1060,6 +1092,9 @@ reuse `castia.lifecycle.output.command_envelope`; the contract is pinned in
 | --- | --- | --- | --- |
 | `eval check`, `finetune check`, any `--dry-run` | no | no | no |
 | `eval generate`, `eval run` | yes | yes | yes |
+| `eval schedule create`, `eval traces` | yes | yes | yes |
+| `eval schedule list/get` | yes | no | no |
+| `eval schedule delete` | yes | no | yes |
 | `eval update` | yes | no | yes |
 | `optimize`, `finetune grader --out` | no | no | writes local files |
 | `optimize run`, `finetune submit` | yes | yes | yes |
