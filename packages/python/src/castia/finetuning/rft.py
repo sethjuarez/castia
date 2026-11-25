@@ -342,6 +342,10 @@ def validate_grader(grader: dict) -> list[str]:
             problems.append(
                 f"text_similarity metric {metric!r} not in {TEXT_SIMILARITY_METRICS}"
             )
+    if gtype == "python" and isinstance(grader.get("source"), str):
+        from castia.finetuning.preflight import python_grader_problems
+
+        problems.extend(python_grader_problems(grader["source"]))
     if gtype == "multi":
         subs = grader.get("graders")
         if isinstance(subs, dict):

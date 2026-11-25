@@ -1,0 +1,22 @@
+{
+  "description": "Python grader imports the Foundry RFT grader service rejects. Each entry is evidenced; an import not listed here is not proven allowed.",
+  "denied_modules": {
+    "urllib.parse": {
+      "evidence": "Waypoint MAI-2 RFT probe ftjob-82ff966f, 2026-11-25: graders validate/run HTTP 400 invalid_grader \"Invalid grader source: use of module 'urllib.parse' is not allowed in Python graders\"",
+      "fix": "parse the string with str methods or re instead of urllib.parse"
+    }
+  },
+  "min_training_rows": {
+    "rft": 10,
+    "evidence": "Waypoint MAI-2 RFT probe, 2026-11-25: jobs.create HTTP 400 invalidPayload \"Training files has too few examples. At least 10 examples are required.\""
+  },
+  "cases": [
+    {"name": "plain-import", "source": "import urllib.parse\n\ndef grade(sample, item):\n    return 1.0\n", "denied": ["urllib.parse"]},
+    {"name": "from-package-import-module", "source": "from urllib import parse\n\ndef grade(sample, item):\n    return 1.0\n", "denied": ["urllib.parse"]},
+    {"name": "from-module-import-name", "source": "from urllib.parse import urlsplit\n", "denied": ["urllib.parse"]},
+    {"name": "aliased", "source": "import json, urllib.parse as up\n", "denied": ["urllib.parse"]},
+    {"name": "allowed-stdlib", "source": "import json\nimport re\nfrom difflib import SequenceMatcher\n", "denied": []},
+    {"name": "sibling-module-not-denied", "source": "from urllib import request\n", "denied": []},
+    {"name": "always-true", "source": "def grade(sample, item):\n    return 1.0\n", "denied": []}
+  ]
+}

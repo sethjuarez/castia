@@ -306,7 +306,9 @@ def _mai_split_files(tmp_path):
     paths = {}
     for name in ("train", "val"):
         path = tmp_path / f"{name}.jsonl"
-        path.write_text(json.dumps(_example(extra={"answer": "42"})) + "\n", encoding="utf-8")
+        path.write_text(
+            (json.dumps(_example(extra={"answer": "42"})) + "\n") * 10, encoding="utf-8",
+        )
         paths[name] = path
     grader_path = tmp_path / "grader.json"
     grader_path.write_text(json.dumps(grader), encoding="utf-8")
@@ -333,7 +335,7 @@ def test_cli_mai_submit_fails_offline_on_system_role(tmp_path, monkeypatch, caps
     assert main(_submit_args(train, val, grader)) == 1
     assert "'system' is rejected" in capsys.readouterr().err
     assert main(_submit_args(train, val, grader, "--rewrite-roles", "--dry-run")) == 0
-    assert "rewrote roles : 2 message(s)" in capsys.readouterr().out
+    assert "rewrote roles : 20 message(s)" in capsys.readouterr().out
     assert main([
         "finetune", "check", "--model", "mai-code-2-flash", "--dataset", str(train),
     ]) == 1
@@ -356,7 +358,7 @@ def test_cli_mai_submit_rewrite_uploads_developer_copies(tmp_path, monkeypatch):
         "castia.finetuning.rft.submit_rft_job",
         lambda job, *, endpoint=None: submitted.update(job) or "ftjob-1",
     )
-    assert main(_submit_args(train, val, grader, "--rewrite-roles")) == 0
+    assert main(_submit_args(train, val, grader, "--rewrite-roles", "--approve-train")) == 0
     assert len(uploaded) == 2
     for body in uploaded:
         assert '"developer"' in body and '"system"' not in body
