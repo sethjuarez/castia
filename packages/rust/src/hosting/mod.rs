@@ -1,3 +1,4 @@
+pub mod agent_identity;
 pub mod auth;
 pub mod credentials;
 pub mod foundry_storage;

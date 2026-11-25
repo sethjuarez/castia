@@ -6,9 +6,10 @@
 //! callers send them with their HTTP client and an `https://ai.azure.com/.default`
 //! bearer token.
 
+use crate::hosting::agent_identity::is_complete_agent_reference;
 use crate::protocols::item_id;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 pub const FOUNDRY_STORAGE_SCOPE: &str = "https://ai.azure.com/.default";
@@ -107,6 +108,78 @@ pub fn storage_error(status: u16, body: Option<&Value>) -> FoundryStorageError {
         code,
         message,
     }
+}
+
+/// agentserver `strip_nulls`: drop `null` values, recursing into objects only.
+fn strip_nulls(value: &Map<String, Value>) -> Map<String, Value> {
+    value
+        .iter()
+        .filter(|(_, item)| !item.is_null())
+        .map(|(key, item)| {
+            let item = match item {
+                Value::Object(object) => Value::Object(strip_nulls(object)),
+                other => other.clone(),
+            };
+            (key.clone(), item)
+        })
+        .collect()
+}
+
+/// The response snapshot agentserver writes to Foundry storage.
+///
+/// Mirrors agentserver 2.4.0: `null` fields dropped, `response_id` stamped on
+/// the response and each output item, `agent_reference` copied onto each
+/// output item, `background` and `completed_at` filled in, and the client-only
+/// `output_text` removed. An incomplete `agent_reference` is an error because
+/// Foundry storage rejects it with HTTP 400.
+pub fn storage_snapshot(response: &Value) -> Result<Value, FoundryStorageError> {
+    let invalid = |message: &str| FoundryStorageError {
+        kind: FoundryStorageErrorKind::Other,
+        status_code: None,
+        code: Some("invalid_request".into()),
+        message: message.into(),
+    };
+    let Some(object) = response.as_object() else {
+        return Err(invalid("A Foundry storage response must be a JSON object."));
+    };
+    let mut snapshot = strip_nulls(object);
+    snapshot.remove("output_text");
+    let reference = snapshot.get("agent_reference").cloned();
+    if !is_complete_agent_reference(reference.as_ref()) {
+        return Err(invalid(
+            "agent_reference with name and version is required to store a response \
+             in Foundry storage. Send agent_reference in the request or set \
+             FOUNDRY_AGENT_NAME and FOUNDRY_AGENT_VERSION.",
+        ));
+    }
+    let id = snapshot.get("id").cloned().unwrap_or(Value::Null);
+    snapshot.entry("response_id").or_insert_with(|| id.clone());
+    snapshot
+        .entry("object")
+        .or_insert_with(|| json!("response"));
+    snapshot.entry("output").or_insert_with(|| json!([]));
+    snapshot.entry("background").or_insert(json!(false));
+    if snapshot.get("status").and_then(Value::as_str) == Some("completed") {
+        snapshot.entry("completed_at").or_insert_with(|| {
+            json!(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs()))
+        });
+    }
+    if let Some(Value::Array(items)) = snapshot.get_mut("output") {
+        for item in items.iter_mut().filter_map(Value::as_object_mut) {
+            if item.get("response_id").is_none_or(Value::is_null) {
+                item.insert("response_id".into(), id.clone());
+            }
+            if item.get("agent_reference").is_none_or(Value::is_null) {
+                item.insert(
+                    "agent_reference".into(),
+                    reference.clone().unwrap_or_default(),
+                );
+            }
+        }
+    }
+    Ok(Value::Object(snapshot))
 }
 
 /// Request input items normalized the way agentserver stores them.
@@ -263,6 +336,9 @@ impl FoundryStorage {
     }
 
     /// `POST responses` with the agentserver create envelope.
+    ///
+    /// `response` is normalized with [`storage_snapshot`]; an incomplete
+    /// `agent_reference` fails here instead of as a storage HTTP 400.
     pub fn create_response(
         &self,
         response: &Value,
@@ -270,13 +346,13 @@ impl FoundryStorage {
         history_item_ids: Vec<String>,
         token: &str,
         call_id: Option<&str>,
-    ) -> StorageRequest {
+    ) -> Result<StorageRequest, FoundryStorageError> {
         let body = json!({
-            "response": response,
+            "response": storage_snapshot(response)?,
             "input_items": input_items,
             "history_item_ids": history_item_ids,
         });
-        self.request("POST", "responses", &[], Some(body), token, call_id)
+        Ok(self.request("POST", "responses", &[], Some(body), token, call_id))
     }
 
     /// `POST responses/{id}`: overwrite the stored snapshot.
@@ -285,13 +361,14 @@ impl FoundryStorage {
         response: &Value,
         token: &str,
         call_id: Option<&str>,
-    ) -> StorageRequest {
-        let id = response
+    ) -> Result<StorageRequest, FoundryStorageError> {
+        let snapshot = storage_snapshot(response)?;
+        let id = snapshot
             .get("id")
             .and_then(Value::as_str)
             .unwrap_or_default();
         let path = format!("responses/{}", encode(id));
-        self.request("POST", &path, &[], Some(response.clone()), token, call_id)
+        Ok(self.request("POST", &path, &[], Some(snapshot), token, call_id))
     }
 
     pub fn get_response(&self, id: &str, token: &str, call_id: Option<&str>) -> StorageRequest {

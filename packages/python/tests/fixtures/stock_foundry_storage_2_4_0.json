@@ -1,0 +1,190 @@
+{
+  "cases": {
+    "stream": {
+      "request": {
+        "agent_reference": {
+          "name": "contract-policy-analyst",
+          "type": "agent_reference",
+          "version": "11"
+        },
+        "input": "hello",
+        "model": "gpt-test",
+        "stream": true
+      },
+      "writes": [
+        {
+          "body": {
+            "history_item_ids": [],
+            "input_items": [
+              {
+                "content": [
+                  {
+                    "text": "hello",
+                    "type": "input_text"
+                  }
+                ],
+                "id": "msg_91c9aa486e758a5400FDX7dxpuS32GwjWyJIC0SI5KRYlYbLGL",
+                "role": "user",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "response": {
+              "agent_reference": {
+                "name": "contract-policy-analyst",
+                "type": "agent_reference",
+                "version": "11"
+              },
+              "agent_session_id": "0dde35a004351fd883da04771a3b48dde0d6711e293ed6c86d9e79b1a9797e7",
+              "background": false,
+              "created_at": 1795647522,
+              "id": "caresp_91c9aa486e758a5400LQfYHq7GjXm7DW2E4tRFKjm41MhmIl55",
+              "model": "gpt-test",
+              "object": "response",
+              "output": [],
+              "parallel_tool_calls": false,
+              "response_id": "caresp_91c9aa486e758a5400LQfYHq7GjXm7DW2E4tRFKjm41MhmIl55",
+              "status": "in_progress"
+            }
+          },
+          "op": "create"
+        },
+        {
+          "body": {
+            "agent_reference": {
+              "name": "contract-policy-analyst",
+              "type": "agent_reference",
+              "version": "11"
+            },
+            "agent_session_id": "0dde35a004351fd883da04771a3b48dde0d6711e293ed6c86d9e79b1a9797e7",
+            "background": false,
+            "completed_at": 1795647522,
+            "created_at": 1795647522,
+            "id": "caresp_91c9aa486e758a5400LQfYHq7GjXm7DW2E4tRFKjm41MhmIl55",
+            "model": "gpt-test",
+            "object": "response",
+            "output": [
+              {
+                "agent_reference": {
+                  "name": "contract-policy-analyst",
+                  "type": "agent_reference",
+                  "version": "11"
+                },
+                "content": [
+                  {
+                    "annotations": [],
+                    "logprobs": [],
+                    "text": "Hi there",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_91c9aa486e758a5400CS1XCfGaGAaKYUoC9YXClahX0ybJNFwz",
+                "response_id": "caresp_91c9aa486e758a5400LQfYHq7GjXm7DW2E4tRFKjm41MhmIl55",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "parallel_tool_calls": false,
+            "response_id": "caresp_91c9aa486e758a5400LQfYHq7GjXm7DW2E4tRFKjm41MhmIl55",
+            "status": "completed"
+          },
+          "op": "update"
+        }
+      ]
+    },
+    "sync": {
+      "request": {
+        "agent_reference": {
+          "name": "contract-policy-analyst",
+          "type": "agent_reference",
+          "version": "11"
+        },
+        "input": "hello",
+        "model": "gpt-test"
+      },
+      "writes": [
+        {
+          "body": {
+            "history_item_ids": [],
+            "input_items": [
+              {
+                "content": [
+                  {
+                    "text": "hello",
+                    "type": "input_text"
+                  }
+                ],
+                "id": "msg_04b97af4b4a1443600acIgiAiW5wHAK1NgOOdtRsaRYM6w2t6w",
+                "role": "user",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "response": {
+              "agent_reference": {
+                "name": "contract-policy-analyst",
+                "type": "agent_reference",
+                "version": "11"
+              },
+              "agent_session_id": "747cde7674bf85972e0da860fd5b04af272c37001327054003327f8983e6235",
+              "created_at": 1795647522,
+              "id": "caresp_04b97af4b4a1443600T6nllJjqHG8KUgXQrLojDPxytWFZkMil",
+              "model": "gpt-test",
+              "object": "response",
+              "output": [],
+              "parallel_tool_calls": false,
+              "response_id": "caresp_04b97af4b4a1443600T6nllJjqHG8KUgXQrLojDPxytWFZkMil",
+              "status": "in_progress"
+            }
+          },
+          "op": "create"
+        },
+        {
+          "body": {
+            "agent_reference": {
+              "name": "contract-policy-analyst",
+              "type": "agent_reference",
+              "version": "11"
+            },
+            "agent_session_id": "747cde7674bf85972e0da860fd5b04af272c37001327054003327f8983e6235",
+            "background": false,
+            "completed_at": 1795647522,
+            "created_at": 1795647522,
+            "id": "caresp_04b97af4b4a1443600T6nllJjqHG8KUgXQrLojDPxytWFZkMil",
+            "model": "gpt-test",
+            "object": "response",
+            "output": [
+              {
+                "agent_reference": {
+                  "name": "contract-policy-analyst",
+                  "type": "agent_reference",
+                  "version": "11"
+                },
+                "content": [
+                  {
+                    "annotations": [],
+                    "logprobs": [],
+                    "text": "Hi there",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_04b97af4b4a1443600H2ab0yGwSKcODSaeZNKi2VSk65VFzooL",
+                "response_id": "caresp_04b97af4b4a1443600T6nllJjqHG8KUgXQrLojDPxytWFZkMil",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "parallel_tool_calls": false,
+            "response_id": "caresp_04b97af4b4a1443600T6nllJjqHG8KUgXQrLojDPxytWFZkMil",
+            "status": "completed"
+          },
+          "op": "update"
+        }
+      ]
+    }
+  },
+  "generator": "tests/fixtures/capture_stock_foundry_storage.py",
+  "sdk": "azure-ai-agentserver-responses==2.4.0"
+}

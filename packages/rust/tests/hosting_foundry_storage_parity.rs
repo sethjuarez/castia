@@ -1,6 +1,10 @@
+use castia::hosting::agent_identity::{
+    is_complete_agent_reference, resolve_agent_reference, resolve_agent_session_id,
+};
 use castia::hosting::foundry_storage::{
-    foundry_storage_enabled, is_retryable_status, storage_error, stored_input_items,
-    FoundryStorage, FoundryStorageErrorKind, FOUNDRY_CALL_ID_HEADER, FOUNDRY_STORAGE_SCOPE,
+    foundry_storage_enabled, is_retryable_status, storage_error, storage_snapshot,
+    stored_input_items, FoundryStorage, FoundryStorageErrorKind, FOUNDRY_CALL_ID_HEADER,
+    FOUNDRY_STORAGE_SCOPE,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -41,14 +45,19 @@ fn settings_match_agentserver_provider() {
 
 #[test]
 fn create_request_uses_the_stock_envelope_and_call_id() {
-    let response = json!({"id": "caresp_x", "object": "response", "status": "completed"});
-    let request = storage().create_response(
-        &response,
-        vec![json!({"id": "msg_1", "type": "message"})],
-        vec!["msg_0".into()],
-        "tok",
-        Some("call-1"),
-    );
+    let response = json!({
+        "id": "caresp_x", "object": "response", "status": "in_progress",
+        "agent_reference": {"type": "agent_reference", "name": "a", "version": "1"},
+    });
+    let request = storage()
+        .create_response(
+            &response,
+            vec![json!({"id": "msg_1", "type": "message"})],
+            vec!["msg_0".into()],
+            "tok",
+            Some("call-1"),
+        )
+        .unwrap();
     assert_eq!(request.method, "POST");
     assert_eq!(
         request.url,
@@ -69,7 +78,11 @@ fn create_request_uses_the_stock_envelope_and_call_id() {
     assert_eq!(
         request.body.unwrap(),
         json!({
-            "response": response,
+            "response": {
+                "id": "caresp_x", "object": "response", "status": "in_progress",
+                "agent_reference": {"type": "agent_reference", "name": "a", "version": "1"},
+                "response_id": "caresp_x", "output": [], "background": false,
+            },
             "input_items": [{"id": "msg_1", "type": "message"}],
             "history_item_ids": ["msg_0"],
         })
@@ -80,7 +93,14 @@ fn create_request_uses_the_stock_envelope_and_call_id() {
 fn read_update_delete_and_items_paths_match_stock() {
     let s = storage();
     let base = "https://acct.services.ai.azure.com/api/projects/p/storage/";
-    let update = s.update_response(&json!({"id": "caresp_a"}), "t", None);
+    let reference = json!({"type": "agent_reference", "name": "a", "version": "1"});
+    let update = s
+        .update_response(
+            &json!({"id": "caresp_a", "agent_reference": reference}),
+            "t",
+            None,
+        )
+        .unwrap();
     assert_eq!(
         (update.method, update.url.as_str()),
         ("POST", &*format!("{base}responses/caresp_a?api-version=v1"))
@@ -162,4 +182,140 @@ fn input_items_are_normalized_like_stock() {
     assert_eq!(items[3].as_ref().unwrap()["status"], "completed");
 
     assert!(stored_input_items(&[json!({"type": "item_reference"})], &response_id).is_err());
+}
+
+// --- stock agentserver 2.4.0 snapshot + agent identity parity -------------
+
+const STOCK: &str = include_str!("../../python/tests/fixtures/stock_foundry_storage_2_4_0.json");
+
+fn stock_update() -> serde_json::Value {
+    let stock: serde_json::Value = serde_json::from_str(STOCK).unwrap();
+    stock["cases"]["stream"]["writes"][1]["body"].clone()
+}
+
+#[test]
+fn storage_snapshot_rebuilds_the_stock_update_body() {
+    let stock = stock_update();
+    // A castia-shaped response: nulls, output_text, and no stamps.
+    let mut castia = stock.clone();
+    let object = castia.as_object_mut().unwrap();
+    object.remove("response_id");
+    object.remove("background");
+    object.insert("error".into(), json!(null));
+    object.insert("usage".into(), json!(null));
+    object.insert("output_text".into(), json!("Hi there"));
+    let item = castia["output"][0].as_object_mut().unwrap();
+    item.remove("response_id");
+    item.insert("agent_reference".into(), json!(null));
+
+    let request = storage().update_response(&castia, "t", None).unwrap();
+    assert_eq!(request.body.unwrap(), stock);
+    assert!(request.url.contains(stock["id"].as_str().unwrap()));
+
+    let create = storage()
+        .create_response(&stock, vec![], vec![], "t", None)
+        .unwrap();
+    assert_eq!(create.body.unwrap()["response"], stock);
+}
+
+#[test]
+fn storage_snapshot_refuses_incomplete_agent_reference() {
+    for reference in [
+        json!(null),
+        json!({"type": "agent_reference", "name": "a"}),
+        json!({"type": "agent", "name": "a", "version": "1"}),
+    ] {
+        let response = json!({"id": "caresp_x", "agent_reference": reference});
+        let error = storage_snapshot(&response).unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("invalid_request"));
+        assert!(error.status_code.is_none());
+        assert!(storage()
+            .create_response(&response, vec![], vec![], "t", None)
+            .is_err());
+        assert!(storage().update_response(&response, "t", None).is_err());
+    }
+    let completed = json!({
+        "id": "caresp_x", "status": "completed",
+        "agent_reference": {"type": "agent_reference", "name": "a", "version": "1"},
+    });
+    assert!(storage_snapshot(&completed).unwrap()["completed_at"].is_i64());
+}
+
+#[test]
+fn agent_reference_resolution_mirrors_stock_with_env_fallback() {
+    let env: HashMap<String, String> = [
+        ("FOUNDRY_AGENT_NAME".to_string(), "agent".to_string()),
+        ("FOUNDRY_AGENT_VERSION".to_string(), "7".to_string()),
+    ]
+    .into();
+    let none = HashMap::new();
+    assert_eq!(resolve_agent_reference(None, &none), Ok(None));
+    assert_eq!(
+        resolve_agent_reference(None, &env).unwrap(),
+        Some(json!({"type": "agent_reference", "name": "agent", "version": "7"}))
+    );
+    assert_eq!(
+        resolve_agent_reference(Some(&json!({"name": " agent "})), &env).unwrap(),
+        Some(json!({"type": "agent_reference", "name": "agent", "version": "7"}))
+    );
+    assert_eq!(
+        resolve_agent_reference(Some(&json!({"name": "other"})), &env).unwrap(),
+        Some(json!({"type": "agent_reference", "name": "other"}))
+    );
+    for (value, param) in [
+        (json!("agent"), "agent_reference"),
+        (
+            json!({"type": "agent", "name": "a"}),
+            "agent_reference.type",
+        ),
+        (json!({"name": "  "}), "agent_reference.name"),
+    ] {
+        assert_eq!(
+            resolve_agent_reference(Some(&value), &env)
+                .unwrap_err()
+                .param,
+            param
+        );
+    }
+    assert!(is_complete_agent_reference(Some(
+        &json!({"type": "agent_reference", "name": "a", "version": "1"})
+    )));
+    assert!(!is_complete_agent_reference(Some(
+        &json!({"name": "a", "version": "1"})
+    )));
+}
+
+#[test]
+fn agent_session_id_matches_stock_derivation() {
+    // Expected values printed by stock 2.4.0 hosting._request_parsing.derive_session_id.
+    let reference =
+        json!({"type": "agent_reference", "name": "contract-policy-analyst", "version": "11"});
+    let conv = format!("conv_{}00{}", "a".repeat(16), "b".repeat(32));
+    let prev = format!("resp_{}{}", "c".repeat(32), "d".repeat(16));
+    let none = HashMap::new();
+    let body = json!({});
+    assert_eq!(
+        resolve_agent_session_id(&body, Some(&reference), None, Some(&conv), &none),
+        "45d276feb7d7af0a6cdc13bddab2271577e3a63c70a29fe8fe175c30508c47a"
+    );
+    assert_eq!(
+        resolve_agent_session_id(&body, Some(&reference), Some(&prev), None, &none),
+        "0fe108d12f05877b94580adaae22283d187a4c44e3a787a80a43672be38805a"
+    );
+    assert_eq!(
+        resolve_agent_session_id(&body, None, None, Some("conv-plain"), &none),
+        "0c0762f4f87291b9de94f66f7b2d27d03d10a3eaa2651a234abf94398d43ff6"
+    );
+    let env: HashMap<String, String> =
+        [("FOUNDRY_AGENT_SESSION_ID".to_string(), "s2".to_string())].into();
+    assert_eq!(
+        resolve_agent_session_id(&json!({"agent_session_id": "s1"}), None, None, None, &env),
+        "s1"
+    );
+    assert_eq!(
+        resolve_agent_session_id(&body, None, None, None, &env),
+        "s2"
+    );
+    let random = resolve_agent_session_id(&body, None, None, None, &none);
+    assert!(random.len() == 63 && random.chars().all(|c| c.is_ascii_hexdigit()));
 }

@@ -269,6 +269,15 @@ can fetch a hosted Castia response by id.
 - **Identity.** Requests use the agent's managed identity
   (`https://ai.azure.com/.default`) and forward the caller's
   `x-agent-foundry-call-id`, so storage scopes each record to that caller.
+- **Agent reference.** Foundry storage rejects a response without
+  `agent_reference` `name` and `version`. Castia uses the request's
+  `agent_reference`, falling back to the platform-injected
+  `FOUNDRY_AGENT_NAME` and `FOUNDRY_AGENT_VERSION`. A malformed reference, or
+  none at all, returns `400 invalid_request` (`param: agent_reference`) before
+  the handler runs. Each stored response carries `agent_reference`,
+  `response_id`, and `agent_session_id` (request, then
+  `FOUNDRY_AGENT_SESSION_ID`, then derived), and each output item carries
+  `response_id` and `agent_reference`, matching the agentserver snapshot.
 - **Not enabled:** `background`, `previous_response_id`, and `conversation`
   still need your own store. Foundry storage has no atomic compare-and-set.
 - A missing `FOUNDRY_PROJECT_ENDPOINT` fails at startup.
