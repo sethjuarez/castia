@@ -3,6 +3,7 @@ use castia::delivery::{
     plan_manifest as build_manifest_plan, CastiaDeliveryAzdRuntime, CastiaDeliveryManifestRuntime,
 };
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
+use castia::evaluation::{evaluation_rule, parse_window, schedule_trigger, trace_window_source};
 use castia::finetuning::{
     build_dpo_method as build_finetune_dpo_method, build_rft_job as build_finetune_rft_job,
     build_rft_method as build_finetune_rft_method, build_sft_job as build_finetune_sft_job,
@@ -311,6 +312,22 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "EntitiesRuntime.sensitivityLabel",
             sync_with_normalize(entities_sensitivity_label, normalize_special_json_keys),
+        ),
+        (
+            "EvaluationScheduleRuntime.evaluationRule",
+            sync(evaluation_schedule_rule),
+        ),
+        (
+            "EvaluationScheduleRuntime.parseWindow",
+            sync(evaluation_schedule_parse_window),
+        ),
+        (
+            "EvaluationScheduleRuntime.scheduleTrigger",
+            sync(evaluation_schedule_trigger),
+        ),
+        (
+            "EvaluationScheduleRuntime.traceWindowSource",
+            sync(evaluation_schedule_trace_window_source),
         ),
         (
             "EvaluationSuiteRuntime.buildGenerateArgv",
@@ -1117,6 +1134,36 @@ fn entities_mention_entity(input: &Value, _: &Context) -> Result<Value, VectorEr
             .unwrap_or_default()
             .to_string(),
     ))
+}
+
+fn schedule_request(input: &Value) -> &Value {
+    input.get("request").unwrap_or(&Value::Null)
+}
+
+fn evaluation_schedule_rule(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    evaluation_rule(schedule_request(input)).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn evaluation_schedule_parse_window(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let text = input
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    parse_window(text)
+        .map(Value::from)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn evaluation_schedule_trigger(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    schedule_trigger(schedule_request(input)).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn evaluation_schedule_trace_window_source(
+    input: &Value,
+    _: &Context,
+) -> Result<Value, VectorError> {
+    trace_window_source(schedule_request(input))
+        .map_err(|error| VectorError::new(error.to_string()))
 }
 
 fn evaluation_build_generate_argv(input: &Value, _: &Context) -> Result<Value, VectorError> {

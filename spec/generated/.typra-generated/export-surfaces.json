@@ -49,6 +49,7 @@
         "DeliveryAzdRuntime",
         "DeliveryManifestRuntime",
         "EntitiesRuntime",
+        "EvaluationScheduleRuntime",
         "EvaluationSuiteRuntime",
         "FinetuningJobsRuntime",
         "FinetuningTrainingRuntime",
@@ -194,6 +195,13 @@
           "kind": "type",
           "group": "",
           "source": "entities_runtime",
+          "protocol": true
+        },
+        {
+          "name": "EvaluationScheduleRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "evaluation_schedule_runtime",
           "protocol": true
         },
         {
@@ -1049,6 +1057,62 @@
               "params": {
                 "description": "string",
                 "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "EvaluationScheduleRuntime",
+          "group": "",
+          "symbol": "EvaluationScheduleRuntime",
+          "source": "evaluation_schedule_runtime",
+          "methods": [
+            {
+              "name": "evaluationRule",
+              "returns": "unknown",
+              "params": {
+                "request": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "parseWindow",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "scheduleTrigger",
+              "returns": "unknown",
+              "params": {
+                "request": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "traceWindowSource",
+              "returns": "unknown",
+              "params": {
+                "request": "unknown"
               },
               "optional": false,
               "sync": true,
@@ -3272,6 +3336,7 @@
         "delivery_azd_runtime",
         "delivery_manifest_runtime",
         "entities_runtime",
+        "evaluation_schedule_runtime",
         "evaluation_suite_runtime",
         "finetuning_jobs_runtime",
         "finetuning_training_runtime",

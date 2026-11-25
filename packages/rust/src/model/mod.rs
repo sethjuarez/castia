@@ -49,6 +49,9 @@ pub use delivery_manifest_runtime::*;
 pub mod entities_runtime;
 pub use entities_runtime::*;
 
+pub mod evaluation_schedule_runtime;
+pub use evaluation_schedule_runtime::*;
+
 pub mod evaluation_suite_runtime;
 pub use evaluation_suite_runtime::*;
 
