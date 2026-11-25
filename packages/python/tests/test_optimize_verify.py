@@ -69,7 +69,8 @@ def test_seed_from_version(case):
     )
     assert request == case["expected_request"]
     assert seeded == case["expected_seeded"]
-    assert case["request"]["options"]["optimization_config"]["system_prompt"] == "local"
+    baseline = case["request"]["optimization_configuration"]["baseline_agent_configuration"]
+    assert baseline["system_prompt"] == "local"
 
 
 def test_status_labels_early_stop(capsys):
@@ -77,11 +78,12 @@ def test_status_labels_early_stop(capsys):
         "id": "job1",
         "status": "succeeded",
         "message": "Maximum consecutive stall limit reached",
-        "progress": {"baseline_score": 0.5, "best_score": 0.5},
+        "result": {"candidate_summary": {"baseline_id": "c0", "baseline_score": 0.5,
+                                         "best_id": "c0", "best_score": 0.5}},
     })
     out = capsys.readouterr().out
     assert "succeeded (stopped early (no improvement))" in out
-    assert "best optimizer score" in out
+    assert "best          : c0 score=0.5" in out
 
 
 def _setup(tmp_path: Path, candidate_instructions: str) -> Path:

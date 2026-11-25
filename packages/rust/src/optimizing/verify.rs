@@ -273,12 +273,18 @@ fn function_tool(tool: &Map<String, Value>) -> Value {
     json!({"type": "function", "function": function})
 }
 
-/// Seed the optimizer request from an agent version's prompt definition.
+/// Seed a GA `agent_optimization` request from an agent version's prompt definition.
 pub fn optimize_seed_from_version(
     request: &Value,
     version: &Value,
     agent_version: &str,
 ) -> Result<(Value, Vec<String>), String> {
+    let job_type = request
+        .pointer("/optimization_configuration/type")
+        .and_then(Value::as_str);
+    if job_type != Some("agent_optimization") {
+        return Err("--from-version seeds an agent_optimization job (not traces:)".to_string());
+    }
     let mut seeded = request.clone();
     let empty = Map::new();
     let definition = version
@@ -295,7 +301,7 @@ pub fn optimize_seed_from_version(
     }
     if let Some(model) = definition.get("model").and_then(Value::as_str) {
         if !model.is_empty() {
-            updates.insert("model".into(), json!(model));
+            updates.insert("current_model".into(), json!(model));
             notes.push("model".to_string());
         }
     }
@@ -325,19 +331,19 @@ pub fn optimize_seed_from_version(
         .as_object_mut()
         .ok_or_else(|| "request must be an object".to_string())?;
     let opt = root
-        .entry("options")
+        .entry("optimization_configuration")
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .ok_or_else(|| "options must be an object".to_string())?
-        .entry("optimization_config")
+        .ok_or_else(|| "optimization_configuration must be an object".to_string())?
+        .entry("baseline_agent_configuration")
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .ok_or_else(|| "optimization_config must be an object".to_string())?;
+        .ok_or_else(|| "baseline_agent_configuration must be an object".to_string())?;
     opt.extend(updates);
-    root.entry("agent")
+    root.entry("target_configuration")
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .ok_or_else(|| "agent must be an object".to_string())?
-        .insert("agent_version".into(), json!(agent_version));
+        .ok_or_else(|| "target_configuration must be an object".to_string())?
+        .insert("version".into(), json!(agent_version));
     Ok((seeded, notes))
 }

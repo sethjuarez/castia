@@ -203,16 +203,21 @@ def seed_from_version(
 ) -> tuple[dict[str, Any], list[str]]:
     """Seed the optimizer baseline from an agent version's prompt definition.
 
-    ``version`` is ``AgentVersionDetails.as_dict()``. Instructions, model and
-    function tools in ``definition`` replace the local baseline. Raises
-    ``ValueError`` when the version has nothing to seed from.
+    ``request`` is a GA ``agent_optimization`` request and ``version`` is
+    ``AgentVersionDetails.as_dict()``. Instructions, model and function tools in
+    ``definition`` replace the baseline agent configuration, and the target is
+    pinned to ``agent_version``. Raises ``ValueError`` when the request is not an
+    ``agent_optimization`` job or the version has nothing to seed from.
     """
 
     seeded = copy.deepcopy(dict(request))
+    config = seeded.get("optimization_configuration")
+    if not isinstance(config, dict) or config.get("type") != "agent_optimization":
+        raise ValueError("--from-version seeds an agent_optimization job (not traces:)")
     definition = version.get("definition") if isinstance(version, Mapping) else None
     if not isinstance(definition, Mapping):
         definition = {}
-    opt = seeded.setdefault("options", {}).setdefault("optimization_config", {})
+    opt = config.setdefault("baseline_agent_configuration", {})
     notes: list[str] = []
     instructions = definition.get("instructions")
     if isinstance(instructions, str) and instructions.strip():
@@ -220,7 +225,7 @@ def seed_from_version(
         notes.append("instructions")
     model = definition.get("model")
     if isinstance(model, str) and model:
-        opt["model"] = model
+        opt["current_model"] = model
         notes.append("model")
     tools = [
         tool for tool in definition.get("tools") or []
@@ -234,7 +239,7 @@ def seed_from_version(
             f"agent version {agent_version} has no prompt definition to seed from "
             "(hosted agents: apply a candidate locally and use --candidate)"
         )
-    seeded.setdefault("agent", {})["agent_version"] = str(agent_version)
+    seeded.setdefault("target_configuration", {})["version"] = str(agent_version)
     return seeded, notes
 
 

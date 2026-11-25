@@ -233,9 +233,15 @@ def preflight_request(
     """
 
     result = OptimizePreflight()
-    options = request.get("options") or {}
-    entries = list(evaluators if evaluators is not None else request.get("evaluators") or [])
-    train_rows = _inline_rows(request.get("train_dataset"))
+    opt = request.get("optimization_configuration") or {}
+    evaluation = opt.get("evaluation_configuration") or {}
+    search = opt.get("candidate_search_configuration") or {}
+    options = {
+        "max_candidates": search.get("max_candidates"),
+        "max_concurrent_agent_runs": evaluation.get("max_concurrent_agent_runs"),
+    }
+    entries = list(evaluators if evaluators is not None else evaluation.get("evaluators") or [])
+    train_rows = _inline_rows(evaluation.get("training_set"))
 
     result.problems.extend(evaluator_level_problems(entries, options, definitions))
     result.problems.extend(
@@ -252,7 +258,7 @@ def preflight_request(
     if rows is None:
         counted = [
             len(r)
-            for r in (train_rows, _inline_rows(request.get("validation_dataset")))
+            for r in (train_rows, _inline_rows(evaluation.get("validation_set")))
             if r is not None
         ]
         rows = sum(counted) if train_rows is not None else None
@@ -287,8 +293,11 @@ def evaluator_type(node: Any) -> str:
 
 
 def _inline_rows(dataset: Any) -> list[Mapping[str, Any]] | None:
-    if isinstance(dataset, Mapping) and dataset.get("type") == "inline":
-        items = dataset.get("items")
+    """Inline test cases of a GA evaluation set (``{"source": {"type": "inline"}}``)."""
+
+    source = dataset.get("source") if isinstance(dataset, Mapping) else None
+    if isinstance(source, Mapping) and source.get("type") == "inline":
+        items = source.get("test_cases")
         if isinstance(items, list):
             return [row for row in items if isinstance(row, Mapping)]
     return None

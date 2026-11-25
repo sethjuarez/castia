@@ -153,23 +153,34 @@
   "seed_from_version": [
     {
       "name": "prompt definition seeds instructions, model and function tools",
-      "request": {"agent": {"agent_name": "opt", "agent_version": ""}, "options": {"optimization_config": {"system_prompt": "local", "model": "gpt-4o"}}},
-      "version": {"definition": {"kind": "prompt", "model": "gpt-4.1", "instructions": "deployed", "tools": [
-        {"type": "function", "name": "lookup", "description": "d", "parameters": {"type": "object"}},
-        {"type": "mcp", "server_label": "x"}
-      ]}},
+      "request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"system_prompt": "local", "current_model": "gpt-4o", "skills": [], "tools": []}}
+      },
+      "version": {"definition": {"kind": "prompt", "model": "gpt-4.1", "instructions": "deployed", "tools": [{"type": "function", "name": "lookup", "description": "d", "parameters": {"type": "object"}}, {"type": "mcp", "server_label": "x"}]}},
       "agent_version": "7",
-      "expected_request": {"agent": {"agent_name": "opt", "agent_version": "7"}, "options": {"optimization_config": {"system_prompt": "deployed", "model": "gpt-4.1", "tools": [
-        {"type": "function", "function": {"name": "lookup", "description": "d", "parameters": {"type": "object"}}}
-      ]}}},
+      "expected_request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt", "version": "7"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"system_prompt": "deployed", "current_model": "gpt-4.1", "skills": [], "tools": [{"type": "function", "function": {"name": "lookup", "description": "d", "parameters": {"type": "object"}}}]}}
+      },
       "expected_seeded": ["instructions", "model", "1 function tool(s)"]
     },
     {
       "name": "hosted definition has nothing to seed",
-      "request": {"agent": {"agent_name": "opt"}, "options": {}},
+      "request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"skills": [], "tools": []}}
+      },
       "version": {"definition": {"kind": "hosted", "image": "x"}},
       "agent_version": "3",
       "error": "has no prompt definition to seed from"
+    },
+    {
+      "name": "skill optimization request cannot be seeded",
+      "request": {"target_configuration": {"type": "foundry_agent", "name": "opt"}, "optimization_configuration": {"type": "skill_optimization"}},
+      "version": {"definition": {"kind": "prompt", "model": "gpt-4.1", "instructions": "deployed", "tools": [{"type": "function", "name": "lookup", "description": "d", "parameters": {"type": "object"}}, {"type": "mcp", "server_label": "x"}]}},
+      "agent_version": "7",
+      "error": "seeds an agent_optimization job"
     }
   ]
 }

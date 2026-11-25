@@ -70,12 +70,15 @@ def _instructions(folder: Path) -> str:
 
 
 def _training_rows(config: str) -> list[dict[str, Any]] | None:
-    from castia.optimizing.jobs import _dataset_payload, load_eval_config
+    from castia.optimizing.jobs import _evaluation_set, load_eval_config
 
     cfg = load_eval_config(config)
-    payload = _dataset_payload(Path(config).parent, cfg.get("dataset"), cfg.get("dataset_file"))
-    if isinstance(payload, dict) and payload.get("type") == "inline":
-        return list(payload["items"])
+    payload = _evaluation_set(
+        Path(config).parent, cfg.get("dataset"), cfg.get("dataset_file"), where="dataset"
+    )
+    source = (payload or {}).get("source") or {}
+    if source.get("type") == "inline":
+        return list(source["test_cases"])
     return None
 
 
