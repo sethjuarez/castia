@@ -33,10 +33,12 @@ import logging
 import os
 import time
 from collections.abc import Iterable, Mapping
+from copy import deepcopy
 from typing import Any
 from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
+from castia.hosting.agent_identity import is_complete_agent_reference
 from castia.hosting.response_ids import item_id
 from castia.hosting.responses_store import StoredResponse
 from castia.runtime.request_context import (
@@ -206,6 +208,53 @@ def _stored_input_items(items: Iterable, response_id: str) -> tuple[list, list[s
             data.pop("status", None)
         stored.append(data)
     return stored, references
+
+
+def _strip_nulls(value: dict) -> dict:
+    """agentserver ``strip_nulls``: drop ``None`` values, recursing into dicts only."""
+    return {
+        key: _strip_nulls(item) if isinstance(item, dict) else item
+        for key, item in value.items()
+        if item is not None
+    }
+
+
+def storage_snapshot(response: Mapping) -> dict:
+    """The response snapshot agentserver writes to Foundry storage.
+
+    Mirrors ``_extract_response_snapshot_from_events`` and the output-item
+    defaults in agentserver 2.4.0: ``None`` fields dropped, ``response_id``
+    stamped on the response and each output item, ``agent_reference`` copied
+    onto each output item, ``background`` and ``completed_at`` filled in.
+    ``output_text`` is a client convenience, not part of the stored object.
+
+    :raises FoundryStorageError: the response has no complete
+        ``agent_reference``; Foundry storage would reject it with HTTP 400.
+    """
+    snapshot = _strip_nulls(deepcopy(dict(response)))
+    snapshot.pop("output_text", None)
+    reference = snapshot.get("agent_reference")
+    if not is_complete_agent_reference(reference):
+        raise FoundryStorageError(
+            "agent_reference with name and version is required to store a "
+            "response in Foundry storage. Send agent_reference in the request "
+            "or set FOUNDRY_AGENT_NAME and FOUNDRY_AGENT_VERSION.",
+            code="invalid_request",
+        )
+    response_id = snapshot["id"]
+    snapshot.setdefault("response_id", response_id)
+    snapshot.setdefault("object", "response")
+    snapshot.setdefault("output", [])
+    snapshot.setdefault("background", False)
+    if snapshot.get("status") == "completed":
+        snapshot.setdefault("completed_at", int(time.time()))
+    for item in snapshot["output"]:
+        if isinstance(item, dict):
+            if item.get("response_id") is None:
+                item["response_id"] = response_id
+            if item.get("agent_reference") is None:
+                item["agent_reference"] = deepcopy(reference)
+    return snapshot
 
 
 class FoundryResponseStore:
@@ -387,7 +436,7 @@ class FoundryResponseStore:
 
     async def create_envelope(self, record: StoredResponse) -> dict:
         """The ``POST responses`` body agentserver sends for ``record``."""
-        response = record["response"]
+        response = storage_snapshot(record["response"])
         response_id = response["id"]
         items, references = _stored_input_items(record.get("input_items") or [], response_id)
         if references:
@@ -415,7 +464,8 @@ class FoundryResponseStore:
 
     async def replace(self, response: dict) -> None:
         """Overwrite the stored response snapshot (agentserver ``update_response``)."""
-        await self._request("POST", f"responses/{_encode(response['id'])}", body=response)
+        snapshot = storage_snapshot(response)
+        await self._request("POST", f"responses/{_encode(snapshot['id'])}", body=snapshot)
 
     async def get(self, response_id: str) -> StoredResponse | None:
         path = f"responses/{_encode(response_id)}"

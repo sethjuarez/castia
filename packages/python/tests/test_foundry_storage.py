@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -20,6 +21,11 @@ import pytest
 from castia import Agent
 from castia.building import AgentTestHarness
 from castia.hosting import foundry_storage, server
+from castia.hosting.agent_identity import (
+    InvalidAgentReferenceError,
+    resolve_agent_reference,
+    resolve_agent_session_id,
+)
 from castia.hosting.foundry_storage import (
     FoundryResponseAlreadyExistsError,
     FoundryResponseStore,
@@ -44,6 +50,12 @@ NEW_ID = "caresp_" + "a" * 16 + "00" + "b" * 32
 LEGACY_ID = "resp_" + "c" * 32 + "d" * 16
 CALL = {"x-agent-foundry-call-id": "call-123", "x-agent-user-id": "user-a"}
 FOUNDRY_ID = re.compile(r"caresp_[0-9a-f]{16}00[0-9a-f]{32}")
+REF = {"type": "agent_reference", "name": "contract-policy-analyst", "version": "11"}
+STOCK = json.loads(
+    (Path(__file__).parent / "fixtures" / "stock_foundry_storage_2_4_0.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 class FakeCredential:
@@ -119,7 +131,13 @@ def _store(storage: FakeStorage, **kwargs) -> FoundryResponseStore:
 
 def _record(response_id=NEW_ID, input_items=None, **response):
     return {
-        "response": {"id": response_id, "object": "response", "status": "completed", **response},
+        "response": {
+            "id": response_id,
+            "object": "response",
+            "status": "completed",
+            "agent_reference": REF,
+            **response,
+        },
         "input_items": input_items or [],
         "background": False,
         "user_id": "ignored",
@@ -208,7 +226,13 @@ def test_create_posts_the_agentserver_envelope_with_call_id_and_scope():
     assert headers["x-agent-foundry-call-id"] == "call-123"
     assert "x-agent-user-id" not in headers
     assert store._credential.scopes == [("https://ai.azure.com/.default",)]
-    assert body["response"] == record["response"]
+    assert body["response"] == {
+        **record["response"],
+        "response_id": NEW_ID,
+        "background": False,
+        "completed_at": body["response"]["completed_at"],
+        "output": [],
+    }
     assert body["history_item_ids"] == ["msg_prev_1", "msg_prev_2"]
     message, reference, tool_output = body["input_items"]
     assert message["id"].startswith("msg_" + "a" * 16 + "00")
@@ -308,6 +332,8 @@ def test_from_env_requires_an_http_project_endpoint(monkeypatch):
 
 def _hosted(monkeypatch, storage, *, seen=None):
     monkeypatch.setenv("FOUNDRY_HOSTING_ENVIRONMENT", "production")
+    monkeypatch.setenv("FOUNDRY_AGENT_NAME", REF["name"])
+    monkeypatch.setenv("FOUNDRY_AGENT_VERSION", REF["version"])
     monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", ENDPOINT)
     monkeypatch.setattr(
         server.FoundryResponseStore, "from_env", classmethod(lambda cls: _store(storage))
@@ -321,6 +347,10 @@ def _hosted(monkeypatch, storage, *, seen=None):
         return f"echo:{text}"
 
     return app
+
+
+def _text(response):
+    return response["output"][0]["content"][0]["text"]
 
 
 def _post(app, payload, headers=CALL):
@@ -338,7 +368,8 @@ def test_hosted_foreground_persists_under_the_gateway_response_id(monkeypatch):
     assert reply.status_code == 200
     assert reply.json()["id"] == NEW_ID
     stored = storage.responses[NEW_ID]
-    assert stored["status"] == "completed" and stored["output_text"] == "echo:hi"
+    assert stored["status"] == "completed" and _text(stored) == "echo:hi"
+    assert stored["agent_reference"] == REF
     assert storage.input_items[NEW_ID][0]["id"].startswith("msg_" + "a" * 16 + "00")
     assert all(c[2]["x-agent-foundry-call-id"] == "call-123" for c in storage.calls)
 
@@ -390,7 +421,7 @@ def test_hosted_stream_registers_before_created_and_updates_at_completion(monkey
     create, update = storage.calls
     assert create[3]["response"]["status"] == "in_progress"
     assert update[:2] == ("POST", f"{STORAGE}responses/{NEW_ID}?api-version=v1")
-    assert storage.responses[NEW_ID]["output_text"] == "echo:hi"
+    assert _text(storage.responses[NEW_ID]) == "echo:hi"
 
 
 def test_hosted_stream_fails_explicitly_when_registration_fails(monkeypatch):
@@ -421,6 +452,8 @@ def test_hosted_stream_handler_error_persists_failure_with_call_id(monkeypatch, 
         storage.fail[("POST", f"responses/{NEW_ID}")] = 500
     monkeypatch.setenv("FOUNDRY_HOSTING_ENVIRONMENT", "production")
     monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", ENDPOINT)
+    monkeypatch.setenv("FOUNDRY_AGENT_NAME", REF["name"])
+    monkeypatch.setenv("FOUNDRY_AGENT_VERSION", REF["version"])
     monkeypatch.setattr(
         server.FoundryResponseStore, "from_env", classmethod(lambda cls: _store(storage))
     )
@@ -530,3 +563,210 @@ def test_explicit_store_keeps_resp_prefix_and_honors_response_id(monkeypatch):
     assert stolen.json()["error"]["code"] == "conflict"
     assert records[NEW_ID]["user_id"] == "user-a"
     assert records[NEW_ID]["response"]["output_text"] == "again"
+
+
+# --- stock agentserver 2.4.0 storage payload contract -----------------------
+# Golden writes recorded from the real stock SDK by
+# fixtures/capture_stock_foundry_storage.py.
+
+# Valid Response fields castia also writes; stock leaves them unset (stripped).
+CASTIA_EXTRAS = {"metadata", "tools", "tool_choice", "usage"}
+VOLATILE = {"id", "response_id", "created_at", "completed_at", "agent_session_id"}
+
+
+def _shape(value):
+    """Replace run-specific values (ids, timestamps) with their kind."""
+    if isinstance(value, dict):
+        return {
+            key: (type(item).__name__ if key in VOLATILE else _shape(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_shape(item) for item in value]
+    return value
+
+
+def _castia_writes(monkeypatch, request):
+    storage = FakeStorage()
+    monkeypatch.setenv("FOUNDRY_HOSTING_ENVIRONMENT", "production")
+    monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", ENDPOINT)
+    monkeypatch.delenv("FOUNDRY_AGENT_NAME", raising=False)
+    monkeypatch.delenv("FOUNDRY_AGENT_VERSION", raising=False)
+    monkeypatch.setattr(
+        server.FoundryResponseStore, "from_env", classmethod(lambda cls: _store(storage))
+    )
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str) -> str:
+        return "Hi there"
+
+    assert _post(app, request).status_code == 200
+    return [call[3] for call in storage.calls]
+
+
+def _assert_stock_response(castia, stock):
+    castia = dict(castia)
+    assert castia.pop("parallel_tool_calls") is True  # castia's default; stock: False
+    stock = {k: v for k, v in stock.items() if k != "parallel_tool_calls"}
+    assert set(castia) - set(stock) <= CASTIA_EXTRAS | {"background"}
+    castia = {k: v for k, v in castia.items() if k not in CASTIA_EXTRAS}
+    stock.setdefault("background", False)
+    assert _shape(castia) == _shape(stock)
+    assert castia["response_id"] == castia["id"]
+    for item in castia["output"]:
+        assert item["response_id"] == castia["id"]
+    assert re.fullmatch(r"[0-9a-f]{63}", castia["agent_session_id"])
+
+
+def test_stream_storage_writes_match_stock_agentserver(monkeypatch):
+    case = STOCK["cases"]["stream"]
+    create, update = _castia_writes(monkeypatch, case["request"])
+    stock_create, stock_update = (write["body"] for write in case["writes"])
+    assert set(create) == set(stock_create) == {"response", "input_items", "history_item_ids"}
+    assert _shape(create["input_items"]) == _shape(stock_create["input_items"])
+    assert create["history_item_ids"] == stock_create["history_item_ids"]
+    _assert_stock_response(create["response"], stock_create["response"])
+    _assert_stock_response(update, stock_update)
+    assert update["agent_session_id"] == create["response"]["agent_session_id"]
+
+
+def test_sync_storage_write_matches_stock_final_snapshot(monkeypatch):
+    # Stock writes create(in_progress) then update(completed); castia writes the
+    # completed snapshot in one create. Both must leave the same stored response.
+    case = STOCK["cases"]["sync"]
+    (create,) = _castia_writes(monkeypatch, case["request"])
+    stock_create, stock_update = (write["body"] for write in case["writes"])
+    assert set(create) == set(stock_create)
+    assert _shape(create["input_items"]) == _shape(stock_create["input_items"])
+    _assert_stock_response(create["response"], stock_update)
+
+
+def test_hosted_without_agent_reference_is_rejected_before_the_handler(monkeypatch):
+    storage = FakeStorage()
+    seen = []
+    app = _hosted(monkeypatch, storage, seen=seen)
+    monkeypatch.delenv("FOUNDRY_AGENT_VERSION")
+    for payload in (
+        {"input": "hi"},
+        {"input": "hi", "agent_reference": {"type": "agent_reference", "name": "other"}},
+    ):
+        reply = _post(app, payload)
+        assert reply.status_code == 400
+        assert reply.json()["error"]["param"] == "agent_reference"
+    assert seen == [] and storage.calls == []
+    assert _post(app, {"input": "hi", "store": False}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["contract-policy-analyst", {"type": "agent", "name": "a"}, {"name": "  "}],
+)
+def test_malformed_agent_reference_is_rejected(monkeypatch, reference):
+    storage = FakeStorage()
+    seen = []
+    app = _hosted(monkeypatch, storage, seen=seen)
+    reply = _post(app, {"input": "hi", "agent_reference": reference})
+    assert reply.status_code == 400
+    assert reply.json()["error"]["param"].startswith("agent_reference")
+    assert seen == [] and storage.calls == []
+
+
+def test_request_agent_reference_wins_over_the_hosted_identity(monkeypatch):
+    storage = FakeStorage()
+    app = _hosted(monkeypatch, storage)
+    other = {"type": "agent_reference", "name": "other", "version": "3"}
+    reply = _post(app, {"input": "hi", "agent_reference": other, "response_id": NEW_ID})
+    assert reply.json()["agent_reference"] == other
+    assert storage.responses[NEW_ID]["agent_reference"] == other
+
+
+def test_agent_reference_resolution_mirrors_stock_with_env_fallback():
+    env = {"FOUNDRY_AGENT_NAME": "agent", "FOUNDRY_AGENT_VERSION": "7"}
+    assert resolve_agent_reference(None, env={}) is None
+    assert resolve_agent_reference(None, env=env) == {
+        "type": "agent_reference", "name": "agent", "version": "7"
+    }
+    assert resolve_agent_reference({"name": " agent "}, env=env)["version"] == "7"
+    assert resolve_agent_reference({"name": "other"}, env=env) == {
+        "type": "agent_reference", "name": "other"
+    }
+    with pytest.raises(InvalidAgentReferenceError) as error:
+        resolve_agent_reference({"type": "agent_reference"}, env=env)
+    assert error.value.param == "agent_reference.name"
+
+
+def test_agent_session_id_matches_stock_derivation():
+    # Expected values printed by stock 2.4.0 hosting._request_parsing.derive_session_id.
+    conv = "conv_" + "a" * 16 + "00" + "b" * 32
+    prev = "resp_" + "c" * 32 + "d" * 16
+    resolve = resolve_agent_session_id
+    assert resolve({}, agent_reference=REF, previous_response_id=None,
+                   conversation_id=conv, env={}) == (
+        "45d276feb7d7af0a6cdc13bddab2271577e3a63c70a29fe8fe175c30508c47a"
+    )
+    assert resolve({}, agent_reference=REF, previous_response_id=prev,
+                   conversation_id=None, env={}) == (
+        "0fe108d12f05877b94580adaae22283d187a4c44e3a787a80a43672be38805a"
+    )
+    assert resolve({}, agent_reference=None, previous_response_id=None,
+                   conversation_id="conv-plain", env={}) == (
+        "0c0762f4f87291b9de94f66f7b2d27d03d10a3eaa2651a234abf94398d43ff6"
+    )
+    assert resolve({"agent_session_id": "s1"}, agent_reference=REF,
+                   previous_response_id=None, conversation_id=None,
+                   env={"FOUNDRY_AGENT_SESSION_ID": "s2"}) == "s1"
+    assert resolve({}, agent_reference=REF, previous_response_id=None,
+                   conversation_id=None, env={"FOUNDRY_AGENT_SESSION_ID": "s2"}) == "s2"
+
+
+def test_storage_snapshot_refuses_incomplete_identity_before_any_request():
+    storage = FakeStorage()
+    store = _store(storage)
+    record = _record()
+    record["response"]["agent_reference"] = {"type": "agent_reference", "name": "a"}
+    with pytest.raises(FoundryStorageError, match="agent_reference") as error:
+        asyncio.run(store.create(record))
+    assert error.value.code == "invalid_request"
+    with pytest.raises(FoundryStorageError):
+        asyncio.run(store.replace(record["response"]))
+    assert storage.calls == []
+
+
+def test_storage_snapshot_strips_nulls_and_stamps_output_items():
+    snapshot = foundry_storage.storage_snapshot(
+        {
+            "id": NEW_ID,
+            "status": "completed",
+            "agent_reference": REF,
+            "error": None,
+            "output_text": "hi",
+            "output": [{"type": "message", "id": "msg_1", "response_id": None}],
+        }
+    )
+    assert "error" not in snapshot and "output_text" not in snapshot
+    assert snapshot["output"][0] == {
+        "type": "message", "id": "msg_1", "response_id": NEW_ID, "agent_reference": REF
+    }
+    assert snapshot["response_id"] == NEW_ID and snapshot["background"] is False
+    assert isinstance(snapshot["completed_at"], int)
+
+
+def test_stream_output_item_events_carry_identity_like_stock(monkeypatch):
+    storage = FakeStorage()
+    app = _hosted(monkeypatch, storage)
+    events = _events(_post(app, {"input": "hi", "stream": True, "response_id": NEW_ID}).text)
+    items = [e["item"] for e in events if e["type"].startswith("response.output_item.")]
+    assert len(items) == 2
+    for item in items:
+        assert item["response_id"] == NEW_ID and item["agent_reference"] == REF
+
+
+def test_agent_session_id_is_resolved_without_persistence(monkeypatch):
+    storage = FakeStorage()
+    app = _hosted(monkeypatch, storage)
+    payload = {"input": "hi", "store": False, "agent_session_id": "requested-session"}
+    reply = _post(app, payload)
+    assert reply.json()["agent_session_id"] == "requested-session"
+    assert reply.json()["agent_reference"] == REF
+    assert storage.calls == []

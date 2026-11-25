@@ -45,6 +45,12 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
+from castia.hosting.agent_identity import (
+    InvalidAgentReferenceError,
+    is_complete_agent_reference,
+    resolve_agent_reference,
+    resolve_agent_session_id,
+)
 from castia.hosting.foundry_storage import (
     FoundryResponseAlreadyExistsError,
     FoundryResponseStore,
@@ -205,6 +211,8 @@ def _responses_body(
     usage: TurnUsage | None = None,
     previous_response_id: str | None = None,
     conversation: dict | None = None,
+    agent_reference: dict | None = None,
+    agent_session_id: str | None = None,
 ) -> dict:
     """An OpenAI Responses-shaped payload carrying ``text``.
 
@@ -224,8 +232,13 @@ def _responses_body(
         message["id"] = output_item_id
         message["status"] = "incomplete" if status == "failed" else status
 
-    return {
-        "id": response_id or _platform_id("resp"),
+    response_id = response_id or _platform_id("resp")
+    if agent_reference is not None:
+        message["response_id"] = response_id
+        message["agent_reference"] = deepcopy(agent_reference)
+
+    body = {
+        "id": response_id,
         "object": "response",
         "created_at": created_at or int(time.time()),
         "status": status,
@@ -247,6 +260,11 @@ def _responses_body(
         if status != "completed"
         else (usage or TurnUsage()).to_responses_usage(),
     }
+    if agent_reference is not None:
+        body["agent_reference"] = deepcopy(agent_reference)
+    if agent_session_id is not None:
+        body["agent_session_id"] = agent_session_id
+    return body
 
 
 def _responses_request_options(body: dict) -> dict:
@@ -376,6 +394,11 @@ async def _save_terminal_response(
 _STORAGE_ERROR_MESSAGE = (
     "An internal error occurred while storing the response. Subsequent "
     "retrieval is not guaranteed. Please retry the request."
+)
+_FOUNDRY_AGENT_REFERENCE_REQUIRED = (
+    "agent_reference with name and version is required: this hosted agent "
+    "stores responses in Foundry storage. Send agent_reference in the request "
+    "or set FOUNDRY_AGENT_NAME and FOUNDRY_AGENT_VERSION."
 )
 
 
@@ -937,19 +960,30 @@ def _streaming_response(
     return body
 
 
-def _streaming_item(item_id: str, text: str, *, status: str) -> dict:
+def _streaming_item(
+    item_id: str,
+    text: str,
+    *,
+    status: str,
+    response_id: str | None = None,
+    agent_reference: dict | None = None,
+) -> dict:
     content = []
     if text or status == "completed":
         content = [
             {"type": "output_text", "text": text, "annotations": [], "logprobs": []}
         ]
-    return {
+    item = {
         "id": item_id,
         "type": "message",
         "status": status,
         "role": "assistant",
         "content": content,
     }
+    if agent_reference is not None:
+        item["response_id"] = response_id
+        item["agent_reference"] = deepcopy(agent_reference)
+    return item
 
 
 def _streaming_content_part(text: str) -> dict:
@@ -1493,6 +1527,33 @@ def _register_wire(
                     return parsed_history
                 previous_response_id, conversation_id = parsed_history
                 try:
+                    agent_reference = resolve_agent_reference(body.get("agent_reference"))
+                except InvalidAgentReferenceError as error:
+                    return _api_error(str(error), param=error.param)
+                # Foundry storage rejects a response without this identity;
+                # refuse before the (billable) handler runs.
+                if (
+                    foundry_store is not None
+                    and body.get("store") is not False
+                    and not is_complete_agent_reference(agent_reference)
+                ):
+                    return _api_error(
+                        _FOUNDRY_AGENT_REFERENCE_REQUIRED,
+                        param="agent_reference",
+                    )
+                agent_session_id: str | None = None
+                if (
+                    foundry_storage_enabled()
+                    or agent_reference is not None
+                    or body.get("agent_session_id") is not None
+                ):
+                    agent_session_id = resolve_agent_session_id(
+                        body,
+                        agent_reference=agent_reference,
+                        previous_response_id=previous_response_id,
+                        conversation_id=conversation_id,
+                    )
+                try:
                     response_id = resolve_response_id(
                         _header_value(request, RESPONSE_ID_HEADER),
                         body.get("response_id"),
@@ -1553,6 +1614,8 @@ def _register_wire(
                 response_options["conversation"] = (
                     {"id": conversation_id} if conversation_id is not None else None
                 )
+                response_options["agent_reference"] = agent_reference
+                response_options["agent_session_id"] = agent_session_id
                 store = body.get("store") is not False
                 if background:
                     record: StoredResponse = {
@@ -1714,7 +1777,11 @@ def _register_wire(
                                         "type": "response.output_item.added",
                                         "output_index": 0,
                                         "item": _streaming_item(
-                                            output_item_id, "", status="in_progress"
+                                            output_item_id,
+                                            "",
+                                            status="in_progress",
+                                            response_id=response_id,
+                                            agent_reference=agent_reference,
                                         ),
                                     },
                                 )
@@ -1796,6 +1863,8 @@ def _register_wire(
                                             output_item_id,
                                             output_text,
                                             status="completed",
+                                            response_id=response_id,
+                                            agent_reference=agent_reference,
                                         ),
                                     },
                                 )

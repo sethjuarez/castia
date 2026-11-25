@@ -93,17 +93,30 @@ class InvalidResponseIdError(ValueError):
     """A caller- or gateway-supplied response id is not a Foundry id."""
 
 
-def _partition_key(like: str | None) -> str | None:
-    if not like:
+def extract_partition_key(value: str | None) -> str | None:
+    """``IdGenerator.extract_partition_key``: the raw partition segment, or ``None``.
+
+    New-format ids yield their 18-char key; legacy ids yield the trailing
+    16 chars unchanged (no ``00`` suffix).
+    """
+    if not value:
         return None
-    _, delimiter, body = like.partition("_")
+    _, delimiter, body = value.partition("_")
     if not delimiter:
         return None
     if len(body) == _BODY_LENGTH:
         return body[:_PARTITION_LENGTH]
     if len(body) == _LEGACY_BODY_LENGTH:
-        return body[-_LEGACY_PARTITION_LENGTH:] + _PARTITION_SUFFIX
+        return body[-_LEGACY_PARTITION_LENGTH:]
     return None
+
+
+def partition_key(like: str | None) -> str | None:
+    """The partition key to reuse when minting beside ``like``, or ``None``."""
+    raw = extract_partition_key(like)
+    if raw is not None and len(raw) == _LEGACY_PARTITION_LENGTH:
+        return raw + _PARTITION_SUFFIX
+    return raw
 
 
 def platform_id(prefix: str, like: str | None = None) -> str:
@@ -114,7 +127,7 @@ def platform_id(prefix: str, like: str | None = None) -> str:
     """
     if not prefix:
         raise ValueError("Prefix must not be empty.")
-    partition = _partition_key(like) or f"{secrets.token_hex(8)}{_PARTITION_SUFFIX}"
+    partition = partition_key(like) or f"{secrets.token_hex(8)}{_PARTITION_SUFFIX}"
     return f"{prefix}_{partition}{uuid4().hex}"
 
 

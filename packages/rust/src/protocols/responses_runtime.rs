@@ -111,15 +111,26 @@ const ITEM_PREFIXES: &[(&str, &str)] = &[
     ("azure_function_call_output", "azfo"),
 ];
 
-fn partition_key(like: Option<&str>) -> Option<String> {
-    let (_, body) = like?.split_once('_')?;
+/// agentserver `IdGenerator.extract_partition_key`: the raw partition segment.
+///
+/// Current-format ids yield their 18-char key; legacy ids yield the trailing
+/// 16 chars unchanged (no `00` suffix).
+pub fn extract_partition_key(value: &str) -> Option<&str> {
+    let (_, body) = value.split_once('_')?;
     match body.len() {
-        PLATFORM_BODY_LENGTH => body.get(..PLATFORM_PARTITION_LENGTH).map(str::to_string),
-        LEGACY_BODY_LENGTH => body
-            .get(LEGACY_BODY_LENGTH - LEGACY_PARTITION_LENGTH..)
-            .map(|key| format!("{key}{PLATFORM_PARTITION_SUFFIX}")),
+        PLATFORM_BODY_LENGTH => body.get(..PLATFORM_PARTITION_LENGTH),
+        LEGACY_BODY_LENGTH => body.get(LEGACY_BODY_LENGTH - LEGACY_PARTITION_LENGTH..),
         _ => None,
     }
+}
+
+fn partition_key(like: Option<&str>) -> Option<String> {
+    let raw = extract_partition_key(like?)?;
+    Some(if raw.len() == LEGACY_PARTITION_LENGTH {
+        format!("{raw}{PLATFORM_PARTITION_SUFFIX}")
+    } else {
+        raw.to_string()
+    })
 }
 
 /// Mint `{prefix}_{16 hex}00{32 hex}`, the Foundry Responses id format.
