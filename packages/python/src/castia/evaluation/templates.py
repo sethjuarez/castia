@@ -4,6 +4,13 @@ The gold-aware template pairs a deterministic ``string_check`` against the
 row's ``ground_truth`` with a rubric whose correctness dimension is a gate.
 Optimizer run-time rows keep only ``query`` and ``ground_truth``, so both
 evaluators read nothing else from the row.
+
+Caveat (observed live): when the Agent Optimizer registers evaluators, a
+**prompt** evaluator keeps ``ground_truth`` but a **rubric** evaluator has it
+stripped, so the rubric's ``{{item.ground_truth}}`` arrives empty. For
+optimizer runs, register the gold check as a prompt evaluator; the rubric is
+for ``castia eval run`` and other non-optimizer runs. ``eval check`` notes
+any rubric that references ``{{item.ground_truth}}``.
 """
 
 from __future__ import annotations

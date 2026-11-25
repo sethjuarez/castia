@@ -143,5 +143,15 @@ interface EvaluationSuiteRuntime {
     input: #{ path: "$temp/eval.yaml" },
     expected: #{ ok: false, problems: #["evaluator 'gold': dimension 'matches_ground_truth' is an uncompiled gate -- run 'python -m castia eval rubric compile' and reference the compiled file"], notes: #[], rubrics: #[#{ name: "gold", count: 2 }] },
   })
+  @vector(#{
+    name: "validate-suite-rubric-ground-truth-note",
+    stage: "callable",
+    files: #[
+      #{ path: "eval.yaml", content: "evaluators:\n  - name: gold\n    version: '1'\n    local_uri: gold.json\n" },
+      #{ path: "gold.json", content: "[{\"id\":\"matches_ground_truth\",\"description\":\"Agrees with {{ item.ground_truth }}\",\"weight\":3},{\"id\":\"clarity\",\"description\":\"Clear\",\"weight\":1}]" },
+    ],
+    input: #{ path: "$temp/eval.yaml" },
+    expected: #{ ok: true, problems: #[], notes: #["evaluator 'gold': rubric references {{item.ground_truth}}, but the Agent Optimizer strips ground_truth from rubric evaluator registrations -- for optimizer runs, register the gold check as a prompt evaluator"], rubrics: #[#{ name: "gold", count: 2 }] },
+  })
   validateSuite(path: string): unknown;
 }

@@ -885,6 +885,14 @@ against `{{item.ground_truth}}`), and sample `query`/`ground_truth` rows. The
 `string_check` shape follows the OpenAI evals testing-criteria format; confirm
 how your azd eval extension registers it before a billable run.
 
+> **Optimizer caveat (observed live):** when the Agent Optimizer registers
+> evaluators, a **prompt** evaluator keeps `ground_truth`, but a **rubric**
+> evaluator has it stripped. The rubric's `{{item.ground_truth}}` then arrives
+> empty and the gate scores against nothing, without any error. For optimizer
+> runs, register the gold check as a prompt evaluator. Keep the gated rubric for
+> `castia eval run` and other runs outside the optimizer. `eval check` adds a note
+> for every rubric that references `{{item.ground_truth}}`.
+
 ## Optimizer-readiness
 
 The Foundry **Agent Optimizer** searches for a better system prompt (and, when

@@ -3814,6 +3814,48 @@
       "returns": "unknown",
       "sync": true,
       "vector": {
+        "name": "validate-suite-rubric-ground-truth-note",
+        "stage": "callable",
+        "files": [
+          {
+            "path": "eval.yaml",
+            "content": "evaluators:\n  - name: gold\n    version: '1'\n    local_uri: gold.json\n"
+          },
+          {
+            "path": "gold.json",
+            "content": "[{\"id\":\"matches_ground_truth\",\"description\":\"Agrees with {{ item.ground_truth }}\",\"weight\":3},{\"id\":\"clarity\",\"description\":\"Clear\",\"weight\":1}]"
+          }
+        ],
+        "input": {
+          "path": "$temp/eval.yaml"
+        },
+        "expected": {
+          "ok": true,
+          "problems": [],
+          "notes": [
+            "evaluator 'gold': rubric references {{item.ground_truth}}, but the Agent Optimizer strips ground_truth from rubric evaluator registrations -- for optimizer runs, register the gold check as a prompt evaluator"
+          ],
+          "rubrics": [
+            {
+              "name": "gold",
+              "count": 2
+            }
+          ]
+        },
+        "operation": "validateSuite"
+      }
+    },
+    {
+      "contract": "EvaluationSuiteRuntime",
+      "namespace": "Castia.Spec.Evaluation",
+      "group": "",
+      "operation": "validateSuite",
+      "params": {
+        "path": "string"
+      },
+      "returns": "unknown",
+      "sync": true,
+      "vector": {
         "name": "validate-suite-uncompiled-gate",
         "stage": "callable",
         "files": [

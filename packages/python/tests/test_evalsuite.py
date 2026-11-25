@@ -250,6 +250,26 @@ def test_validate_suite_flags_uncompiled_gate(tmp_path: Path):
     assert "uncompiled gate" in plan.problems[0]
 
 
+def test_validate_suite_notes_rubric_ground_truth_for_optimizer(tmp_path: Path):
+    (tmp_path / "eval.yaml").write_text(
+        "evaluators:\n  - name: gold\n    version: '1'\n    local_uri: gold.json\n"
+        "  - name: plain\n    version: '1'\n    local_uri: plain.json\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "gold.json").write_text(
+        json.dumps([{"id": "g", "description": "Agrees with {{ item.ground_truth }}"}]),
+        encoding="utf-8",
+    )
+    (tmp_path / "plain.json").write_text(
+        json.dumps([{"id": "c", "description": "Clear"}]), encoding="utf-8"
+    )
+    plan = validate_suite(load_suite(tmp_path / "eval.yaml"))
+    assert plan.ok
+    assert len(plan.notes) == 1
+    assert plan.notes[0].startswith("evaluator 'gold': rubric references {{item.ground_truth}}")
+    assert "register the gold check as a prompt evaluator" in plan.notes[0]
+
+
 def test_gold_aware_template_round_trips_through_check(tmp_path: Path):
     from castia.evaluation.templates import write_gold_aware_template
 

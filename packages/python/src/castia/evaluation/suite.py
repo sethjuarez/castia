@@ -303,6 +303,17 @@ def rubric_to_wire(dims: Iterable[RubricDimension]) -> list[dict]:
 # --------------------------------------------------------------------------- #
 
 
+GROUND_TRUTH_RUBRIC_NOTE = (
+    "evaluator {label!r}: rubric references {{{{item.ground_truth}}}}, but the Agent "
+    "Optimizer strips ground_truth from rubric evaluator registrations -- for "
+    "optimizer runs, register the gold check as a prompt evaluator"
+)
+
+
+def _references_ground_truth(text: str) -> bool:
+    return "{{item.ground_truth}}" in "".join(text.split())
+
+
 @dataclass
 class SuitePlan:
     """The outcome of validating an :class:`EvalSuite` for CI."""
@@ -356,6 +367,8 @@ def validate_suite(suite: EvalSuite) -> SuitePlan:
             )
             continue
         plan.rubrics[label] = dims
+        if any(_references_ground_truth(d.description) for d in dims):
+            plan.notes.append(GROUND_TRUTH_RUBRIC_NOTE.format(label=label))
         for i, dim in enumerate(dims):
             if not dim.id:
                 plan.problems.append(f"evaluator {label!r}: dimension #{i + 1} has no id")

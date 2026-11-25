@@ -259,6 +259,22 @@ pub fn validate_suite(path: impl AsRef<Path>) -> Result<Value, EvaluationSuiteEr
             continue;
         }
         upsert_rubric_summary(&mut rubrics, label, dimensions.len());
+        if dimensions.iter().any(|dimension| {
+            dimension
+                .get("description")
+                .and_then(Value::as_str)
+                .map(|text| {
+                    text.split_whitespace()
+                        .collect::<String>()
+                        .contains("{{item.ground_truth}}")
+                })
+                .unwrap_or(false)
+        }) {
+            notes.push(format!(
+                "evaluator '{}': rubric references {{{{item.ground_truth}}}}, but the Agent Optimizer strips ground_truth from rubric evaluator registrations -- for optimizer runs, register the gold check as a prompt evaluator",
+                label
+            ));
+        }
 
         for (index, dimension) in dimensions.iter().enumerate() {
             let id = dimension

@@ -272,4 +272,7 @@ def _cmd_eval_template(args: argparse.Namespace) -> int:
         print(f"wrote         : {p}")
     print("next          : reference gold_rubric.json as a rubric local_uri in eval.yaml;")
     print("                keep gold_rubric.source.json as the authored brief")
+    print("warning       : the Agent Optimizer strips ground_truth from rubric evaluator")
+    print("                registrations; for optimizer runs, register the gold check as a")
+    print("                prompt evaluator (see README: gold-aware evaluators)")
     return 0
