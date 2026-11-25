@@ -24,6 +24,7 @@ from castia.integrations.toolbox import (
     knowledge_base_mcp_tool,
     platform_endpoint_env,
     resolve_toolbox_endpoint,
+    toolbox_function_tool,
     toolbox_mcp_tool,
     toolbox_tools_from_mcp,
     validate_toolbox_endpoint,
@@ -725,3 +726,124 @@ def test_toolbox_tools_from_mcp_rejects_missing_allowed_tool() -> None:
                 )
 
     asyncio.run(run())
+
+# --- toolbox_function_tool ---------------------------------------------------
+
+_KB = "contracts-kb-mcp___knowledge_base_retrieve"
+_QUERY_SCHEMA = {
+    "type": "object",
+    "properties": {"query": {"type": "string", "description": "Search question."}},
+    "required": ["query"],
+    "additionalProperties": False,
+}
+
+
+def _kb_tool(http, **kwargs):
+    return toolbox_function_tool(
+        _KB,
+        description="Look up contract context.",
+        parameters=_QUERY_SCHEMA,
+        to_mcp_arguments=lambda args: {"query_variants": [args["query"].strip()[:400]]},
+        mcp_client=ToolboxMcpClient(
+            "https://example.test/mcp", token_provider=lambda: "TOKEN", client=http
+        ),
+        **kwargs,
+    )
+
+
+def test_toolbox_function_tool_is_pure_and_keeps_model_schema(monkeypatch) -> None:
+    for key in ("TOOLBOX_ENDPOINT", "TOOLBOX_MCP_ENDPOINT", "TOOLBOX_NAME", "FOUNDRY_PROJECT_ENDPOINT"):
+        monkeypatch.delenv(key, raising=False)
+
+    tool = toolbox_function_tool(
+        _KB,
+        description="Look up contract context.",
+        parameters=_QUERY_SCHEMA,
+        kind="foundry_iq",
+        span_name="execute_tool foundry_iq_retrieve",
+    )
+
+    assert tool.spec() == {
+        "type": "function",
+        "name": _KB,
+        "description": "Look up contract context.",
+        "parameters": _QUERY_SCHEMA,
+    }
+    assert tool.parameters is not _QUERY_SCHEMA
+    assert (tool.kind, tool.span_name) == ("foundry_iq", "execute_tool foundry_iq_retrieve")
+    with pytest.raises(ValueError, match="toolbox MCP endpoint is required"):
+        asyncio.run(tool.run(None, query="fees"))
+
+
+def test_toolbox_function_tool_maps_arguments_and_result() -> None:
+    seen = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        seen.append(payload["params"])
+        return httpx.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {"content": [{"type": "text", "text": "clause 7"}], "isError": False},
+            },
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+            tool = _kb_tool(
+                http,
+                from_mcp_result=lambda r: {"ok": not r.get("isError"), "content": r["content"]},
+            )
+            return await tool.run(None, query="  late fees  ")
+
+    assert asyncio.run(run()) == {"ok": True, "content": [{"type": "text", "text": "clause 7"}]}
+    assert seen == [{"name": _KB, "arguments": {"query_variants": ["late fees"]}}]
+
+
+def test_toolbox_function_tool_on_error_sees_structured_http_and_rpc_errors() -> None:
+    responses = iter(
+        [
+            httpx.Response(503, json={"message": "busy"}),
+            httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "error": {"code": -32602, "message": "bad"}}),
+        ]
+    )
+
+    def on_error(exc: Exception) -> dict:
+        if isinstance(exc, McpToolboxError) and exc.status_code:
+            return {"ok": False, "error": {"status_code": exc.status_code, "body": exc.body}}
+        if isinstance(exc, McpToolboxError) and exc.rpc_error:
+            return {"ok": False, "error": exc.rpc_error}
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: next(responses))) as http:
+            tool = _kb_tool(http, on_error=on_error)
+            return [
+                await tool.run(None, query="a"),
+                await tool.run(None, query="b"),
+                await tool.run(None),
+            ]
+
+    assert asyncio.run(run()) == [
+        {"ok": False, "error": {"status_code": 503, "body": {"message": "busy"}}},
+        {"ok": False, "error": {"code": -32602, "message": "bad"}},
+        {"ok": False, "error": "KeyError: 'query'"},
+    ]
+
+
+def test_toolbox_function_tool_raises_without_on_error() -> None:
+    async def run():
+        transport = httpx.MockTransport(lambda _r: httpx.Response(500, json={"m": "x"}))
+        async with httpx.AsyncClient(transport=transport) as http:
+            await _kb_tool(http).run(None, query="a")
+
+    with pytest.raises(McpToolboxError, match="HTTP 500") as info:
+        asyncio.run(run())
+    assert info.value.status_code == 500
+
+
+def test_toolbox_mcp_client_timeout_is_configurable() -> None:
+    client = ToolboxMcpClient("https://example.test/mcp", timeout=120)
+    assert client.timeout == 120

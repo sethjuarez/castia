@@ -474,6 +474,62 @@ registered provider so baseline checks remain offline. The
 [complete application](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#write-a-complete-responses-agent)
 shows both paths.
 
+#### A toolbox tool with its own model-facing schema
+
+Some MCP tools have a wire schema you don't want the model to see. For example,
+Foundry IQ's `knowledge_base_retrieve` takes `query_variants: [str]`, but a
+tuned model calls it with one `query`. `toolbox_function_tool(...)` builds an
+ordinary local `Tool`. Its `name`, `description`, and `parameters` are exactly
+what the model and `tools.json` see. Castia maps the arguments onto the MCP
+`tools/call` request:
+
+```python
+from castia import McpToolboxError, toolbox_function_tool
+
+KB = "contracts-kb-mcp___knowledge_base_retrieve"
+
+def kb_error(exc: Exception) -> dict:
+    if isinstance(exc, McpToolboxError) and exc.status_code:
+        return {"ok": False, "error": {"status_code": exc.status_code, "body": exc.body}}
+    if isinstance(exc, McpToolboxError) and exc.rpc_error:
+        return {"ok": False, "error": exc.rpc_error}
+    return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+def kb_tools():
+    return [toolbox_function_tool(
+        KB,
+        description="Look up contract or policy context.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "A short search question."}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        to_mcp_arguments=lambda args: {"query_variants": [args["query"].strip()[:400]]},
+        from_mcp_result=lambda r: {"ok": not r.get("isError"), "content": r.get("content", [])},
+        on_error=kb_error,
+        kind="foundry_iq",
+        span_name="execute_tool foundry_iq_retrieve",
+        timeout=120,
+    )]
+
+app.tools(kb_tools)
+```
+
+Construction is pure. The endpoint is resolved, and a token minted, only when the
+model calls the tool. `mcp_tool=` sets a different wire name when it differs.
+Without `on_error`, failures raise, and `Model` feeds them back as
+`{"ok": False, "detail": ...}`. `span_name` renames the `execute_tool` span
+verbatim; `gen_ai.tool.name` stays the model-facing name. Prompty runners get
+the same tool through `prompty_runner_provider(tools=[...], toolbox=False)`.
+Pass `toolbox=False` so tools aren't also auto-discovered from `tools/list`.
+
+To stop an optimizer candidate from changing anything but wording, call
+`validate_optimized_tools(tools, config.tool_definitions)` before
+`apply_optimized_tools`. It raises unless the candidate changes only tool
+descriptions and top-level parameter descriptions, which is exactly what
+`apply_optimized_tools` applies.
+
 **Deploying:** the `azd ai toolbox` extension writes `TOOLBOX_<NAME>_MCP_ENDPOINT`
 into the **azd** environment, but does **not** auto-inject it into a hosted
 container — declare that env passthrough on your container yourself (there is no

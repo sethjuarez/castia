@@ -975,11 +975,14 @@ def execute_tool(
     system: str = PROVIDER,
     tool_type: str | None = None,
     call_id: str | None = None,
+    span_name: str | None = None,
 ) -> Iterator[Any]:
     """Wrap a tool/function call in an ``execute_tool`` span (labels it **Tool**).
 
     ``name`` is the tool being called; the span is named ``execute_tool {name}``
     and carries ``gen_ai.tool.name`` so the portal shows which tool ran.
+    ``span_name`` replaces the span name verbatim (``gen_ai.tool.name`` stays
+    ``name``), for apps whose dashboards key on an established span label.
     """
     attributes = {
         "gen_ai.operation.name": OperationName.EXECUTE_TOOL,
@@ -994,6 +997,6 @@ def execute_tool(
         attributes["gen_ai.tool.call.id"] = call_id
     tracer = _get_tracer()
     with tracer.start_as_current_span(
-        f"{OperationName.EXECUTE_TOOL} {name}", attributes=attributes
+        span_name or f"{OperationName.EXECUTE_TOOL} {name}", attributes=attributes
     ) as span:
         yield span

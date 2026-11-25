@@ -368,6 +368,7 @@ class Model:
                     call.name,
                     tool_type=getattr(tool, "kind", "function"),
                     call_id=getattr(call, "call_id", None),
+                    span_name=getattr(tool, "span_name", None),
                 ) as span:
                     result = await tool.run(activity, **args)
                 dev_diagnostics.update_tool_call(

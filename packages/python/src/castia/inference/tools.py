@@ -68,7 +68,12 @@ async def _cite_source_impl(
 
 @dataclass(frozen=True)
 class Tool:
-    """A model-callable outbound capability."""
+    """A model-callable outbound capability.
+
+    ``kind`` labels ``gen_ai.tool.type`` on the ``execute_tool`` span.
+    ``span_name`` optionally replaces that span's name verbatim; the
+    model-facing ``name`` and ``gen_ai.tool.name`` never change.
+    """
 
     name: str
     description: str
@@ -76,6 +81,7 @@ class Tool:
     impl: ToolImpl
     scopes: tuple[str, ...] = field(default_factory=tuple)
     kind: str = "function"
+    span_name: str | None = None
 
     def spec(self) -> dict[str, Any]:
         """The OpenAI Responses-API function-tool spec for this tool."""
