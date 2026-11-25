@@ -33,6 +33,31 @@ fn env_value<'a>(env: &'a HashMap<String, String>, name: &str) -> &'a str {
     env.get(name).map(|value| value.trim()).unwrap_or_default()
 }
 
+pub const SESSION_ID_HEADER: &str = "x-agent-session-id";
+
+/// agentserver `_session_headers`: the `x-agent-session-id` value for a
+/// Responses endpoint response. POST passes its resolved session; other
+/// endpoints (and early POST errors) fall back to `FOUNDRY_AGENT_SESSION_ID`.
+/// `None` means no header (non-Responses path, nothing known, or a value
+/// that is not a valid header).
+pub fn session_header_value(
+    path: &str,
+    resolved: Option<&str>,
+    env: &HashMap<String, String>,
+) -> Option<String> {
+    if path != "/responses" && !path.starts_with("/responses/") {
+        return None;
+    }
+    let value = resolved
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| env_value(env, AGENT_SESSION_ID_ENV));
+    let valid = !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| (ch as u32) <= 0xFF && !matches!(ch, '\r' | '\n' | '\0'));
+    valid.then(|| value.to_string())
+}
+
 fn non_empty(value: Option<&Value>) -> Option<&str> {
     value
         .and_then(Value::as_str)
