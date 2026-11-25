@@ -1126,6 +1126,34 @@ python -m castia finetune submit --model mai-code-2-flash --dataset train.jsonl 
   --validation val.jsonl --grader grader.json --rewrite-roles --dry-run
 ```
 
+**Pre-submit checks.** These run before any upload, and each guards a failure
+seen in real RFT work. The rules and fixtures live in
+`spec/conformance/finetuning/preflight.json` and `python_grader_rules.json`.
+
+- `--batch-size -1` or `auto` is dropped from the payload so the service picks
+  the batch size; it rejects `-1` with a 400. Any other value must be in [1, 256].
+- RFT needs at least 10 training rows. The service rejects fewer with a 400.
+- Python graders are scanned for imports the grader service rejects (today
+  `urllib.parse`) and fail with a fix-it. An import that isn't on the list isn't
+  proven allowed.
+- RFT `submit` prints `estimate : ~N steps, ~H h, ~$C` with every assumption.
+  An automatic batch size gives an upper bound at batch 1. Pass
+  `--seconds-per-step` (measured by a probe) and `--hourly-usd` to sharpen it.
+- A live `submit` requires `--approve-train`. That approval covers training
+  only: the job handoff lists `evaluate` and `promote` as separate approvals.
+- `finetune status` splits `queue_seconds` from `training_seconds`. The
+  service's `estimated_finish` includes GPU queue time.
+- `finetune delete <job>` deletes the trained model too. It needs `--yes` for a
+  job without a model. For a job with a model it needs `--confirm-model <model>`,
+  and it lists the deployments that would stop serving.
+
+```bash
+python -m castia finetune submit --model o4-mini --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --batch-size auto \
+  --seconds-per-step 45 --approve-train
+python -m castia finetune delete ftjob-123 --confirm-model o4-mini-ft-abc
+```
+
 > ⚠️ **Provisional / doc-derived.** The grader JSON schema, the RFT
 > hyperparameter names, and the SFT/DPO/RFT `fine_tuning.jobs.create` payload
 > shapes are doc-derived and **have not been confirmed against live Castia

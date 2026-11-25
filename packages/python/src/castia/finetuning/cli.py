@@ -52,7 +52,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     ft_submit.add_argument("--grader", default=None, help="RFT grader JSON")
     ft_submit.add_argument("--project-endpoint")
     ft_submit.add_argument("--n-epochs", dest="n_epochs", type=int, default=None)
-    ft_submit.add_argument("--batch-size", dest="batch_size", default=None)
+    ft_submit.add_argument(
+        "--batch-size", dest="batch_size", default=None,
+        help="1-256; -1 or auto is dropped from the payload so the service chooses",
+    )
     ft_submit.add_argument(
         "--learning-rate-multiplier", dest="learning_rate_multiplier", type=float,
         default=None,
@@ -71,6 +74,19 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         "--rewrite-roles", dest="rewrite_roles", action="store_true",
         help="RFT only: upload copies with roles the base model rejects rewritten "
              "(MAI: system -> developer); source files are not changed",
+    )
+    ft_submit.add_argument(
+        "--seconds-per-step", dest="seconds_per_step", type=float, default=None,
+        help="measured wall-clock seconds per training step for the estimate",
+    )
+    ft_submit.add_argument(
+        "--hourly-usd", dest="hourly_usd", type=float, default=None,
+        help="training price per hour for the estimate (default: developer tier)",
+    )
+    ft_submit.add_argument(
+        "--approve-train", dest="approve_train", action="store_true",
+        help="approve the printed training spend; does not approve evaluation "
+             "or promotion",
     )
     ft_submit.add_argument("--dry-run", dest="dry_run", action="store_true",
                            help="print the resolved payload and submit nothing")
@@ -180,7 +196,16 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
         print("result        : PROBLEMS FOUND (nothing submitted)", file=sys.stderr)
         return 1
 
-    hyperparameters = _hyperparameters(args)
+    try:
+        hyperparameters = _hyperparameters(args)
+        estimate = _estimate(args, len(train), hyperparameters)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if estimate is not None:
+        from castia.finetuning.preflight import spend_line
+
+        print(f"estimate      : {spend_line(estimate)}")
 
     if args.dry_run:
         # Dry-run stays offline: build the payload from file *paths* (uploads and
@@ -211,6 +236,28 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
         print(_json.dumps(job, indent=2))
         print("result        : dry-run (nothing uploaded or submitted)")
         return 0
+
+    if not args.approve_train:
+        try:
+            _build_job(
+                args.type,
+                model=args.model,
+                training_file=args.dataset,
+                validation_file=args.validation,
+                grader=grader,
+                hyperparameters=hyperparameters,
+                suffix=args.suffix,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(
+            "result        : not submitted -- review the plan, then rerun with "
+            "--approve-train (training only; evaluation and promotion are "
+            "separate approvals)",
+            file=sys.stderr,
+        )
+        return 2
 
     import tempfile
     from pathlib import Path
@@ -255,7 +302,23 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
 
     print(f"job           : {getattr(created, 'id', created)}")
     print(f"result        : submitted (billable {args.type.upper()} job)")
+    print("next          : evaluate the trained model, then approve promotion separately")
     return 0
+
+
+def _estimate(args: argparse.Namespace, rows: int, hyperparameters: dict | None) -> dict | None:
+    if args.type != "rft":
+        return None
+    from castia.finetuning.preflight import estimate_training
+
+    hyper = hyperparameters or {}
+    return estimate_training(
+        rows,
+        n_epochs=hyper.get("n_epochs"),
+        batch_size=hyper.get("batch_size"),
+        seconds_per_step=args.seconds_per_step,
+        hourly_usd=args.hourly_usd,
+    )
 
 
 def _write_jsonl(path, rows: list) -> str:
@@ -286,10 +349,15 @@ def _validate_splits(
 
         return validate_dpo_splits(train, validation)
 
+    from castia.finetuning.preflight import min_rows_problem
+
+    short = min_rows_problem("rft", len(train))
+    floor = [short] if short else []
     if validation is None:
         from castia.finetuning.rft import validate_rft_dataset
 
         problems = ["RFT requires --validation"] if require_rft_grader else []
+        problems.extend(floor)
         if grader is not None:
             from castia.finetuning.rft import validate_grader
 
@@ -299,10 +367,10 @@ def _validate_splits(
         ))
         return problems
     if grader is None and require_rft_grader:
-        return ["RFT requires --grader"]
+        return ["RFT requires --grader", *floor]
     from castia.finetuning.rft import validate_rft_splits
 
-    return validate_rft_splits(train, validation, grader=grader, model=model)
+    return floor + validate_rft_splits(train, validation, grader=grader, model=model)
 
 
 def _hyperparameters(args: argparse.Namespace) -> dict | None:
@@ -312,10 +380,11 @@ def _hyperparameters(args: argparse.Namespace) -> dict | None:
         if value is not None:
             hyperparameters[name] = value
     if args.batch_size is not None:
-        try:
-            hyperparameters["batch_size"] = int(args.batch_size)
-        except ValueError:
-            hyperparameters["batch_size"] = args.batch_size
+        from castia.finetuning.preflight import normalize_batch_size
+
+        batch_size = normalize_batch_size(args.batch_size)
+        if batch_size is not None:
+            hyperparameters["batch_size"] = batch_size
     if args.reasoning_effort:
         hyperparameters["reasoning_effort"] = args.reasoning_effort
     if args.eval_interval is not None:
@@ -382,7 +451,9 @@ def _submit_job(training_type: str, job: dict, *, endpoint: str | None = None):
 
 
 def _register_management_commands(subparsers: argparse._SubParsersAction) -> None:
-    for name in ("list", "status", "events", "checkpoints", "results", "cancel", "handoff"):
+    for name in (
+        "list", "status", "events", "checkpoints", "results", "cancel", "delete", "handoff",
+    ):
         parser = subparsers.add_parser(name, help=f"{name} existing fine-tuning jobs")
         parser.add_argument("--project-endpoint")
         parser.add_argument("--request-timeout", type=float, default=30)
@@ -401,6 +472,14 @@ def _register_management_commands(subparsers: argparse._SubParsersAction) -> Non
             parser.add_argument("--file-id", help="download only this job-owned result file")
             parser.add_argument("--out", help="new destination file; never overwritten")
             parser.add_argument("--max-bytes", type=int, default=4 * 1024 * 1024)
+        if name == "delete":
+            parser.add_argument(
+                "--confirm-model", dest="confirm_model",
+                help="required when the job has a trained model: deleting the job "
+                     "deletes that model",
+            )
+            parser.add_argument("--yes", action="store_true",
+                                help="confirm deleting a job that has no trained model")
         parser.set_defaults(func=run, management_command=name)
 
 
@@ -435,6 +514,10 @@ def run(args: argparse.Namespace) -> int:
                 )]
             elif command == "handoff":
                 result = client.deployment_handoff(job_id)
+            elif command == "delete":
+                result = client.delete(
+                    job_id, confirm_model=args.confirm_model, yes=args.yes,
+                )
             elif command == "results":
                 if bool(args.file_id) != bool(args.out):
                     raise ValueError("--file-id and --out must be supplied together")
@@ -454,6 +537,10 @@ def run(args: argparse.Namespace) -> int:
                 else:
                     job = client.status(job_id)
                 result = job.model_dump(mode="json")
+                if command == "status":
+                    timing = client.timing(job)
+                    if timing is not None:
+                        result["timing"] = timing
                 if getattr(args, "save_reference", None):
                     if not client.endpoint:
                         raise ValueError("project endpoint is required to save a reference")
