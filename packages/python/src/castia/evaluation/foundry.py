@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 AUTH_SCOPE = "https://ai.azure.com/.default"
 OPENAI_PREFIX = "/openai/v1"
+EVALUATORS_API_VERSION = "v1"
 
 #: Separator in templated run names: ``"<rung> · n<rows>"``.
 RUN_NAME_SEP = " · "
@@ -162,14 +163,46 @@ class FoundryEvalClient:
             if status in {"failed", "canceled", "cancelled"}:
                 raise RuntimeError(f"delete of {path} ended with status {status!r}: {poll.data}")
 
+    # -- evaluators ----------------------------------------------------------
+
+    def get_evaluator_version(self, name: str, version: str) -> dict[str, Any]:
+        """Fetch one evaluator version (``/evaluators/{name}/versions/{v}``)."""
+        path = f"/evaluators/{quote(name, safe='')}/versions/{quote(str(version), safe='')}"
+        return self._send("GET", path, api_version=EVALUATORS_API_VERSION).data
+
+    def list_evaluator_versions(self, name: str) -> list[dict[str, Any]]:
+        """List every version of an evaluator (empty when it doesn't exist)."""
+        path: str | None = f"/evaluators/{quote(name, safe='')}/versions"
+        versions: list[dict[str, Any]] = []
+        api_version: str | None = EVALUATORS_API_VERSION
+        while path:
+            reply = self._send("GET", path, api_version=api_version, ok_statuses=(404,))
+            if reply.status == 404:
+                return versions
+            items = reply.data.get("value", reply.data.get("data", []))
+            versions.extend(v for v in items if isinstance(v, dict))
+            path = reply.data.get("nextLink") or reply.data.get("next_link")
+            api_version = None  # next links already carry their query string
+        return versions
+
+    def create_evaluator_version(self, name: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST a new (auto-numbered) evaluator version and return it."""
+        path = f"/evaluators/{quote(name, safe='')}/versions"
+        return self._send(
+            "POST", path, json_body=body, api_version=EVALUATORS_API_VERSION
+        ).data
+
     # -- transport ---------------------------------------------------------
 
-    def _url(self, path_or_url: str) -> str:
-        if path_or_url.startswith(("https://", "http://")):
-            return path_or_url
-        if not path_or_url.startswith("/"):
-            path_or_url = "/" + path_or_url
-        return f"{self.project_endpoint}{path_or_url}"
+    def _url(self, path_or_url: str, api_version: str | None = None) -> str:
+        if not path_or_url.startswith(("https://", "http://")):
+            if not path_or_url.startswith("/"):
+                path_or_url = "/" + path_or_url
+            path_or_url = f"{self.project_endpoint}{path_or_url}"
+        if api_version:
+            sep = "&" if "?" in path_or_url else "?"
+            path_or_url = f"{path_or_url}{sep}api-version={api_version}"
+        return path_or_url
 
     def _send(
         self,
@@ -178,10 +211,11 @@ class FoundryEvalClient:
         *,
         json_body: dict[str, Any] | None = None,
         ok_statuses: tuple[int, ...] = (),
+        api_version: str | None = None,
     ) -> _Reply:
         from azure.core.rest import HttpRequest
 
-        url = self._url(path_or_url)
+        url = self._url(path_or_url, api_version)
         request = HttpRequest(method, url)
         if json_body is not None:
             request.headers["Content-Type"] = "application/json"

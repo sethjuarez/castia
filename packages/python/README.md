@@ -941,6 +941,29 @@ Foundry deletes are asynchronous: `DELETE` can return `deleted: false` with a
 until it is gone, and exits 1 on timeout instead of leaving a timed cleanup
 script behind. It reads `FOUNDRY_PROJECT_ENDPOINT` or `--project-endpoint`.
 
+#### Pinning custom evaluators
+
+Foundry numbers evaluator versions per project, and an evaluator reference
+without a `version:` follows whatever was uploaded last. Live `eval run` refuses
+unpinned custom evaluators (pass `--allow-unpinned` to override), and
+`eval check --require-pinned` reports them offline. Builtin evaluators are exempt.
+
+```bash
+# Export a version to evaluators/<name>@<hash12>.json (default: latest version):
+python -m castia eval evaluator export --name gold_rubric --version 3
+
+# In another project: reuse the version with the same content hash, or create one,
+# then write that version into eval.yaml:
+python -m castia eval evaluator import evaluators/gold_rubric@1a2b3c4d5e6f.json --pin-version
+```
+
+The bundle's identity is a `sha256` of the canonical JSON of `evaluator_type`,
+`categories`, `supported_evaluation_levels` and `definition`. Display names,
+descriptions and tags don't change it. Import is idempotent. It matches on the
+recomputed content of existing versions, or on the `castia.content_hash` tag
+when a listing omits definitions. It also verifies the stored definition hashes
+to the same value, and refuses a bundle edited after export.
+
 `check` is a pure, offline referential-integrity gate: it resolves every
 evaluator/dataset `local_uri` and validates each rubric dimensions file.
 `generate` and `run` submit **billable** Foundry jobs, so both accept
