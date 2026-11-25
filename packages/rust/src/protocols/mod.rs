@@ -6,4 +6,7 @@ pub mod responses_runtime;
 pub use activity_runtime::CastiaActivityRuntime;
 pub use chat_runtime::{chat_body, last_user_text, CastiaChatRuntime};
 pub use invocations_runtime::{invocations_body, invocations_input, CastiaInvocationsRuntime};
-pub use responses_runtime::{platform_id, responses_body, responses_input, CastiaResponsesRuntime};
+pub use responses_runtime::{
+    item_id, platform_id, resolve_response_id, responses_body, responses_input,
+    validate_response_id, CastiaResponsesRuntime, RESPONSE_ID_HEADER,
+};

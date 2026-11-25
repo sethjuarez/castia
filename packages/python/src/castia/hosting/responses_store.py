@@ -8,9 +8,12 @@ storage every replica can see (Cosmos DB, Redis, SQL, Foundry storage, ...)::
 
     app = Agent(name="my-agent", response_store=MyCosmosResponseStore(...))
 
-Castia ships no production store. Without one, ``background=true`` is rejected
-with ``400 unsupported_parameter`` and foreground responses keep using a small
-process-local cache that is not shared across replicas.
+Castia ships no store that supports ``background=true``. Without one,
+``background=true`` is rejected with ``400 unsupported_parameter``. Foreground
+responses go to Foundry response storage when the agent runs hosted
+(:class:`castia.hosting.foundry_storage.FoundryResponseStore`), where the
+platform reads them by id; elsewhere they use a small process-local cache that
+is not shared across replicas.
 
 Execution is still process-bound: the store makes *state* visible across
 replicas, but a replica restart abandons in-flight work. Retention, expiry, and
