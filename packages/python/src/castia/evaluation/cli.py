@@ -93,7 +93,12 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     )
     ev_run.add_argument("--config", default=DEFAULT_EVAL_CONFIG,
                         help=f"path to the eval config (default: {DEFAULT_EVAL_CONFIG})")
-    ev_run.add_argument("--name", default=None, help="name for the eval run")
+    ev_run.add_argument("--name", default=None,
+                        help="explicit run name (prefer --rung; runs can't be renamed later)")
+    ev_run.add_argument("--rung", default=None,
+                        help="ladder label; names the run '<rung> · n<rows>'")
+    ev_run.add_argument("--rows", type=int, default=None,
+                        help="row count for the run name (default: lines in the eval.yaml dataset)")
     ev_run.add_argument("--no-wait", dest="no_wait", action="store_true",
                         help="start the run and return immediately")
     ev_run.add_argument("--no-prompt", dest="no_prompt", action="store_true",
@@ -101,6 +106,23 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     ev_run.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="print the resolved azd command and submit nothing")
     ev_run.set_defaults(func=_cmd_eval_run)
+
+    ev_del = evsub.add_parser(
+        "delete",
+        help="delete a Foundry eval or eval run (optionally wait until it is gone)",
+    )
+    ev_del.add_argument("--eval-id", dest="eval_id", required=True, help="eval id")
+    ev_del.add_argument("--run-id", dest="run_id", default=None,
+                        help="eval run id (omit to delete the whole eval)")
+    ev_del.add_argument("--wait", action="store_true",
+                        help="poll the delete location until the resource is gone")
+    ev_del.add_argument("--timeout", type=float, default=600.0,
+                        help="seconds to wait with --wait (default: 600)")
+    ev_del.add_argument("--interval", type=float, default=10.0,
+                        help="seconds between polls with --wait (default: 10)")
+    ev_del.add_argument("--project-endpoint", dest="project_endpoint", default=None,
+                        help="Foundry project endpoint (default: FOUNDRY_PROJECT_ENDPOINT)")
+    ev_del.set_defaults(func=_cmd_eval_delete)
 
 
 def _format_list(protocols) -> str:
@@ -202,13 +224,96 @@ def _cmd_eval_update(args: argparse.Namespace) -> int:
     )
     return _run_azd_argv(argv, dry_run=args.dry_run)
 
+def _resolve_run_name(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    """Return ``(name, error)`` for ``eval run`` from --name / --rung / --rows."""
+    from castia.evaluation.foundry import is_templated_run_name, run_name
+
+    if args.name and args.rung:
+        return None, "pass --name or --rung, not both"
+    if args.name:
+        if not is_templated_run_name(args.name):
+            print(
+                f"warning: run name {args.name!r} is not '<rung> · n<rows>'; "
+                "Foundry runs can't be renamed later",
+                file=sys.stderr,
+            )
+        return args.name, None
+    if not args.rung:
+        if args.dry_run:
+            return None, None
+        return None, "pass --rung (names the run '<rung> · n<rows>') or --name"
+    rows = args.rows
+    if rows is None:
+        rows = _dataset_rows(args.config)
+        if rows is None:
+            return None, "could not count dataset rows from the eval config; pass --rows"
+    try:
+        return run_name(args.rung, rows), None
+    except ValueError as exc:
+        return None, str(exc)
+
+
+def _dataset_rows(config: str) -> int | None:
+    from castia.evaluation.foundry import count_jsonl_rows
+    from castia.evaluation.suite import load_suite
+
+    try:
+        suite = load_suite(config)
+    except OSError:
+        return None
+    for ds in suite.datasets:
+        if ds.role == "dataset" and ds.local_uri:
+            try:
+                return count_jsonl_rows(suite.root / ds.local_uri)
+            except OSError:
+                return None
+    return None
+
+
 def _cmd_eval_run(args: argparse.Namespace) -> int:
     from castia.evaluation.suite import build_run_argv
 
+    name, error = _resolve_run_name(args)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     argv = build_run_argv(
         config=args.config,
-        name=args.name,
+        name=name,
         no_wait=args.no_wait,
         no_prompt=args.no_prompt,
     )
     return _run_azd_argv(argv, dry_run=args.dry_run)
+
+
+def _project_endpoint(args: argparse.Namespace) -> str | None:
+    import os
+
+    return args.project_endpoint or os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
+
+
+def _cmd_eval_delete(args: argparse.Namespace) -> int:
+    from castia.evaluation.foundry import FoundryEvalClient
+
+    endpoint = _project_endpoint(args)
+    if not endpoint:
+        print("error: FOUNDRY_PROJECT_ENDPOINT is not set (or pass --project-endpoint)",
+              file=sys.stderr)
+        return 2
+    client = FoundryEvalClient(endpoint)
+    target = f"run {args.run_id} of eval {args.eval_id}" if args.run_id else f"eval {args.eval_id}"
+    try:
+        if args.run_id:
+            result = client.delete_eval_run(args.eval_id, args.run_id, wait=args.wait,
+                                            timeout=args.timeout, interval=args.interval)
+        else:
+            result = client.delete_eval(args.eval_id, wait=args.wait,
+                                        timeout=args.timeout, interval=args.interval)
+    except TimeoutError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if result.get("deleted") is True or args.wait:
+        print(f"deleted       : {target}")
+    else:
+        print(f"delete queued : {target} (pass --wait to confirm it is gone)")
+    return 0
