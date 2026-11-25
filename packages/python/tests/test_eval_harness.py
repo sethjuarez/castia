@@ -204,3 +204,124 @@ def test_cli_exits_nonzero_when_runs_are_rejected(tmp_path, monkeypatch, capsys)
                "--poll-interval", "0", "--state", str(tmp_path / "s.json")])
     assert rc == 1
     assert "accepted      : 1/2 runs" in capsys.readouterr().out
+
+
+# -- tool-error completeness gate ------------------------------------------
+
+
+class Gate:
+    def __init__(self, valid, reason=None, errors=0, total=0, rate=0.0):
+        self.valid, self.reason, self.errors, self.total = valid, reason, errors, total
+        self.error_rate, self.max_error_rate, self.min_calls = rate, 0.1, 2
+
+    def to_dict(self):
+        return {"schema": "castia.tool_error_gate/v1", "valid": self.valid, "reason": self.reason}
+
+
+class ToolBackend(FakeBackend):
+    def __init__(self, results, tool_records):
+        super().__init__(results, lag=0)
+        self.records = tool_records
+        self.asked: list[str] = []
+
+    def tool_records(self, run_id):
+        self.asked.append(run_id)
+        return self.records[run_id]
+
+
+def test_tool_gate_rejects_runs_with_failing_tools(tmp_path):
+    backend = ToolBackend(
+        [done(50, 10), done(50, 10), done(5, 5, errored=50, total=60)],
+        {"run_1": ["ok"], "run_2": ["bad", "bad"], "run_3": []},
+    )
+
+    def gate(records):
+        if "bad" in records:
+            return Gate(False, "tool_error_rate_exceeded", errors=2, total=2, rate=1.0)
+        return Gate(True)
+
+    state = run_harness(backend, cfg(runs=3, max_in_flight=3), tmp_path / "s.json", tool_gate=gate)
+    decisions = [(e["decision"], e["reason"]) for e in state["runs"]]
+    assert decisions[0] == ("accepted", None)
+    assert decisions[1] == ("rejected", ("tool gate: tool_error_rate_exceeded "
+                                         "(2/2 tool calls failed, rate 100.0% > 10%)"))
+    assert decisions[2][1].startswith("incomplete")
+    # Runs already rejected for completeness don't pay for an output-items fetch.
+    assert backend.asked == ["run_1", "run_2"]
+    assert state["runs"][1]["tool_gate"]["schema"] == "castia.tool_error_gate/v1"
+    state["runs"][1]["tool_gate"].update(errors=2, total=2, error_rate=1.0)
+    assert "    (tool calls)         2/2 failed (rate 100.0%)" in format_report(state, requested=3)
+
+
+def test_tool_gate_reports_insufficient_calls(tmp_path):
+    backend = ToolBackend([done(50, 10)], {"run_1": []})
+    state = run_harness(backend, cfg(runs=1), tmp_path / "s.json",
+                        tool_gate=lambda r: Gate(False, "insufficient_tool_calls"))
+    assert state["runs"][0]["reason"] == "tool gate: insufficient_tool_calls (0 tool calls < 2)"
+
+
+def test_tool_gate_needs_backend_tool_records(tmp_path):
+    with pytest.raises(TypeError, match="no tool_records"):
+        run_harness(FakeBackend([done(1, 0)], lag=0), cfg(runs=1), tmp_path / "s.json",
+                    tool_gate=lambda r: Gate(True))
+
+
+def test_cli_tool_gate_guard(tmp_path, capsys, monkeypatch):
+    import sys
+
+    from castia.__main__ import main
+
+    monkeypatch.setitem(sys.modules, "castia.evaluation.tool_errors", None)
+    args = ["eval", "run", "--config", str(tmp_path / "missing.yaml"), "--runs", "2",
+            "--rung", "b", "--rows", "60", "--eval-id", "e", "--template-run", "r", "--dry-run"]
+    assert main([*args, "--max-tool-error-rate", "0.1"]) == 2
+    assert "needs castia.evaluation.tool_errors" in capsys.readouterr().err
+    assert main([*args, "--max-tool-error-rate", "1.5"]) == 2
+    assert "between 0 and 1" in capsys.readouterr().err
+
+
+def test_output_items_paging(monkeypatch):
+    calls = []
+    pages = [
+        {"data": [{"id": "oi_1"}, {"id": "oi_2"}], "has_more": True, "last_id": "oi_2"},
+        {"data": [{"id": "oi_3"}], "has_more": False},
+    ]
+
+    class Resp:
+        status_code = 200
+
+        def __init__(self, body):
+            self.body, self.headers = body, {}
+
+        def json(self):
+            return self.body
+
+    class FakePipelineClient:
+        def __init__(self, *, base_url, policies):
+            pass
+
+        def send_request(self, request):
+            calls.append(request.url)
+            return Resp(pages.pop(0))
+
+    monkeypatch.setattr("azure.core.PipelineClient", FakePipelineClient)
+    client = foundry.FoundryEvalClient("https://x/api/projects/p", credential=object())
+    items = client.list_eval_run_output_items("ev", "run_1")
+    assert [i["id"] for i in items] == ["oi_1", "oi_2", "oi_3"]
+    base = "https://x/api/projects/p/openai/v1/evals/ev/runs/run_1/output_items?limit=100"
+    assert calls == [base, f"{base}&after=oi_2"]
+
+
+def test_real_tool_error_gate_over_output_items():
+    tool_errors = pytest.importorskip("castia.evaluation.tool_errors")
+    pytest.importorskip("castia.observe.genai")
+    from castia.evaluation.harness import tool_records_from_output_items
+
+    items = [
+        {"sample": {"output": [{"type": "mcp_call", "name": "kb", "status": "completed"}]}},
+        {"sample": {"output": [{"type": "mcp_call", "name": "kb", "status": "failed",
+                                "error": {"type": "PaymentRequired"}}]}},
+        {"sample": {"output": [{"role": "assistant", "content": "hi"}]}},
+    ]
+    result = tool_errors.tool_error_gate(tool_records_from_output_items(items), max_error_rate=0.1)
+    assert (result.total, result.errors, result.valid) == (2, 1, False)

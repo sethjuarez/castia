@@ -989,6 +989,16 @@ that file without resubmitting. The harness talks to the service through the
 `castia.evaluation.harness.EvalBackend` protocol (`submit`, `poll`), so another
 backend can plug in without changing the gates or the report.
 
+A run whose tools were failing (an expired key, a 402 from a search API)
+measures the outage, not the agent. `--max-tool-error-rate 0.1` reads each
+otherwise-accepted run's per-row outputs, counts tool calls (`mcp_call`,
+`file_search_call`, … and `castia.tool_capture` documents) and rejects the run
+when more than that share failed. `--min-tool-calls N` also rejects runs with
+fewer than `N` calls, which catches tools that were silently dropped. The gate
+result (`castia.tool_error_gate/v1`) is saved with the run in the state file.
+It needs `castia.evaluation.tool_errors` (castia tool telemetry); the backend
+must implement the optional `tool_records(run_id)` method.
+
 `check` is a pure, offline referential-integrity gate: it resolves every
 evaluator/dataset `local_uri` and validates each rubric dimensions file.
 `generate` and `run` submit **billable** Foundry jobs, so both accept

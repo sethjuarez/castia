@@ -175,6 +175,21 @@ class FoundryEvalClient:
         path = f"{OPENAI_PREFIX}/evals/{quote(eval_id, safe='')}/runs"
         return self._send("POST", path, json_body=body).data
 
+    def list_eval_run_output_items(self, eval_id: str, run_id: str) -> list[dict[str, Any]]:
+        """Every output item (one per dataset row) of an eval run, all pages."""
+        base = (f"{OPENAI_PREFIX}/evals/{quote(eval_id, safe='')}/runs/"
+                f"{quote(run_id, safe='')}/output_items?limit=100")
+        items: list[dict[str, Any]] = []
+        after: str | None = None
+        while True:
+            path = base if after is None else f"{base}&after={quote(after, safe='')}"
+            data = self._send("GET", path).data
+            page = [i for i in data.get("data") or [] if isinstance(i, dict)]
+            items.extend(page)
+            after = data.get("last_id") or (page[-1].get("id") if page else None)
+            if not data.get("has_more") or not after:
+                return items
+
     # -- evaluators ----------------------------------------------------------
 
     def get_evaluator_version(self, name: str, version: str) -> dict[str, Any]:

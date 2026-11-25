@@ -115,6 +115,31 @@ class FoundryRestBackend:
     def poll(self, run_id: str) -> RunSnapshot:
         return snapshot_from_run(self._client.get_eval_run(self._eval_id, run_id))
 
+    def tool_records(self, run_id: str) -> list[dict[str, Any]]:
+        """Tool-call records from the run's per-row samples."""
+        items = self._client.list_eval_run_output_items(self._eval_id, run_id)
+        return tool_records_from_output_items(items)
+
+
+def tool_records_from_output_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize tool calls found in eval output items' ``sample.output``.
+
+    Responses-style tool items (``mcp_call``, ``file_search_call``, ...) go
+    through ``castia.observe.genai.server_tool_calls``; ``castia.tool_capture``
+    documents (dicts with a ``tool_calls`` list) pass through unchanged.
+    """
+    from castia.observe.genai import server_tool_calls
+
+    records: list[dict[str, Any]] = []
+    for item in items:
+        sample = item.get("sample") if isinstance(item, dict) else None
+        output = sample.get("output") if isinstance(sample, dict) else None
+        if not isinstance(output, list):
+            continue
+        records.extend(server_tool_calls(output))
+        records.extend(o for o in output if isinstance(o, dict) and isinstance(o.get("tool_calls"), list))
+    return records
+
 
 @dataclass(frozen=True)
 class HarnessConfig:
@@ -178,6 +203,20 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
 # -- harness --------------------------------------------------------------
 
 
+def _apply_tool_gate(backend, entry: dict[str, Any], tool_gate) -> str | None:
+    tool_records = getattr(backend, "tool_records", None)
+    if tool_records is None:
+        raise TypeError(f"{type(backend).__name__} has no tool_records(); cannot apply a tool gate")
+    result = tool_gate(list(tool_records(entry["run_id"])))
+    entry["tool_gate"] = result.to_dict()
+    if result.valid:
+        return None
+    return (f"tool gate: {result.reason} ({result.errors}/{result.total} tool calls failed, "
+            f"rate {result.error_rate:.1%} > {result.max_error_rate:.0%})"
+            if result.reason == "tool_error_rate_exceeded"
+            else f"tool gate: {result.reason} ({result.total} tool calls < {result.min_calls})")
+
+
 def run_harness(
     backend: EvalBackend,
     config: HarnessConfig,
@@ -186,12 +225,20 @@ def run_harness(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     log: Callable[[str], None] = lambda _msg: None,
+    tool_gate: Callable[[list[dict[str, Any]]], Any] | None = None,
 ) -> dict[str, Any]:
     """Drive ``config.runs`` repeats to a decision and return the state.
 
     Safe to call again after an interruption: runs already in the state file
     are polled (not resubmitted). Raises :class:`TimeoutError` with the state
     saved when ``config.timeout`` elapses.
+
+    ``tool_gate`` is an optional completeness gate applied to runs that pass
+    :func:`judge`: it gets the run's tool-call records (from the backend's
+    ``tool_records``) and returns an object with ``valid``, ``reason`` and
+    ``to_dict()`` -- e.g. a partial of
+    ``castia.evaluation.tool_errors.tool_error_gate``. A run whose tools were
+    failing measures the outage, not the agent, so it is rejected.
     """
     path = Path(state_path)
     state = load_state(path, config)
@@ -222,6 +269,8 @@ def run_harness(
             entry["snapshot"] = asdict(snap)
             if snap.status == TERMINAL_OK or snap.status in TERMINAL_BAD:
                 reason = judge(snap, config)
+                if reason is None and tool_gate is not None:
+                    reason = _apply_tool_gate(backend, entry, tool_gate)
                 entry["decision"] = "rejected" if reason else "accepted"
                 entry["reason"] = reason
                 log(f"{entry['decision']:<14}: {entry['name']}" + (f" -- {reason}" if reason else ""))
@@ -287,6 +336,10 @@ def format_report(state: dict[str, Any], *, requested: int) -> list[str]:
         if entry["reason"]:
             head += f" -- {entry['reason']}"
         lines.append(head)
+        gate = entry.get("tool_gate")
+        if gate:
+            lines.append(f"    (tool calls)         {gate.get('errors', 0)}/{gate.get('total', 0)} failed "
+                         f"(rate {gate.get('error_rate', 0.0):.1%})")
         if entry["decision"] != "accepted":
             continue
         overall, n = _rate(snap["passed"], snap["failed"])
