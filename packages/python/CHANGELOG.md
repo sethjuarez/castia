@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.3](https://github.com/sethjuarez/castia/compare/python-v0.20.2...python-v0.20.3) (2026-11-25)
+
+
+### Bug Fixes
+
+* **hosting:** emit x-agent-session-id on Responses endpoints ([#151](https://github.com/sethjuarez/castia/issues/151)) ([8b892f9](https://github.com/sethjuarez/castia/commit/8b892f9e2cc89e498bd11e0b855eb55894be828f)), closes [#143](https://github.com/sethjuarez/castia/issues/143)
+
 ## [0.20.2](https://github.com/sethjuarez/castia/compare/python-v0.20.1...python-v0.20.2) (2026-11-25)
 
 
