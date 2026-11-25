@@ -190,25 +190,42 @@ pub fn optimize_verify_verdict(
     overlap: usize,
 ) -> OptimizeVerdict {
     let mut reasons = Vec::new();
-    let base_mean = mean(baseline);
-    let cand_mean = mean(candidate);
+    let nonfinite = baseline
+        .iter()
+        .chain(candidate)
+        .filter(|v| !v.is_finite())
+        .count();
+    let base_mean = if nonfinite == 0 { mean(baseline) } else { None };
+    let cand_mean = if nonfinite == 0 {
+        mean(candidate)
+    } else {
+        None
+    };
     let mut delta = None;
-    match (base_mean, cand_mean) {
-        (Some(b), Some(c)) => {
-            let d = round4(c - b);
-            delta = Some(d);
-            if baseline.len() != candidate.len() {
-                reasons.push(format!(
-                    "row counts differ (baseline {}, candidate {})",
-                    baseline.len(),
-                    candidate.len()
-                ));
+    if nonfinite > 0 {
+        reasons.push(format!(
+            "held-out metric has {nonfinite} nonfinite value(s)"
+        ));
+    } else if !min_delta.is_finite() {
+        reasons.push("required held-out delta must be finite".to_string());
+    } else {
+        match (base_mean, cand_mean) {
+            (Some(b), Some(c)) => {
+                let d = round4(c - b);
+                delta = Some(d);
+                if baseline.len() != candidate.len() {
+                    reasons.push(format!(
+                        "row counts differ (baseline {}, candidate {})",
+                        baseline.len(),
+                        candidate.len()
+                    ));
+                }
+                if d < min_delta {
+                    reasons.push(format!("held-out delta {d:+.4} < required {min_delta:+.4}"));
+                }
             }
-            if d < min_delta {
-                reasons.push(format!("held-out delta {d:+.4} < required {min_delta:+.4}"));
-            }
+            _ => reasons.push("held-out metric missing for baseline or candidate".to_string()),
         }
-        _ => reasons.push("held-out metric missing for baseline or candidate".to_string()),
     }
     if leaks > 0 {
         reasons.push(format!(
@@ -317,16 +334,15 @@ pub fn optimize_seed_from_version(
                 .collect()
         })
         .unwrap_or_default();
-    if !tools.is_empty() {
-        notes.push(format!("{} function tool(s)", tools.len()));
-        updates.insert("tools".into(), Value::Array(tools));
-    }
-    if notes.is_empty() {
+    if notes.is_empty() && tools.is_empty() {
         return Err(format!(
             "agent version {agent_version} has no prompt definition to seed from \
              (hosted agents: apply a candidate locally and use --candidate)"
         ));
     }
+    // The deployed function-tool surface is authoritative, even when it is empty.
+    notes.push(format!("{} function tool(s)", tools.len()));
+    updates.insert("tools".into(), Value::Array(tools));
     let root = seeded
         .as_object_mut()
         .ok_or_else(|| "request must be an object".to_string())?;

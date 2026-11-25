@@ -133,3 +133,45 @@ fn seed_from_version_matches_spec() {
         assert_eq!(json!(seeded), case["expected_seeded"], "{name}");
     }
 }
+
+#[test]
+fn verdict_rejects_nonfinite_metrics_and_thresholds() {
+    let cases = [
+        (vec![1.0], vec![f64::NAN], 0.0, 0, "incomplete", "nonfinite"),
+        (
+            vec![f64::NEG_INFINITY],
+            vec![1.0],
+            0.0,
+            0,
+            "incomplete",
+            "nonfinite",
+        ),
+        (
+            vec![0.5],
+            vec![0.5],
+            f64::NEG_INFINITY,
+            0,
+            "incomplete",
+            "must be finite",
+        ),
+        (
+            vec![0.5],
+            vec![0.5],
+            f64::NAN,
+            0,
+            "incomplete",
+            "must be finite",
+        ),
+        (vec![1.0], vec![f64::INFINITY], 0.0, 1, "fail", "nonfinite"),
+    ];
+    for (baseline, candidate, min_delta, leaks, status, reason) in cases {
+        let got = optimize_verify_verdict(&baseline, &candidate, min_delta, leaks, 0);
+        assert_eq!(got.status, status, "{:?}", got.reasons);
+        assert_eq!(got.delta, None);
+        assert!(
+            got.reasons.iter().any(|r| r.contains(reason)),
+            "{:?}",
+            got.reasons
+        );
+    }
+}

@@ -52,6 +52,24 @@ def test_verdict(case):
         assert got[key] == value, key
 
 
+@pytest.mark.parametrize(
+    ("baseline", "candidate", "min_delta", "leaks", "status", "reason"),
+    [
+        ([1.0], [float("nan")], 0.0, 0, "incomplete", "nonfinite"),
+        ([float("-inf")], [1.0], 0.0, 0, "incomplete", "nonfinite"),
+        ([0.5], [0.5], float("-inf"), 0, "incomplete", "must be finite"),
+        ([0.5], [0.5], float("nan"), 0, "incomplete", "must be finite"),
+        ([1.0], [float("inf")], 0.0, 1, "fail", "nonfinite"),
+    ],
+)
+def test_verdict_rejects_nonfinite(baseline, candidate, min_delta, leaks, status, reason):
+    got = vf.verify_verdict(baseline, candidate, min_delta=min_delta, leaks=leaks)
+    assert got["status"] == status
+    assert got["delta"] is None
+    assert any(reason in text for text in got["reasons"]), got["reasons"]
+    json.dumps(got, allow_nan=False)
+
+
 @pytest.mark.parametrize("case", FIXTURE["termination_label"], ids=lambda c: c["name"])
 def test_termination_label(case):
     assert vf.termination_label(case["status"]) == case["expected"]
@@ -186,7 +204,7 @@ def test_run_from_version_seeds_request(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert rc == 0, out
     assert calls == [("https://example/api", "opt", "4")]
-    assert "seeded from   : version 4 (instructions, model)" in out
+    assert "seeded from   : version 4 (instructions, model, 0 function tool(s))" in out
     assert "Deployed v4 prompt." in out
 
 

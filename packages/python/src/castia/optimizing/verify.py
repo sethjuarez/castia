@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import difflib
+import math
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -145,13 +146,30 @@ def verify_verdict(
     leaks: int = 0,
     overlap: int = 0,
 ) -> dict[str, Any]:
-    """``pass`` when the candidate holds or beats baseline on held-out data."""
+    """``pass`` when the candidate holds or beats baseline on held-out data.
+
+    Nonfinite metric values or ``min_delta`` make the verdict ``incomplete``
+    (``fail`` with leaks or overlap) rather than comparing NaN or infinity.
+    """
 
     reasons: list[str] = []
-    base_mean = round(sum(baseline) / len(baseline), 4) if baseline else None
-    cand_mean = round(sum(candidate) / len(candidate), 4) if candidate else None
+    nonfinite = sum(1 for value in [*baseline, *candidate] if not math.isfinite(value))
+    base_mean = (
+        round(sum(baseline) / len(baseline), 4)
+        if baseline and not nonfinite
+        else None
+    )
+    cand_mean = (
+        round(sum(candidate) / len(candidate), 4)
+        if candidate and not nonfinite
+        else None
+    )
     delta = None
-    if base_mean is None or cand_mean is None:
+    if nonfinite:
+        reasons.append(f"held-out metric has {nonfinite} nonfinite value(s)")
+    elif not math.isfinite(min_delta):
+        reasons.append("required held-out delta must be finite")
+    elif base_mean is None or cand_mean is None:
         reasons.append("held-out metric missing for baseline or candidate")
     else:
         delta = round(cand_mean - base_mean, 4)
@@ -205,7 +223,9 @@ def seed_from_version(
 
     ``request`` is a GA ``agent_optimization`` request and ``version`` is
     ``AgentVersionDetails.as_dict()``. Instructions, model and function tools in
-    ``definition`` replace the baseline agent configuration, and the target is
+    ``definition`` replace the baseline agent configuration (the deployed
+    function tools always replace baseline ``tools``, so a tool-free version
+    clears them), and the target is
     pinned to ``agent_version``. Raises ``ValueError`` when the request is not an
     ``agent_optimization`` job or the version has nothing to seed from.
     """
@@ -231,14 +251,14 @@ def seed_from_version(
         tool for tool in definition.get("tools") or []
         if isinstance(tool, Mapping) and tool.get("type") == "function"
     ]
-    if tools:
-        opt["tools"] = [_function_tool(tool) for tool in tools]
-        notes.append(f"{len(tools)} function tool(s)")
-    if not notes:
+    if not notes and not tools:
         raise ValueError(
             f"agent version {agent_version} has no prompt definition to seed from "
             "(hosted agents: apply a candidate locally and use --candidate)"
         )
+    # The deployed function-tool surface is authoritative, even when it is empty.
+    opt["tools"] = [_function_tool(tool) for tool in tools]
+    notes.append(f"{len(tools)} function tool(s)")
     seeded.setdefault("target_configuration", {})["version"] = str(agent_version)
     return seeded, notes
 
