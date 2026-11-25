@@ -1027,6 +1027,32 @@ code by setting `MODEL_REASONING_EFFORT` — an explicit argument still wins.
 Because `configured_model()` builds its `Model` through the same path, that env
 override flows through to the resolved candidate automatically.
 
+### Routing to the account endpoint (MAI models)
+
+By default `Model` calls the Foundry **project** Responses route
+(`.../api/projects/<p>/openai/v1/`). Some deployments, MAI models among them,
+return a `400` there but answer on the AI Services **account** route
+(`https://<account>.services.ai.azure.com/openai/v1/`). Pick that route with
+`route="account"`; tracing, tool loops, and optimizer config are unchanged:
+
+```python
+from castia import configured_model, use_model
+
+mai = use_model("MAI-DS-R1", route="account")
+analyst = configured_model(route="account", reasoning_effort="medium")
+```
+
+The account URL is derived from `FOUNDRY_PROJECT_ENDPOINT`. Pass
+`account_endpoint=` (an account root, its `/openai/v1` URL, or a project
+endpoint) to set it explicitly; that implies `route="account"` and needs no
+project endpoint. Operators can switch with `MODEL_ROUTE=account` and
+`MODEL_ACCOUNT_ENDPOINT`; explicit arguments win, `route="project"` with an
+`account_endpoint` is rejected, and URLs with credentials, query strings, or
+non-Azure hosts are rejected. Authentication is a refreshing Entra token for
+`https://cognitiveservices.azure.com/.default` from `DefaultAzureCredential`, so
+the identity needs an OpenAI user role on the account. Spans carry
+`castia.model.route`.
+
 > **Responses-only constraint:** the optimizer accepts only single-protocol
 > `responses` agents — submitting a multi-protocol agent (one that also speaks
 > activity/invocations) is rejected with a `400` at submission. Project a
