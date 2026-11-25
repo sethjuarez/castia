@@ -88,9 +88,17 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         help="approve the printed training spend; does not approve evaluation "
              "or promotion",
     )
+    ft_submit.add_argument(
+        "--probe-record", dest="probe_record", default=None,
+        help="RFT: probe record from finetune probe/probe-check; a failed or "
+             "unchecked probe blocks the submit",
+    )
     ft_submit.add_argument("--dry-run", dest="dry_run", action="store_true",
                            help="print the resolved payload and submit nothing")
     ft_submit.set_defaults(func=_cmd_finetune_submit)
+    from castia.finetuning.probe_cli import register_probe_commands
+
+    register_probe_commands(ftsub)
     _register_management_commands(ftsub)
 
 
@@ -206,6 +214,24 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
         from castia.finetuning.preflight import spend_line
 
         print(f"estimate      : {spend_line(estimate)}")
+
+    if args.probe_record:
+        from castia.finetuning.probe_cli import probe_gate
+
+        try:
+            gate = probe_gate(args.probe_record)
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"error: --probe-record: {exc}", file=sys.stderr)
+            return 2
+        for problem in gate:
+            print(f"problem       : {problem}", file=sys.stderr)
+        if gate:
+            print("result        : BLOCKED BY PROBE (nothing submitted)", file=sys.stderr)
+            return 1
+        print(f"probe         : pass ({args.probe_record})")
+    elif args.type == "rft":
+        print("warning       : no --probe-record; a tiny finetune probe proves the "
+              "reward plumbing before a full run", file=sys.stderr)
 
     if args.dry_run:
         # Dry-run stays offline: build the payload from file *paths* (uploads and
