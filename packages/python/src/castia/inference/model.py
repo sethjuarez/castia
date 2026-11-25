@@ -20,7 +20,12 @@ import os
 from collections.abc import AsyncIterator, Callable
 from copy import deepcopy
 
-from castia.observe.tracing import trace_attribute, trace_context_headers, trace_step
+from castia.observe.tracing import (
+    record_system_instructions,
+    trace_attribute,
+    trace_context_headers,
+    trace_step,
+)
 from castia.runtime.usage import record_response_usage
 
 # Reasoning-effort levels accepted by the Responses API for reasoning models
@@ -95,6 +100,7 @@ class Model:
             },
         ):
             _add_model_event("castia.model.request.started", phase="single")
+            record_system_instructions(self._instructions)
             response = await self._client.get_openai_client().responses.create(
                 model=self._deployment,
                 input=_conversation_input(text, history),
@@ -132,6 +138,7 @@ class Model:
             },
         ):
             _add_model_event("castia.model.request.started", phase="stream")
+            record_system_instructions(self._instructions)
             stream = await self._client.get_openai_client().responses.create(
                 model=self._deployment,
                 input=_conversation_input(text, history),
@@ -184,8 +191,10 @@ class Model:
         carry no local impl and are ignored by the ``function_call`` loop.
         """
         import json
+        import time
 
-        from castia.observe import dev_diagnostics, tool_capture
+        from castia.observe import dev_diagnostics
+        from castia.observe.server_tools import record_server_tools
         from castia.observe.tracing import execute_tool
 
         function_tools = [t for t in tools if not isinstance(t, dict)]
@@ -210,6 +219,7 @@ class Model:
             },
         ):
             response = None
+            record_system_instructions(self._instructions)
             for iteration in range(max_iterations):
                 trace_attribute("castia.model.iteration", iteration + 1)
                 _add_model_event(
@@ -217,6 +227,7 @@ class Model:
                     phase="tool_loop",
                     iteration=iteration + 1,
                 )
+                started_ns = time.time_ns()
                 response = await client.responses.create(
                     model=self._deployment,
                     input=conversation,
@@ -226,8 +237,8 @@ class Model:
                     extra_headers=trace_context_headers(),
                 )
                 record_response_usage(response)
-                tool_capture.record_server_tool_outputs(
-                    response.output, iteration=iteration + 1
+                record_server_tools(
+                    response.output, iteration=iteration + 1, started_ns=started_ns
                 )
                 calls = [
                     item
