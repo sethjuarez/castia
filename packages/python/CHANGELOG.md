@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/sethjuarez/castia/compare/python-v0.18.1...python-v0.19.0) (2026-11-25)
+
+
+### Features
+
+* **observe:** add opt-in evaluation tool-result capture ([#123](https://github.com/sethjuarez/castia/issues/123)) ([23dd081](https://github.com/sethjuarez/castia/commit/23dd0819ed55706389750a6a5d09e1202d63ff1a))
+
 ## [0.18.1](https://github.com/sethjuarez/castia/compare/python-v0.18.0...python-v0.18.1) (2026-11-08)
 
 
