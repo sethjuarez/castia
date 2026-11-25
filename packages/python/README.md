@@ -1029,6 +1029,21 @@ two namespaces only — `{{ sample.output_text }}` and `{{ item.<field> }}`.
 `rubric_to_score_model()` bridges an eval rubric straight into a `score_model`
 grader — the natural tie between the *evaluate* and *switch-models* steps.
 
+Some base models reject chat roles at RFT preprocessing, after upload and a
+billable submit. MAI bases (`mai-*`) reject `system`; use `developer`. Pass the
+base model to `finetune check --model` (or `validate_rft_splits(..., model=)`)
+to catch this offline. `finetune submit` already validates against `--model`
+and fails before uploading; add `--rewrite-roles` to upload rewritten copies
+(`system` -> `developer`) without changing your files. The rule table is pinned
+in `spec/conformance/finetuning/`.
+
+```bash
+python -m castia finetune check --type rft --model mai-code-2-flash \
+  --dataset train.jsonl --validation val.jsonl --grader grader.json
+python -m castia finetune submit --model mai-code-2-flash --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --rewrite-roles --dry-run
+```
+
 > ⚠️ **Provisional / doc-derived.** The grader JSON schema, the RFT
 > hyperparameter names, and the SFT/DPO/RFT `fine_tuning.jobs.create` payload
 > shapes are doc-derived and **have not been confirmed against live Castia
