@@ -25,6 +25,12 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
         default=DEFAULT_EVAL_CONFIG,
         help=f"path to the eval config (default: {DEFAULT_EVAL_CONFIG})",
     )
+    ev_check.add_argument(
+        "--require-pinned",
+        dest="require_pinned",
+        action="store_true",
+        help="fail when a non-builtin evaluator has no version",
+    )
     ev_check.set_defaults(func=_cmd_eval_check)
 
     ev_gen = evsub.add_parser(
@@ -105,7 +111,34 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                         help="run without interactive prompts")
     ev_run.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="print the resolved azd command and submit nothing")
+    ev_run.add_argument("--allow-unpinned", dest="allow_unpinned", action="store_true",
+                        help="run even when a custom evaluator has no version (not reproducible)")
     ev_run.set_defaults(func=_cmd_eval_run)
+
+    ev_evr = evsub.add_parser(
+        "evaluator",
+        help="export/import custom evaluators by content hash and pin their versions",
+    )
+    evrsub = ev_evr.add_subparsers(dest="evaluator_command", required=True)
+    ev_exp = evrsub.add_parser("export", help="write an evaluator version to a hashed bundle")
+    ev_exp.add_argument("--name", required=True, help="evaluator name")
+    ev_exp.add_argument("--version", default=None, help="version to export (default: latest)")
+    ev_exp.add_argument("--out", default="evaluators", help="output folder (default: evaluators)")
+    ev_exp.add_argument("--project-endpoint", dest="project_endpoint", default=None,
+                        help="Foundry project endpoint (default: FOUNDRY_PROJECT_ENDPOINT)")
+    ev_exp.set_defaults(func=_cmd_eval_evaluator_export)
+    ev_imp = evrsub.add_parser(
+        "import", help="create (or reuse) an evaluator version matching a bundle's hash"
+    )
+    ev_imp.add_argument("bundle", help="bundle file written by 'eval evaluator export'")
+    ev_imp.add_argument("--name", default=None, help="target evaluator name (default: bundle name)")
+    ev_imp.add_argument("--pin-version", dest="pin_version", action="store_true",
+                        help="write the resulting version into the eval config")
+    ev_imp.add_argument("--config", default=DEFAULT_EVAL_CONFIG,
+                        help=f"eval config to pin (default: {DEFAULT_EVAL_CONFIG})")
+    ev_imp.add_argument("--project-endpoint", dest="project_endpoint", default=None,
+                        help="Foundry project endpoint (default: FOUNDRY_PROJECT_ENDPOINT)")
+    ev_imp.set_defaults(func=_cmd_eval_evaluator_import)
 
     ev_del = evsub.add_parser(
         "delete",
@@ -154,6 +187,15 @@ def _cmd_eval_check(args: argparse.Namespace) -> int:
 
     plan = validate_suite(suite)
     _print_suite_plan(plan)
+    if getattr(args, "require_pinned", False):
+        from castia.evaluation.evaluators import find_unpinned_evaluators
+
+        unpinned = find_unpinned_evaluators(suite)
+        for name in unpinned:
+            print(f"problem       : evaluator '{name}' has no version -- pin it "
+                  "(python -m castia eval evaluator import ... --pin-version)")
+        if unpinned:
+            return 1
     return 0 if plan.ok else 1
 
 def _run_azd_argv(argv: list[str], *, dry_run: bool) -> int:
@@ -277,6 +319,10 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
     if error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    error = _unpinned_error(args.config, allow=args.allow_unpinned)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     argv = build_run_argv(
         config=args.config,
         name=name,
@@ -290,6 +336,83 @@ def _project_endpoint(args: argparse.Namespace) -> str | None:
     import os
 
     return args.project_endpoint or os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
+
+
+def _unpinned_error(config: str, *, allow: bool) -> str | None:
+    from castia.evaluation.evaluators import find_unpinned_evaluators
+    from castia.evaluation.suite import load_suite
+
+    try:
+        suite = load_suite(config)
+    except OSError:
+        return None  # azd reports a missing config itself
+    unpinned = find_unpinned_evaluators(suite)
+    if not unpinned:
+        return None
+    names = ", ".join(unpinned)
+    if allow:
+        print(f"warning: unpinned evaluators ({names}); scores are not reproducible",
+              file=sys.stderr)
+        return None
+    return (f"unpinned evaluators: {names}. Pin a version in {config} "
+            "(python -m castia eval evaluator import BUNDLE --pin-version) "
+            "or pass --allow-unpinned")
+
+
+def _eval_client(args: argparse.Namespace):
+    from castia.evaluation.foundry import FoundryEvalClient
+
+    endpoint = _project_endpoint(args)
+    if not endpoint:
+        print("error: FOUNDRY_PROJECT_ENDPOINT is not set (or pass --project-endpoint)",
+              file=sys.stderr)
+        return None
+    return FoundryEvalClient(endpoint)
+
+
+def _cmd_eval_evaluator_export(args: argparse.Namespace) -> int:
+    from castia.evaluation.evaluators import export_evaluator
+
+    client = _eval_client(args)
+    if client is None:
+        return 2
+    try:
+        bundle = export_evaluator(client, args.name, args.version)
+    except LookupError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    path = bundle.write(args.out)
+    print(f"evaluator     : {bundle.name} v{bundle.version}")
+    print(f"content hash  : {bundle.content_hash}")
+    print(f"bundle        : {path}")
+    return 0
+
+
+def _cmd_eval_evaluator_import(args: argparse.Namespace) -> int:
+    from castia.evaluation.evaluators import (
+        EvaluatorBundle,
+        import_evaluator,
+        pin_evaluator_version,
+    )
+
+    try:
+        bundle = EvaluatorBundle.load(args.bundle)
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"error: could not load bundle {args.bundle}: {exc}", file=sys.stderr)
+        return 2
+    client = _eval_client(args)
+    if client is None:
+        return 2
+    result = import_evaluator(client, bundle, name=args.name)
+    action = "created" if result.created else "reused"
+    print(f"evaluator     : {result.name} v{result.version} ({action})")
+    print(f"content hash  : {result.content_hash}")
+    if args.pin_version:
+        if not pin_evaluator_version(args.config, result.name, result.version):
+            print(f"error: no evaluator named '{result.name}' in {args.config}", file=sys.stderr)
+            return 1
+        print(f"pinned        : {args.config}")
+    return 0
 
 
 def _cmd_eval_delete(args: argparse.Namespace) -> int:
