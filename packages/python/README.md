@@ -248,6 +248,36 @@ storage instead. Stored and returned response objects are wire-shaped but minima
 `usage` token counts are reported as zeros and are not real model accounting;
 failed responses currently report `usage: null`.
 
+#### Hosted agents: Foundry response storage
+
+When the agent runs as a Foundry hosted agent (`FOUNDRY_HOSTING_ENVIRONMENT` is
+set) and you pass no `response_store`, Castia stores foreground responses in
+Foundry response storage (`{FOUNDRY_PROJECT_ENDPOINT}/storage/responses`)
+instead of process memory, the same way the `azure-ai-agentserver-responses`
+SDK does. The platform reads that storage, so
+`GET {project}/openai/v1/responses/{id}`, the portal, and the Agent Optimizer
+can fetch a hosted Castia response by id.
+
+- **Response ids** follow the agentserver precedence: the gateway's
+  `x-agent-response-id` header, then the request's `response_id`, then a newly
+  minted `caresp_…` id. A supplied id that isn't a Foundry id returns
+  `400 invalid_request` before the handler runs.
+- **Writes are not best-effort.** A streamed response is registered before
+  `response.created` and updated at the terminal event. If either write fails,
+  the stream ends with `response.failed` (`storage_error`). A failed foreground
+  write returns `500 storage_error`.
+- **Identity.** Requests use the agent's managed identity
+  (`https://ai.azure.com/.default`) and forward the caller's
+  `x-agent-foundry-call-id`, so storage scopes each record to that caller.
+- **Not enabled:** `background`, `previous_response_id`, and `conversation`
+  still need your own store. Foundry storage has no atomic compare-and-set.
+- A missing `FOUNDRY_PROJECT_ENDPOINT` fails at startup.
+
+An explicit `response_store` replaces this default, so those responses are
+**not** visible to the platform GET or the optimizer. To publish to Foundry
+storage with an explicit choice, pass
+`castia.hosting.foundry_storage.FoundryResponseStore.from_env()`.
+
 `POST /responses/{response_id}/cancel` cancels only a `queued` or
 `in_progress` background response; for a terminal response it returns
 `400 unsupported_parameter` (`Cannot cancel a completed response.`), and `404`
@@ -278,8 +308,10 @@ Foundry tooling, including native evaluations, can call a hosted agent with
 `background: true`. The client then expects a `queued` response right away and
 polls `GET /responses/{response_id}` until the status is terminal. A hosted
 agent may run on several replicas, so a poll can reach a replica other than the
-one running the turn. For that reason, **you own the response store**. Castia
-ships no production backend. Without a store, `background: true` returns
+one running the turn. For that reason, **you own the response store** for
+background work. Castia's hosted default
+([Foundry response storage](#hosted-agents-foundry-response-storage)) does not
+enable it. Without a store, `background: true` returns
 `400 unsupported_parameter` and the message says how to configure one.
 
 Implement the async `castia.ResponseStore` protocol over storage that every

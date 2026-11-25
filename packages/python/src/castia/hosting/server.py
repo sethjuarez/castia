@@ -26,11 +26,11 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import functools
 import json
 import logging
 import os
 import re
-import secrets
 import socket
 import subprocess
 import time
@@ -45,6 +45,17 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
+from castia.hosting.foundry_storage import (
+    FoundryResponseAlreadyExistsError,
+    FoundryResponseStore,
+    foundry_storage_enabled,
+)
+from castia.hosting.response_ids import (
+    RESPONSE_ID_HEADER,
+    InvalidResponseIdError,
+    platform_id,
+    resolve_response_id,
+)
 from castia.hosting.responses_store import (
     NON_TERMINAL_STATUSES,
     ResponseHistoryStore,
@@ -84,28 +95,7 @@ from castia.runtime.usage import TurnUsage, usage_scope
 logger = logging.getLogger(__name__)
 
 
-_PLATFORM_PARTITION_SUFFIX = "00"
-_PLATFORM_PARTITION_LENGTH = 18
-_PLATFORM_BODY_LENGTH = _PLATFORM_PARTITION_LENGTH + 32
-
-
-def _platform_id(prefix: str, like: str | None = None) -> str:
-    """Mint ``{prefix}_{16 hex}00{32 hex}``, the Foundry Responses id format.
-
-    Foundry rejects other shapes as ``400 Malformed identifier`` when fetching
-    a response by id. ``like`` reuses an existing id's partition key so items
-    are co-located with their response, as the agentserver ``IdGenerator`` does.
-    """
-    partition = None
-    if like:
-        body = like.partition("_")[2]
-        if (
-            len(body) == _PLATFORM_BODY_LENGTH
-            and body[16:_PLATFORM_PARTITION_LENGTH] == _PLATFORM_PARTITION_SUFFIX
-        ):
-            partition = body[:_PLATFORM_PARTITION_LENGTH]
-    partition = partition or f"{secrets.token_hex(8)}{_PLATFORM_PARTITION_SUFFIX}"
-    return f"{prefix}_{partition}{uuid4().hex}"
+_platform_id = platform_id
 # The root logger sits at WARNING, so INFO records (including the unknown-invoke
 # ack below) are dropped before the OTel handler can export them to App Insights.
 # Pin this module to INFO so invoke routing is observable in the traces table.
@@ -381,6 +371,72 @@ async def _save_terminal_response(
         await responses_store.create(record)
     except Exception:
         logger.exception("Could not store response %s.", response.get("id"))
+
+
+_STORAGE_ERROR_MESSAGE = (
+    "An internal error occurred while storing the response. Subsequent "
+    "retrieval is not guaranteed. Please retry the request."
+)
+
+
+def _foundry_input_items(value) -> list[dict]:
+    """Request input as items, keeping caller ids and ``item_reference`` entries.
+
+    ``FoundryResponseStore`` assigns typed, co-located ids and resolves
+    references itself, as the agentserver SDK does.
+    """
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    items: list[dict] = []
+    for item in value:
+        if isinstance(item, str):
+            items.append(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": item}],
+                }
+            )
+        elif isinstance(item, dict):
+            items.append(deepcopy(item))
+    return items
+
+
+async def _store_foundry_response(
+    store: FoundryResponseStore, response: dict, input_items: list[dict]
+) -> bool:
+    """Write a finished foreground response to Foundry storage; ``False`` on failure.
+
+    A response already registered under this id (for example a retried
+    request) is overwritten with the terminal snapshot.
+    """
+    record: StoredResponse = {
+        "response": deepcopy(response),
+        "input_items": input_items,
+        "background": False,
+        "user_id": None,
+    }
+    try:
+        try:
+            await store.create(record)
+        except FoundryResponseAlreadyExistsError:
+            await store.replace(record["response"])
+    except Exception:
+        logger.exception("Could not store response %s in Foundry storage.", response.get("id"))
+        return False
+    return True
+
+
+async def _replace_foundry_response(store: FoundryResponseStore, response: dict) -> bool:
+    """Overwrite a registered response's snapshot; ``False`` on failure."""
+    try:
+        await store.replace(deepcopy(response))
+    except Exception:
+        logger.exception("Could not update response %s in Foundry storage.", response.get("id"))
+        return False
+    return True
 
 
 class _StoreWriteError(Exception):
@@ -848,6 +904,7 @@ def _responses_failed_event(
     created_at: int,
     response_options: dict,
     message: str = "An internal server error occurred.",
+    error_code: str = "server_error",
 ) -> dict:
     body = _responses_body(
         text,
@@ -855,7 +912,7 @@ def _responses_failed_event(
         output_item_id=output_item_id,
         status="failed",
         created_at=created_at,
-        error={"code": "server_error", "message": message},
+        error={"code": error_code, "message": message},
         **response_options,
     )
     return {"type": "response.failed", "response": body, **body}
@@ -1388,6 +1445,10 @@ def _register_wire(
         )
         if background_store is not None:
             background_runner = _BackgroundResponses(background_store, responses_dispatch)
+        foundry_store = (
+            responses_store if isinstance(responses_store, FoundryResponseStore) else None
+        )
+        id_prefix = getattr(responses_store, "response_id_prefix", "resp")
 
         @app.post("/responses")
         async def responses(request: Request) -> Response:
@@ -1431,6 +1492,42 @@ def _register_wire(
                 if isinstance(parsed_history, JSONResponse):
                     return parsed_history
                 previous_response_id, conversation_id = parsed_history
+                try:
+                    response_id = resolve_response_id(
+                        _header_value(request, RESPONSE_ID_HEADER),
+                        body.get("response_id"),
+                        prefix=id_prefix,
+                        like=previous_response_id or conversation_id,
+                    )
+                except InvalidResponseIdError as error:
+                    return _api_error(str(error), param="response_id")
+                supplied_id = bool(
+                    (_header_value(request, RESPONSE_ID_HEADER) or "").strip()
+                    or (
+                        isinstance(body.get("response_id"), str)
+                        and body["response_id"].strip()
+                    )
+                )
+                if (
+                    supplied_id
+                    and foundry_store is None
+                    and responses_store is not None
+                    and body.get("store") is not False
+                ):
+                    # Caller-chosen ids must not replace another caller's record;
+                    # a same-owner retry may overwrite, as agentserver recovers.
+                    try:
+                        existing = await responses_store.get(response_id)
+                    except Exception:
+                        logger.exception("Could not read response %s.", response_id)
+                        return _store_unavailable()
+                    if existing is not None and existing.get("user_id") != owner:
+                        return _api_error(
+                            f"Response with id '{response_id}' already exists.",
+                            code="conflict",
+                            param="response_id",
+                            status_code=409,
+                        )
                 if previous_response_id is not None and background_store is None:
                     return _api_error(
                         _HISTORY_STORE_REQUIRED,
@@ -1458,7 +1555,6 @@ def _register_wire(
                 )
                 store = body.get("store") is not False
                 if background:
-                    response_id = _platform_id("resp")
                     record: StoredResponse = {
                         "response": _background_snapshot(
                             response_id=response_id,
@@ -1515,12 +1611,16 @@ def _register_wire(
                             sequence_number += 1
                             return emit_raw(_sse_event(event_type, payload))
 
-                        response_id = _platform_id("resp")
                         output_item_id = _platform_id("msg", response_id)
                         created_at = int(time.time())
-                        input_items = _responses_input_items(
-                            body.get("input"), response_id=response_id
+                        input_items = (
+                            _foundry_input_items(body.get("input"))
+                            if foundry_store is not None
+                            else _responses_input_items(
+                                body.get("input"), response_id=response_id
+                            )
                         )
+                        foundry_registered = False
                         chunks: list[str] = []
                         try:
                             with _request_scope(request), bind_response_history(
@@ -1528,6 +1628,60 @@ def _register_wire(
                             ), dev_diagnostics.turn(
                                 "responses", text
                             ), usage_scope() as turn_usage:
+                                if foundry_store is not None and store:
+                                    # Register before response.created so the
+                                    # platform can read the id it just saw.
+                                    try:
+                                        await foundry_store.create(
+                                            {
+                                                "response": _streaming_response(
+                                                    "",
+                                                    response_id=response_id,
+                                                    status="in_progress",
+                                                    created_at=created_at,
+                                                    response_options=response_options,
+                                                ),
+                                                "input_items": input_items,
+                                                "background": False,
+                                                "user_id": None,
+                                            }
+                                        )
+                                    except Exception:
+                                        logger.exception(
+                                            "Could not register response %s in "
+                                            "Foundry storage.",
+                                            response_id,
+                                        )
+                                        yield emit(
+                                            "response.created",
+                                            {
+                                                "type": "response.created",
+                                                "response": _streaming_response(
+                                                    "",
+                                                    response_id=response_id,
+                                                    status="in_progress",
+                                                    created_at=created_at,
+                                                    response_options=response_options,
+                                                ),
+                                            },
+                                        )
+                                        terminal_status = "failed"
+                                        terminal_emitted = True
+                                        yield emit(
+                                            "response.failed",
+                                            _responses_failed_event(
+                                                "",
+                                                response_id=response_id,
+                                                output_item_id=output_item_id,
+                                                created_at=created_at,
+                                                response_options=response_options,
+                                                message=_STORAGE_ERROR_MESSAGE,
+                                                error_code="storage_error",
+                                            ),
+                                        )
+                                        yield emit_raw(_sse_done())
+                                        return
+                                    foundry_registered = True
                                 yield emit(
                                     "response.created",
                                     {
@@ -1645,7 +1799,37 @@ def _register_wire(
                                         ),
                                     },
                                 )
-                                if store:
+                                if foundry_store is not None:
+                                    if store:
+                                        stored = await _replace_foundry_response(
+                                            foundry_store,
+                                            _responses_body(
+                                                output_text,
+                                                response_id=response_id,
+                                                output_item_id=output_item_id,
+                                                created_at=created_at,
+                                                usage=turn_usage,
+                                                **response_options,
+                                            ),
+                                        )
+                                        if not stored:
+                                            terminal_status = "failed"
+                                            terminal_emitted = True
+                                            yield emit(
+                                                "response.failed",
+                                                _responses_failed_event(
+                                                    output_text,
+                                                    response_id=response_id,
+                                                    output_item_id=output_item_id,
+                                                    created_at=created_at,
+                                                    response_options=response_options,
+                                                    message=_STORAGE_ERROR_MESSAGE,
+                                                    error_code="storage_error",
+                                                ),
+                                            )
+                                            yield emit_raw(_sse_done())
+                                            return
+                                elif store:
                                     await _save_terminal_response(
                                         responses_store,
                                         _responses_body(
@@ -1685,7 +1869,23 @@ def _register_wire(
                                 created_at=created_at,
                                 response_options=response_options,
                             )
-                            if store:
+                            if foundry_store is not None:
+                                if foundry_registered:
+                                    with _request_scope(request):
+                                        stored = await _replace_foundry_response(
+                                            foundry_store, failed_event["response"]
+                                        )
+                                    if not stored:
+                                        failed_event = _responses_failed_event(
+                                            output_text,
+                                            response_id=response_id,
+                                            output_item_id=output_item_id,
+                                            created_at=created_at,
+                                            response_options=response_options,
+                                            message=_STORAGE_ERROR_MESSAGE,
+                                            error_code="storage_error",
+                                        )
+                            elif store:
                                 await _save_terminal_response(
                                     responses_store,
                                     failed_event["response"],
@@ -1711,7 +1911,6 @@ def _register_wire(
                         media_type="text/event-stream",
                     )
 
-                response_id = _platform_id("resp")
                 async with tool_capture.tool_capture_scope(
                     "responses",
                     input_text=text,
@@ -1734,7 +1933,24 @@ def _register_wire(
                     usage=turn_usage,
                     **response_options,
                 )
-                if store:
+                if foundry_store is not None:
+                    if store and not await _store_foundry_response(
+                        foundry_store,
+                        body_out,
+                        _foundry_input_items(body.get("input")),
+                    ):
+                        return JSONResponse(
+                            {
+                                "error": {
+                                    "message": _STORAGE_ERROR_MESSAGE,
+                                    "type": "server_error",
+                                    "param": None,
+                                    "code": "storage_error",
+                                }
+                            },
+                            status_code=500,
+                        )
+                elif store:
                     await _save_terminal_response(
                         responses_store,
                         body_out,
@@ -1754,12 +1970,28 @@ def _register_wire(
                 logger.exception("Could not read response %s.", response_id)
                 return _store_unavailable()
             # Another user's record is reported as missing, never as forbidden.
+            # Stores that isolate callers server-side (Foundry storage) already
+            # scoped the read to the forwarded call id.
             caller = _header_value(request, FOUNDRY_USER_ID_HEADER)
-            if record is None or record.get("user_id") != caller:
+            if record is None or (
+                not getattr(responses_store, "isolates_callers", False)
+                and record.get("user_id") != caller
+            ):
                 return _not_found_response(response_id)
             return record
 
+        def _scoped(route):
+            """Bind the caller's request context (call id) around a stored-response route."""
+
+            @functools.wraps(route)
+            async def scoped(response_id: str, request: Request) -> Response:
+                with _request_scope(request):
+                    return await route(response_id, request)
+
+            return scoped
+
         @app.get("/responses/{response_id}")
+        @_scoped
         async def get_response(response_id: str, request: Request) -> Response:
             if request.query_params.get("stream", "").lower() == "true":
                 return _api_error(
@@ -1774,6 +2006,7 @@ def _register_wire(
             return JSONResponse(record["response"])
 
         @app.delete("/responses/{response_id}")
+        @_scoped
         async def delete_response(response_id: str, request: Request) -> Response:
             record = await _load(response_id, request)
             if isinstance(record, JSONResponse):
@@ -1793,6 +2026,7 @@ def _register_wire(
             )
 
         @app.post("/responses/{response_id}/cancel")
+        @_scoped
         async def cancel_response(response_id: str, request: Request) -> Response:
             record = await _load(response_id, request)
             if isinstance(record, JSONResponse):
@@ -1839,6 +2073,7 @@ def _register_wire(
             )
 
         @app.get("/responses/{response_id}/input_items")
+        @_scoped
         async def response_input_items(response_id: str, request: Request) -> Response:
             record = await _load(response_id, request)
             if isinstance(record, JSONResponse):
@@ -2013,16 +2248,27 @@ def build_app(
     """Assemble the FastAPI app: readiness, the Activity endpoint, wire routes.
 
     ``response_store`` is the consumer-owned store that enables
-    ``background=true``; without it, stored foreground responses fall back to a
-    bounded process-local cache.
+    ``background=true``. Without one, a Foundry hosted agent
+    (``FOUNDRY_HOSTING_ENVIRONMENT`` set) stores foreground responses in
+    Foundry storage, where the platform reads them by id; elsewhere they fall
+    back to a bounded process-local cache.
     """
     background_runner: _BackgroundResponses | None = None
+    owned_store: FoundryResponseStore | None = None
+    if (
+        response_store is None
+        and (wire or {}).get("responses") is not None
+        and foundry_storage_enabled()
+    ):
+        owned_store = FoundryResponseStore.from_env()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         if background_runner is not None:
             await background_runner.shutdown()
+        if owned_store is not None:
+            await owned_store.aclose()
 
     app = FastAPI(title="castia", docs_url=None, redoc_url=None, lifespan=lifespan)
 
@@ -2068,8 +2314,12 @@ def build_app(
     background_runner = _register_wire(
         app,
         wire or {},
-        response_store or _ProcessLocalResponseCache(_MAX_STORED_RESPONSES),
-        background_store=response_store,
+        response_store
+        or owned_store
+        or _ProcessLocalResponseCache(_MAX_STORED_RESPONSES),
+        background_store=response_store
+        if getattr(response_store, "supports_background", True)
+        else None,
     )
     return app
 
