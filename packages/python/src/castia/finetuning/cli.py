@@ -25,6 +25,8 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                           help="validation split JSONL (required for RFT)")
     ft_check.add_argument("--grader", default=None,
                           help="RFT grader JSON to cross-check item.* references against")
+    ft_check.add_argument("--model", default=None,
+                          help="RFT base model; applies its role rules (MAI rejects 'system')")
     ft_check.set_defaults(func=_cmd_finetune_check)
 
     ft_grader = ftsub.add_parser(
@@ -65,6 +67,11 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     ft_submit.add_argument("--eval-interval", dest="eval_interval", type=int, default=None,
                            help="RFT eval_interval hyperparameter")
     ft_submit.add_argument("--suffix", default=None, help="fine-tuned model name suffix")
+    ft_submit.add_argument(
+        "--rewrite-roles", dest="rewrite_roles", action="store_true",
+        help="RFT only: upload copies with roles the base model rejects rewritten "
+             "(MAI: system -> developer); source files are not changed",
+    )
     ft_submit.add_argument("--dry-run", dest="dry_run", action="store_true",
                            help="print the resolved payload and submit nothing")
     ft_submit.set_defaults(func=_cmd_finetune_submit)
@@ -88,9 +95,12 @@ def _cmd_finetune_check(args: argparse.Namespace) -> int:
     if args.grader:
         print(f"grader        : {args.grader}  (type: {grader.get('type')!r})")
     print(f"type          : {args.type}")
+    if args.model:
+        print(f"model         : {args.model}")
 
     problems = _validate_splits(
         args.type, train, validation, grader=grader, require_rft_grader=False,
+        model=args.model,
     )
 
     for problem in problems:
@@ -147,8 +157,22 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    rewritten = 0
+    if args.rewrite_roles:
+        if args.type != "rft":
+            print("error: --rewrite-roles is only valid with --type rft", file=sys.stderr)
+            return 2
+        from castia.finetuning.rft import rewrite_rft_roles
+
+        train, train_count = rewrite_rft_roles(train, model=args.model)
+        validation_count = 0
+        if validation is not None:
+            validation, validation_count = rewrite_rft_roles(validation, model=args.model)
+        rewritten = train_count + validation_count
+
     problems = _validate_splits(
         args.type, train, validation, grader=grader, require_rft_grader=True,
+        model=args.model,
     )
     for problem in problems:
         print(f"problem       : {problem}", file=sys.stderr)
@@ -181,10 +205,15 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
         print(f"training      : {args.dataset}  ({len(train)} examples)")
         if validation is not None:
             print(f"validation    : {args.validation}  ({len(validation)} examples)")
+        if args.rewrite_roles:
+            print(f"rewrote roles : {rewritten} message(s) in the upload copies")
         print("payload       :")
         print(_json.dumps(job, indent=2))
         print("result        : dry-run (nothing uploaded or submitted)")
         return 0
+
+    import tempfile
+    from pathlib import Path
 
     from castia.finetuning.rft import upload_file
 
@@ -198,11 +227,18 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
             hyperparameters=hyperparameters,
             suffix=args.suffix,
         )
-        train_id = upload_file(args.dataset, endpoint=args.project_endpoint)
-        val_id = (
-            upload_file(args.validation, endpoint=args.project_endpoint)
-            if args.validation else None
-        )
+        with tempfile.TemporaryDirectory(prefix="castia-rft-") as tmp:
+            train_path, val_path = args.dataset, args.validation
+            if rewritten:
+                train_path = _write_jsonl(Path(tmp) / "training.jsonl", train)
+                if validation is not None:
+                    val_path = _write_jsonl(Path(tmp) / "validation.jsonl", validation)
+                print(f"rewrote roles : {rewritten} message(s) in the upload copies")
+            train_id = upload_file(train_path, endpoint=args.project_endpoint)
+            val_id = (
+                upload_file(val_path, endpoint=args.project_endpoint)
+                if val_path else None
+            )
         job = _build_job(
             args.type,
             model=args.model,
@@ -222,6 +258,12 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_jsonl(path, rows: list) -> str:
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.writelines(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+    return str(path)
+
+
 def _validate_splits(
     training_type: str,
     train: list[dict],
@@ -229,6 +271,7 @@ def _validate_splits(
     *,
     grader: dict | None,
     require_rft_grader: bool,
+    model: str | None = None,
 ) -> list[str]:
     if training_type == "sft":
         if grader is not None:
@@ -251,13 +294,15 @@ def _validate_splits(
             from castia.finetuning.rft import validate_grader
 
             problems.extend(f"grader: {p}" for p in validate_grader(grader))
-        problems.extend(validate_rft_dataset(train, grader=grader, split="training"))
+        problems.extend(validate_rft_dataset(
+            train, grader=grader, split="training", model=model,
+        ))
         return problems
     if grader is None and require_rft_grader:
         return ["RFT requires --grader"]
     from castia.finetuning.rft import validate_rft_splits
 
-    return validate_rft_splits(train, validation, grader=grader)
+    return validate_rft_splits(train, validation, grader=grader, model=model)
 
 
 def _hyperparameters(args: argparse.Namespace) -> dict | None:

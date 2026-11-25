@@ -1,0 +1,21 @@
+{
+  "contract": "rft-base-model-role-rules",
+  "match": "case-insensitive prefix of the base model ID's last path segment",
+  "families": {
+    "mai": {
+      "model_prefix": "mai-",
+      "rejected_roles": {
+        "system": "developer"
+      },
+      "evidence": "MAI RFT failed a submitted job at preprocessing on 'system' messages; the same data with 'developer' messages trained."
+    }
+  },
+  "cases": [
+    {"model": "mai-code-2-flash", "family": "mai", "rewrites": {"system": "developer"}},
+    {"model": "MAI-2", "family": "mai", "rewrites": {"system": "developer"}},
+    {"model": "azureml://registries/r/models/mai-code-2-flash", "family": "mai", "rewrites": {"system": "developer"}},
+    {"model": "publisher/mai-family/o4-mini", "family": null, "rewrites": {}},
+    {"model": "o4-mini", "family": null, "rewrites": {}},
+    {"model": "gpt-4.1-mai", "family": null, "rewrites": {}}
+  ]
+}
