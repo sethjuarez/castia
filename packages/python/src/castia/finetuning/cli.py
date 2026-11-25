@@ -6,6 +6,15 @@ import argparse
 import json
 import sys
 
+from castia.lifecycle.output import (
+    add_json_argument,
+    command_envelope,
+    diagnostic,
+    emit_envelope,
+    error_envelope,
+    wants_json,
+)
+
 
 def register_commands(sub: argparse._SubParsersAction) -> None:
     ft = sub.add_parser(
@@ -68,7 +77,31 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     ft_submit.add_argument("--dry-run", dest="dry_run", action="store_true",
                            help="print the resolved payload and submit nothing")
     ft_submit.set_defaults(func=_cmd_finetune_submit)
+    for parser in (ft_check, ft_grader, ft_submit):
+        add_json_argument(parser)
     _register_management_commands(ftsub)
+
+
+def _fail(args: argparse.Namespace, command: str, exc: BaseException | str,
+          *, effects: dict | None = None) -> int:
+    if wants_json(args):
+        emit_envelope(error_envelope(command, exc, effects=effects))
+    else:
+        print(f"error: {exc}", file=sys.stderr)
+    return 2
+
+
+def _problems_envelope(command: str, problems: list[str], result: dict, *,
+                       ok_status: str = "ok", effects: dict | None = None,
+                       next_actions: list[str] | None = None) -> dict:
+    return command_envelope(
+        command,
+        status="problems" if problems else ok_status,
+        result=result,
+        diagnostics=[diagnostic("error", p, "validation") for p in problems],
+        next_actions=next_actions or [],
+        effects=effects,
+    )
 
 
 def _cmd_finetune_check(args: argparse.Namespace) -> int:
@@ -79,8 +112,24 @@ def _cmd_finetune_check(args: argparse.Namespace) -> int:
         validation = load_jsonl(args.validation) if args.validation else None
         grader = load_grader(args.grader) if args.grader else None
     except (OSError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "finetune check", exc)
+
+    if wants_json(args):
+        problems = _validate_splits(
+            args.type, train, validation, grader=grader, require_rft_grader=False,
+        )
+        emit_envelope(_problems_envelope("finetune check", problems, {
+            "type": args.type,
+            "training": {"path": args.dataset, "examples": len(train)},
+            "validation": (
+                {"path": args.validation, "examples": len(validation)}
+                if validation is not None else None
+            ),
+            "grader": {"path": args.grader, "type": grader.get("type")} if grader else None,
+        }, next_actions=[] if problems else [
+            f"python -m castia finetune submit --type {args.type} --dry-run ...",
+        ]))
+        return 0 if not problems else 1
 
     print(f"training      : {args.dataset}  ({len(train)} examples)")
     if validation is not None:
@@ -105,22 +154,25 @@ def _cmd_finetune_grader(args: argparse.Namespace) -> int:
     try:
         dims = read_rubric(args.rubric)
     except (OSError, ValueError) as exc:
-        print(f"error: could not read rubric {args.rubric}: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "finetune grader", f"could not read rubric {args.rubric}: {exc}")
     if not dims:
-        print(f"error: rubric {args.rubric} has no dimensions", file=sys.stderr)
-        return 2
+        return _fail(args, "finetune grader", f"rubric {args.rubric} has no dimensions")
 
     try:
         grader = rubric_to_score_model(dims, model=args.model, name=args.name)
     except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "finetune grader", exc)
 
     problems = validate_grader(grader)
-    for problem in problems:
-        print(f"problem       : {problem}", file=sys.stderr)
+    as_json = wants_json(args)
+    if not as_json:
+        for problem in problems:
+            print(f"problem       : {problem}", file=sys.stderr)
     if problems:
+        if as_json:
+            emit_envelope(_problems_envelope(
+                "finetune grader", problems, {"rubric": args.rubric, "grader": grader},
+            ))
         return 1
 
     import json as _json
@@ -130,6 +182,15 @@ def _cmd_finetune_grader(args: argparse.Namespace) -> int:
         from pathlib import Path as _Path
 
         _Path(args.out).write_text(rendered + "\n", encoding="utf-8")
+    if as_json:
+        emit_envelope(command_envelope(
+            "finetune grader",
+            status="written" if args.out else "ok",
+            result={"rubric": args.rubric, "dimensions": len(dims), "out": args.out,
+                    "grader": grader},
+            effects={"mutating": bool(args.out)},
+        ))
+    elif args.out:
         print(f"rubric        : {args.rubric}  ({len(dims)} dims)")
         print(f"wrote         : {args.out}  (score_model grader)")
     else:
@@ -139,20 +200,26 @@ def _cmd_finetune_grader(args: argparse.Namespace) -> int:
 def _cmd_finetune_submit(args: argparse.Namespace) -> int:
     from castia.finetuning.rft import load_grader, load_jsonl
 
+    as_json = wants_json(args)
     try:
         grader = load_grader(args.grader) if args.grader else None
         train = load_jsonl(args.dataset)
         validation = load_jsonl(args.validation) if args.validation else None
     except (OSError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "finetune submit", exc)
 
     problems = _validate_splits(
         args.type, train, validation, grader=grader, require_rft_grader=True,
     )
-    for problem in problems:
-        print(f"problem       : {problem}", file=sys.stderr)
     if problems:
+        if as_json:
+            emit_envelope(_problems_envelope(
+                "finetune submit", problems,
+                {"type": args.type, "model": args.model, "submitted": False},
+            ))
+            return 1
+        for problem in problems:
+            print(f"problem       : {problem}", file=sys.stderr)
         print("result        : PROBLEMS FOUND (nothing submitted)", file=sys.stderr)
         return 1
 
@@ -174,8 +241,14 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
                 suffix=args.suffix,
             )
         except ValueError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
+            return _fail(args, "finetune submit", exc)
+        if as_json:
+            emit_envelope(command_envelope(
+                "finetune submit", status="dry_run",
+                result={"type": args.type, "model": args.model, "payload": job},
+                next_actions=["rerun without --dry-run to upload files and submit a billable job"],
+            ))
+            return 0
         print(f"type          : {args.type}")
         print(f"model         : {args.model}")
         print(f"training      : {args.dataset}  ({len(train)} examples)")
@@ -214,10 +287,20 @@ def _cmd_finetune_submit(args: argparse.Namespace) -> int:
         )
         created = _submit_job(args.type, job, endpoint=args.project_endpoint)
     except (RuntimeError, OSError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "finetune submit", exc,
+                     effects={"network": True, "billable": True, "mutating": True})
 
-    print(f"job           : {getattr(created, 'id', created)}")
+    created_id = getattr(created, "id", created)
+    if as_json:
+        emit_envelope(command_envelope(
+            "finetune submit", status="submitted",
+            result={"type": args.type, "model": args.model, "job_id": str(created_id),
+                    "training_file": train_id, "validation_file": val_id},
+            next_actions=[f"python -m castia finetune status {created_id} --watch"],
+            effects={"network": True, "billable": True, "mutating": True},
+        ))
+        return 0
+    print(f"job           : {created_id}")
     print(f"result        : submitted (billable {args.type.upper()} job)")
     return 0
 
@@ -356,6 +439,7 @@ def _register_management_commands(subparsers: argparse._SubParsersAction) -> Non
             parser.add_argument("--file-id", help="download only this job-owned result file")
             parser.add_argument("--out", help="new destination file; never overwritten")
             parser.add_argument("--max-bytes", type=int, default=4 * 1024 * 1024)
+        add_json_argument(parser)
         parser.set_defaults(func=run, management_command=name)
 
 
@@ -413,10 +497,52 @@ def run(args: argparse.Namespace) -> int:
                     if not client.endpoint:
                         raise ValueError("project endpoint is required to save a reference")
                     JobReference(client.endpoint, job_id).save(args.save_reference)
-        print(json.dumps(result, indent=2, allow_nan=False))
-        if command == "status" and result.get("status") in {"failed", "cancelled", "canceled"}:
-            return 1
-        return 0
+        status = result.get("status") if isinstance(result, dict) else None
+        failed = command == "status" and status in {"failed", "cancelled", "canceled"}
+        if wants_json(args):
+            emit_envelope(_management_envelope(args, command, job_id, result))
+        else:
+            print(json.dumps(result, indent=2, allow_nan=False))
+        return 1 if failed else 0
     except (ValueError, TypeError, OSError, RuntimeError, AzureError, OpenAIError) as exc:
+        if wants_json(args):
+            emit_envelope(error_envelope(
+                f"finetune {args.management_command}", exc,
+                effects=_MANAGEMENT_EFFECTS.get(args.management_command, {"network": True}),
+            ))
+            return 2
         print(f"error: fine-tuning {args.management_command}: {exc}", file=sys.stderr)
         return 2
+
+
+_MANAGEMENT_EFFECTS = {
+    "cancel": {"network": True, "mutating": True},
+    "results": {"network": True},
+}
+
+
+def _management_envelope(args: argparse.Namespace, command: str, job_id: str | None,
+                         result) -> dict:
+    effects = dict(_MANAGEMENT_EFFECTS.get(command, {"network": True}))
+    if command == "results" and getattr(args, "out", None):
+        effects["mutating"] = True
+    if command == "status" and getattr(args, "save_reference", None):
+        effects["mutating"] = True
+    next_actions: list[str] = []
+    if command in {"status", "cancel"}:
+        status = str(result.get("status") or "unknown").lower()
+        if status == "succeeded":
+            next_actions = [f"python -m castia finetune handoff {job_id}"]
+        elif status not in {"failed", "cancelled", "canceled"}:
+            next_actions = [f"python -m castia finetune status {job_id} --watch"]
+        if command == "cancel" and status not in {"cancelled", "canceled"}:
+            status = "cancel_requested"
+    elif command == "results" and getattr(args, "out", None):
+        status = "written"
+    else:
+        status = "ok"
+    return command_envelope(
+        f"finetune {command}", status=status,
+        result={"job_id": job_id, "data": result} if job_id else {"data": result},
+        next_actions=next_actions, effects=effects,
+    )

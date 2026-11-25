@@ -287,6 +287,10 @@ Keep registration and tool providers free of network side effects.
 Status, trace queries, cancellation, and candidate retrieval are remote
 operations even when they do not create a new training or optimizer job.
 
+For automation, add `--json` to eval, optimize, or finetune commands. Each
+prints one `castia.cli.v1` envelope whose `effects` field states network,
+billable, and mutating impact; branch on `ok`/`status`, not on human text.
+
 Evaluation suites use `eval.yaml`; optimizer baselines use `.agent_configs`.
 Lifecycle evidence has its own snapshot/dataset/run schemas.
 RFT accepts explicit JSONL splits and a grader; it does not consume `eval.yaml`

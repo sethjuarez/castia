@@ -97,6 +97,9 @@ or training evidence.
 
 Inspect the preview's prompt, tools, evaluator references, dataset, deployed
 agent, models, and candidate cap before authorizing submission.
+Every command accepts `--json` and then prints one `castia.cli.v1` envelope
+(`status`, `ok`, `effects`, `result`, `diagnostics`, `next`); with `--watch`
+only the final envelope is printed.
 After cancellation, inspect status to establish that the job stopped.
 The cancellation command reports a request, not completed cleanup.
 Use explicit project settings. The current wire contract is
