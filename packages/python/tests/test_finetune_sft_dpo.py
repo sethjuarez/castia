@@ -161,7 +161,7 @@ def test_cli_rft_check_grader_stays_optional(tmp_path, capsys):
     dataset = tmp_path / "train.jsonl"
     validation = tmp_path / "val.jsonl"
     row = {"messages": [{"role": "user", "content": "Solve it."}]}
-    dataset.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    dataset.write_text((json.dumps(row) + "\n") * 10, encoding="utf-8")
     validation.write_text(json.dumps(row) + "\n", encoding="utf-8")
     assert main([
         "finetune", "check", "--dataset", str(dataset), "--validation", str(validation),

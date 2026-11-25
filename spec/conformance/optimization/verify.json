@@ -1,0 +1,200 @@
+{
+  "description": "Post-optimize checks: training-text leak scan, held-out overlap, held-out metric verdict, early-stop label, and --from-version seeding. Shared by Python (castia.optimizing.verify) and Rust (castia::optimizing::verify).",
+  "constants": {
+    "leak_shingle_words": 6,
+    "leak_min_words": 3,
+    "stall_markers": ["maximum consecutive stall"],
+    "stopped_early_label": "stopped early (no improvement)"
+  },
+  "training_leaks": [
+    {
+      "name": "long value copied verbatim",
+      "candidate": "You are helpful. Explain what the master services agreement say about the clause number.",
+      "baseline": "You are helpful.",
+      "rows": [{"query": "What does the master services agreement say about the clause number?"}],
+      "expected": [{"row": 0, "field": "query", "match": "the master services agreement say about"}]
+    },
+    {
+      "name": "shingle already in baseline is ignored",
+      "candidate": "Answer using the master services agreement say about rules.",
+      "baseline": "Answer using the master services agreement say about rules.",
+      "rows": [{"query": "What does the master services agreement say about the clause number?"}],
+      "expected": []
+    },
+    {
+      "name": "short value must appear whole",
+      "candidate": "When asked, reply: net thirty days.",
+      "baseline": "",
+      "rows": [{"query": "payment terms", "ground_truth": "Net thirty days"}],
+      "expected": [{"row": 0, "field": "ground_truth", "match": "net thirty days"}]
+    },
+    {
+      "name": "values under the minimum are ignored",
+      "candidate": "Say yes or no.",
+      "baseline": "",
+      "rows": [{"ground_truth": "yes no"}],
+      "expected": []
+    },
+    {
+      "name": "nested fields report a dotted path",
+      "candidate": "Escalate when the vendor misses two consecutive delivery windows in a quarter.",
+      "baseline": "",
+      "rows": [{"query": "q", "context": {"notes": ["vendor misses two consecutive delivery windows"]}}],
+      "expected": [{"row": 0, "field": "context.notes[0]", "match": "vendor misses two consecutive delivery windows"}]
+    }
+  ],
+  "heldout_overlap": [
+    {
+      "name": "case and punctuation insensitive",
+      "training": [{"query": "What is the refund window?"}, {"query": "Who signs?"}],
+      "heldout": [{"query": "what is the REFUND window"}, {"query": "How long is the term?"}],
+      "expected": [0]
+    },
+    {
+      "name": "empty queries never overlap",
+      "training": [{"query": ""}],
+      "heldout": [{"query": ""}, {"other": 1}],
+      "expected": []
+    }
+  ],
+  "metric_values": [
+    {
+      "name": "top-level, nested and boolean values",
+      "metric": "accuracy",
+      "rows": [
+        {"accuracy": 1},
+        {"scores": {"accuracy": 0.5}},
+        {"metrics": {"accuracy": true}},
+        {"results": {"accuracy": false}},
+        {"accuracy": "n/a"},
+        "not a row"
+      ],
+      "expected": [1.0, 0.5, 1.0, 0.0]
+    }
+  ],
+  "verdict": [
+    {
+      "name": "candidate beats baseline",
+      "baseline": [0.5, 0.5],
+      "candidate": [1.0, 0.5],
+      "min_delta": 0.0,
+      "leaks": 0,
+      "overlap": 0,
+      "expected": {"status": "pass", "baseline_mean": 0.5, "candidate_mean": 0.75, "delta": 0.25, "reasons": 0}
+    },
+    {
+      "name": "regression fails",
+      "baseline": [1.0, 1.0],
+      "candidate": [0.5, 1.0],
+      "min_delta": 0.0,
+      "leaks": 0,
+      "overlap": 0,
+      "expected": {"status": "fail", "baseline_mean": 1.0, "candidate_mean": 0.75, "delta": -0.25, "reasons": 1}
+    },
+    {
+      "name": "missing metric is incomplete",
+      "baseline": [],
+      "candidate": [1.0],
+      "min_delta": 0.0,
+      "leaks": 0,
+      "overlap": 0,
+      "expected": {"status": "incomplete", "baseline_mean": null, "candidate_mean": 1.0, "delta": null, "reasons": 1}
+    },
+    {
+      "name": "leaks fail even when the metric is missing",
+      "baseline": [],
+      "candidate": [],
+      "min_delta": 0.0,
+      "leaks": 2,
+      "overlap": 0,
+      "expected": {"status": "fail", "baseline_mean": null, "candidate_mean": null, "delta": null, "reasons": 2}
+    },
+    {
+      "name": "overlap fails a passing delta",
+      "baseline": [0.5],
+      "candidate": [0.5],
+      "min_delta": 0.0,
+      "leaks": 0,
+      "overlap": 1,
+      "expected": {"status": "fail", "baseline_mean": 0.5, "candidate_mean": 0.5, "delta": 0.0, "reasons": 1}
+    },
+    {
+      "name": "row count mismatch fails",
+      "baseline": [0.5, 0.5],
+      "candidate": [1.0],
+      "min_delta": 0.0,
+      "leaks": 0,
+      "overlap": 0,
+      "expected": {"status": "fail", "baseline_mean": 0.5, "candidate_mean": 1.0, "delta": 0.5, "reasons": 1}
+    }
+  ],
+  "termination_label": [
+    {
+      "name": "stall limit in the status message",
+      "status": {"status": "succeeded", "message": "Maximum consecutive stall limit reached (3)."},
+      "expected": "stopped early (no improvement)"
+    },
+    {
+      "name": "stall limit nested in result",
+      "status": {"status": "succeeded", "result": {"termination": {"reason": "Maximum consecutive stall limit"}}},
+      "expected": "stopped early (no improvement)"
+    },
+    {
+      "name": "candidate text is not a termination reason",
+      "status": {"status": "succeeded", "result": {"candidates": [{"instructions": "maximum consecutive stall"}]}},
+      "expected": null
+    },
+    {
+      "name": "plain success has no label",
+      "status": {"status": "succeeded", "message": "done"},
+      "expected": null
+    }
+  ],
+  "seed_from_version": [
+    {
+      "name": "prompt definition seeds instructions, model and function tools",
+      "request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"system_prompt": "local", "current_model": "gpt-4o", "skills": [], "tools": []}}
+      },
+      "version": {"definition": {"kind": "prompt", "model": "gpt-4.1", "instructions": "deployed", "tools": [{"type": "function", "name": "lookup", "description": "d", "parameters": {"type": "object"}}, {"type": "mcp", "server_label": "x"}]}},
+      "agent_version": "7",
+      "expected_request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt", "version": "7"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"system_prompt": "deployed", "current_model": "gpt-4.1", "skills": [], "tools": [{"type": "function", "function": {"name": "lookup", "description": "d", "parameters": {"type": "object"}}}]}}
+      },
+      "expected_seeded": ["instructions", "model", "1 function tool(s)"]
+    },
+    {
+      "name": "tool-free deployed version clears stale baseline tools",
+      "request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"system_prompt": "local", "current_model": "gpt-4o", "skills": [], "tools": [{"type": "function", "function": {"name": "stale", "description": "d", "parameters": {"type": "object"}}}]}}
+      },
+      "version": {"definition": {"kind": "prompt", "model": "gpt-4.1", "instructions": "deployed", "tools": []}},
+      "agent_version": "8",
+      "expected_request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt", "version": "8"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"system_prompt": "deployed", "current_model": "gpt-4.1", "skills": [], "tools": []}}
+      },
+      "expected_seeded": ["instructions", "model", "0 function tool(s)"]
+    },
+    {
+      "name": "hosted definition has nothing to seed",
+      "request": {
+        "target_configuration": {"type": "foundry_agent", "name": "opt"},
+        "optimization_configuration": {"type": "agent_optimization", "baseline_agent_configuration": {"skills": [], "tools": []}}
+      },
+      "version": {"definition": {"kind": "hosted", "image": "x"}},
+      "agent_version": "3",
+      "error": "has no prompt definition to seed from"
+    },
+    {
+      "name": "skill optimization request cannot be seeded",
+      "request": {"target_configuration": {"type": "foundry_agent", "name": "opt"}, "optimization_configuration": {"type": "skill_optimization"}},
+      "version": {"definition": {"kind": "prompt", "model": "gpt-4.1", "instructions": "deployed", "tools": [{"type": "function", "name": "lookup", "description": "d", "parameters": {"type": "object"}}, {"type": "mcp", "server_label": "x"}]}},
+      "agent_version": "7",
+      "error": "seeds an agent_optimization job"
+    }
+  ]
+}

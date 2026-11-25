@@ -79,7 +79,7 @@ PUBLIC_EXPORTS = {
     "inference.model": ("Model", "get_model", "use_model"),
     "optimizing.config": (
         "AgentConfig", "apply_optimized_tools", "configured_model",
-        "load_agent_config", "tools_json",
+        "load_agent_config", "tools_json", "validate_optimized_tools",
     ),
     "integrations.toolbox": (
         "McpToolboxError", "ToolboxAuthenticationError",
@@ -87,7 +87,8 @@ PUBLIC_EXPORTS = {
         "apply_optimized_toolbox_tools", "compose_toolbox_endpoint",
         "knowledge_base_mcp_tool", "platform_endpoint_env",
         "resolve_toolbox_endpoint", "serialize_mcp_result",
-        "toolbox_mcp_tool", "toolbox_token", "toolbox_tools_from_mcp",
+        "toolbox_function_tool", "toolbox_mcp_tool", "toolbox_token",
+        "toolbox_tools_from_mcp",
         "toolbox_tools_from_schema", "validate_toolbox_endpoint",
     ),
     "observe.tracing": (

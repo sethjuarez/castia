@@ -46,9 +46,36 @@ pub fn responses_input(value: &Value) -> String {
     fallback
 }
 
+const PLATFORM_PARTITION_SUFFIX: &str = "00";
+const PLATFORM_PARTITION_LENGTH: usize = 18;
+const PLATFORM_BODY_LENGTH: usize = PLATFORM_PARTITION_LENGTH + 32;
+
+/// Mint `{prefix}_{16 hex}00{32 hex}`, the Foundry Responses id format.
+///
+/// Foundry rejects other shapes as `400 Malformed identifier` when fetching a
+/// response by id. `like` reuses an existing id's partition key so items are
+/// co-located with their response, as the agentserver `IdGenerator` does.
+pub fn platform_id(prefix: &str, like: Option<&str>) -> String {
+    let partition = like
+        .and_then(|id| id.split_once('_').map(|(_, body)| body))
+        .filter(|body| {
+            body.len() == PLATFORM_BODY_LENGTH
+                && body.get(16..PLATFORM_PARTITION_LENGTH) == Some(PLATFORM_PARTITION_SUFFIX)
+        })
+        .map(|body| body[..PLATFORM_PARTITION_LENGTH].to_string())
+        .unwrap_or_else(|| {
+            let random: String = uuid::Uuid::new_v4().as_bytes()[..8]
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            format!("{random}{PLATFORM_PARTITION_SUFFIX}")
+        });
+    format!("{prefix}_{partition}{}", uuid::Uuid::new_v4().simple())
+}
+
 pub fn responses_body(text: &str) -> Value {
     serde_json::json!({
-        "id": format!("resp_{}", uuid::Uuid::new_v4().simple()),
+        "id": platform_id("resp", None),
         "object": "response",
         "status": "completed",
         "output_text": text,

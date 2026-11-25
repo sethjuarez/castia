@@ -129,13 +129,13 @@ fn read_rubric_matches_python_dimension_rules() {
             "ignored",
         ])),
         json!([
-            { "id": "legacy_slug", "description": "d", "weight": 1, "always_applicable": false },
-            { "id": "wins", "description": "d", "weight": null, "always_applicable": false },
+            { "id": "legacy_slug", "description": "d", "weight": 1, "always_applicable": false, "gate": false },
+            { "id": "wins", "description": "d", "weight": null, "always_applicable": false, "gate": false },
         ])
     );
     assert_eq!(
         read_rubric(&json!({ "dimensions": [{ "id": "only", "description": "d", "weight": 2 }] })),
-        json!([{ "id": "only", "description": "d", "weight": 2, "always_applicable": false }])
+        json!([{ "id": "only", "description": "d", "weight": 2, "always_applicable": false, "gate": false }])
     );
     assert_eq!(read_rubric(&json!({ "notDimensions": [] })), json!([]));
     assert_eq!(
@@ -144,8 +144,8 @@ fn read_rubric_matches_python_dimension_rules() {
             { "id": null, "name": "fallback", "description": "", "always_applicable": 0 },
         ])),
         json!([
-            { "id": "2024", "description": "5", "weight": null, "always_applicable": true },
-            { "id": "fallback", "description": "", "weight": null, "always_applicable": false },
+            { "id": "2024", "description": "5", "weight": null, "always_applicable": true, "gate": false },
+            { "id": "fallback", "description": "", "weight": null, "always_applicable": false, "gate": false },
         ])
     );
 }

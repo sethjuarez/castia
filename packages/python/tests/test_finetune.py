@@ -9,6 +9,7 @@ seams and are never called (a real RFT job is billable and gated).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -247,3 +248,132 @@ def test_load_jsonl_roundtrip(tmp_path):
     rows = load_jsonl(p)
     assert len(rows) == 3
     assert rows[0]["answer"] == "0"
+
+
+# --------------------------------------------------------------------------- #
+# Base-model role rules (MAI rejects ``system`` at RFT preprocessing)          #
+# --------------------------------------------------------------------------- #
+
+_ROLE_RULES = (
+    Path(__file__).resolve().parents[3]
+    / "spec" / "conformance" / "finetuning" / "rft_role_rules.json"
+)
+
+
+def test_role_rules_match_spec_fixture():
+    from castia.finetuning.rft import (
+        RFT_ROLE_REWRITES,
+        rft_model_family,
+        rft_role_rewrites,
+    )
+
+    spec = json.loads(_ROLE_RULES.read_text(encoding="utf-8"))
+    assert RFT_ROLE_REWRITES == {
+        family: rule["rejected_roles"] for family, rule in spec["families"].items()
+    }
+    for case in spec["cases"]:
+        assert rft_model_family(case["model"]) == case["family"], case
+        assert rft_role_rewrites(case["model"]) == case["rewrites"], case
+
+
+def test_validate_rft_example_rejects_system_for_mai_only():
+    row = _example()
+    assert validate_rft_example(row, model="o4-mini") == []
+    problems = validate_rft_example(row, model="MAI-code-2-flash")
+    assert len(problems) == 1
+    assert "'system' is rejected" in problems[0] and "'developer'" in problems[0]
+
+
+def test_rewrite_rft_roles_is_pure_idempotent_and_keeps_item_fields():
+    from castia.finetuning.rft import rewrite_rft_roles
+
+    rows = [_example(extra={"answer": "42"}), "not-a-row", {"messages": "bad"}]
+    out, count = rewrite_rft_roles(rows, model="mai-code-2-flash")
+    assert count == 1
+    assert rows[0]["messages"][0]["role"] == "system"
+    assert out[0]["messages"][0]["role"] == "developer"
+    assert out[0]["answer"] == "42"
+    assert out[1:] == rows[1:]
+    assert validate_rft_example(out[0], model="mai-code-2-flash") == []
+    assert rewrite_rft_roles(out, model="mai-code-2-flash")[1] == 0
+    assert rewrite_rft_roles(rows, model="o4-mini") == (rows, 0)
+
+
+def _mai_split_files(tmp_path):
+    grader = string_check_grader(
+        "exact", input="{{ sample.output_text }}", reference="{{ item.answer }}",
+    )
+    paths = {}
+    for name in ("train", "val"):
+        path = tmp_path / f"{name}.jsonl"
+        path.write_text(
+            (json.dumps(_example(extra={"answer": "42"})) + "\n") * 10, encoding="utf-8",
+        )
+        paths[name] = path
+    grader_path = tmp_path / "grader.json"
+    grader_path.write_text(json.dumps(grader), encoding="utf-8")
+    return paths["train"], paths["val"], grader_path
+
+
+def _submit_args(train, val, grader, *extra):
+    return [
+        "finetune", "submit", "--type", "rft", "--model", "mai-code-2-flash",
+        "--dataset", str(train), "--validation", str(val), "--grader", str(grader),
+        *extra,
+    ]
+
+
+def test_cli_mai_submit_fails_offline_on_system_role(tmp_path, monkeypatch, capsys):
+    from castia.__main__ import main
+
+    train, val, grader = _mai_split_files(tmp_path)
+
+    def fail_upload(*_args, **_kwargs):
+        raise AssertionError("must not upload")
+
+    monkeypatch.setattr("castia.finetuning.rft.upload_file", fail_upload)
+    assert main(_submit_args(train, val, grader)) == 1
+    assert "'system' is rejected" in capsys.readouterr().err
+    assert main(_submit_args(train, val, grader, "--rewrite-roles", "--dry-run")) == 0
+    assert "rewrote roles : 20 message(s)" in capsys.readouterr().out
+    assert main([
+        "finetune", "check", "--model", "mai-code-2-flash", "--dataset", str(train),
+    ]) == 1
+
+
+def test_cli_mai_submit_rewrite_uploads_developer_copies(tmp_path, monkeypatch):
+    from castia.__main__ import main
+
+    train, val, grader = _mai_split_files(tmp_path)
+    original = train.read_text(encoding="utf-8")
+    uploaded = []
+
+    def fake_upload(path, *, endpoint=None):
+        uploaded.append(Path(path).read_text(encoding="utf-8"))
+        return f"file-{len(uploaded)}"
+
+    submitted = {}
+    monkeypatch.setattr("castia.finetuning.rft.upload_file", fake_upload)
+    monkeypatch.setattr(
+        "castia.finetuning.rft.submit_rft_job",
+        lambda job, *, endpoint=None: submitted.update(job) or "ftjob-1",
+    )
+    assert main(_submit_args(train, val, grader, "--rewrite-roles", "--approve-train")) == 0
+    assert len(uploaded) == 2
+    for body in uploaded:
+        assert '"developer"' in body and '"system"' not in body
+    assert train.read_text(encoding="utf-8") == original
+    assert submitted["training_file"] == "file-1"
+    assert submitted["validation_file"] == "file-2"
+
+
+def test_cli_rewrite_roles_is_rft_only(tmp_path, capsys):
+    from castia.__main__ import main
+
+    dataset = tmp_path / "sft.jsonl"
+    dataset.write_text("{}\n", encoding="utf-8")
+    assert main([
+        "finetune", "submit", "--type", "sft", "--model", "mai-code-2-flash",
+        "--dataset", str(dataset), "--rewrite-roles", "--dry-run",
+    ]) == 2
+    assert "only valid with --type rft" in capsys.readouterr().err

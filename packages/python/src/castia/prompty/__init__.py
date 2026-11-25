@@ -662,6 +662,7 @@ def prompty_tools_from_castia(
             tool.name,
             _castia_tool_callback(tool),
             tool_type=getattr(tool, "kind", None) or "function",
+            span_name=getattr(tool, "span_name", None),
         )
     return function_tools, tool_functions
 
@@ -687,7 +688,12 @@ _TRACED_TOOL_MARKER = "__castia_traced_tool__"
 
 def _traced_tool_functions(tool_functions: Mapping[str, Callable[..., Any]]) -> dict[str, Callable[..., Awaitable[Any]]]:
     return {
-        name: _traced_tool(name, tool_function, tool_type=_traced_tool_type(tool_function))
+        name: _traced_tool(
+            name,
+            tool_function,
+            tool_type=_traced_tool_type(tool_function),
+            span_name=_traced_tool_span_name(tool_function),
+        )
         for name, tool_function in tool_functions.items()
     }
 
@@ -697,16 +703,22 @@ def _traced_tool_type(tool_function: Callable[..., Any]) -> str | None:
     return marker[1] if marker is not None else None
 
 
+def _traced_tool_span_name(tool_function: Callable[..., Any]) -> str | None:
+    marker = getattr(tool_function, _TRACED_TOOL_MARKER, None)
+    return marker[3] if marker is not None and len(marker) > 3 else None
+
+
 def _traced_tool(
     name: str,
     tool_function: Callable[..., Any],
     *,
     tool_type: str | None = None,
+    span_name: str | None = None,
 ) -> Callable[..., Awaitable[Any]]:
     """Wrap one Prompty tool callback in an ``execute_tool`` span (idempotent)."""
     marker = getattr(tool_function, _TRACED_TOOL_MARKER, None)
     if marker is not None:
-        if marker[:2] == (name, tool_type):
+        if (marker[0], marker[1], marker[3]) == (name, tool_type, span_name):
             return tool_function
         tool_function = marker[2]
 
@@ -727,7 +739,8 @@ def _traced_tool(
             tool_type=tool_type or "prompty",
             arguments=_tool_arguments(args, kwargs),
         )
-        span_cm = execute_tool(name, tool_type=tool_type) if tool_type else execute_tool(name)
+        span_kwargs = {k: v for k, v in (("tool_type", tool_type), ("span_name", span_name)) if v}
+        span_cm = execute_tool(name, **span_kwargs)
         with span_cm as span:
             _set_tool_span_start_attributes(span, event, name, args, kwargs)
             try:
@@ -756,7 +769,7 @@ def _traced_tool(
                 )
                 return result
 
-    setattr(call_tool, _TRACED_TOOL_MARKER, (name, tool_type, tool_function))
+    setattr(call_tool, _TRACED_TOOL_MARKER, (name, tool_type, tool_function, span_name))
     return call_tool
 
 

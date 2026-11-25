@@ -51,10 +51,13 @@ fn responses_body_matches_python_response_envelope_shape() {
     assert_eq!(body["object"], "response");
     assert_eq!(body["status"], "completed");
     assert_eq!(body["output_text"], "hello");
-    assert!(body["id"]
-        .as_str()
-        .expect("id is string")
-        .starts_with("resp_"));
+    let id = body["id"].as_str().expect("id is string");
+    assert!(
+        regex::Regex::new(r"^resp_[0-9a-f]{16}00[0-9a-f]{32}$")
+            .unwrap()
+            .is_match(id),
+        "{id} is not in the Foundry platform id format"
+    );
     body.as_object_mut()
         .expect("body is an object")
         .remove("id");
@@ -73,4 +76,18 @@ fn responses_body_matches_python_response_envelope_shape() {
             ]
         })
     );
+}
+
+#[test]
+fn platform_id_colocates_items_on_their_response_partition() {
+    let response = castia::protocols::platform_id("resp", None);
+    let item = castia::protocols::platform_id("msg", Some(&response));
+    assert!(item.starts_with("msg_"));
+    assert_eq!(item[4..22], response[5..23]);
+    assert_eq!(item.len(), "msg_".len() + 50);
+
+    let fresh = castia::protocols::platform_id("msg", Some("resp_not-a-platform-id"));
+    assert!(regex::Regex::new(r"^msg_[0-9a-f]{16}00[0-9a-f]{32}$")
+        .unwrap()
+        .is_match(&fresh));
 }

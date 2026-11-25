@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 
 def main(argv: list[str] | None = None) -> int:
     from castia.building.cli import register_commands as register_building
-    from castia.building.cli import register_dev_command
+    from castia.building.cli import register_dev_command, register_doctor_command
     from castia.delivery.cli import register_commands as register_delivery
     from castia.evaluation.cli import register_commands as register_evaluation
     from castia.finetuning.cli import register_commands as register_finetuning
@@ -26,11 +27,22 @@ def main(argv: list[str] | None = None) -> int:
     register_finetuning(sub)
     register_building(sub)
     register_dev_command(sub)
+    register_doctor_command(sub)
     register_lifecycle(sub)
     register_observe(sub)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    from castia.lifecycle.output import emit_envelope, error_envelope, wants_json
+
+    if not wants_json(args):
+        return args.func(args)
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 - --json promises one envelope on stdout
+        tokens = sys.argv[1:] if argv is None else argv
+        command = " ".join(t for t in tokens[:2] if not t.startswith("-")) or "castia"
+        emit_envelope(error_envelope(command, exc))
+        return 2
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ interface HostingServerRuntime {
     name: "readiness-body",
     stage: "callable",
     input: #{},
-    expected: "Agent running!",
+    expected: "{\"status\":\"ok\"}",
   })
   readinessBody(): string;
 

@@ -437,6 +437,11 @@ pub fn validate_grader(grader: &Value) -> Vec<String> {
             ));
         }
     }
+    if gtype == Some("python") {
+        if let Some(source) = obj.get("source").and_then(Value::as_str) {
+            problems.extend(super::preflight::python_grader_problems(source));
+        }
+    }
     if gtype == Some("multi") {
         if let Some(subs) = obj.get("graders").and_then(Value::as_object) {
             for (key, sub) in subs {

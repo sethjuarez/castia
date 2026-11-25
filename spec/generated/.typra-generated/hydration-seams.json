@@ -93,6 +93,14 @@
       "seamKind": "protocol-adapter"
     },
     {
+      "contract": "EvaluationScheduleRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "EvaluationScheduleRuntime",
+      "generatedSource": "evaluation_schedule_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
       "contract": "EvaluationSuiteRuntime",
       "target": "rust",
       "group": "",
@@ -194,6 +202,14 @@
       "group": "",
       "symbol": "LifecycleOperationsRuntime",
       "generatedSource": "lifecycle_operations_runtime",
+      "seamKind": "protocol-adapter"
+    },
+    {
+      "contract": "LifecycleOutputRuntime",
+      "target": "rust",
+      "group": "",
+      "symbol": "LifecycleOutputRuntime",
+      "generatedSource": "lifecycle_output_runtime",
       "seamKind": "protocol-adapter"
     },
     {

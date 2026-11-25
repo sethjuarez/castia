@@ -42,6 +42,41 @@ MCP endpoint shape. Keep `python -m castia optimize --check` or the default dev
 optimizer drift check in CI so Agent-declared tools stay aligned with
 `.agent_configs/baseline/tools.json`.
 
+### Doctor
+
+`python -m castia doctor` runs offline checks for the values that make Foundry
+attribute usage correctly:
+
+- **Project resource ID.** It must be the project ARM ID, both locally and in the
+  hosted `azure.yaml` env. Use `AZURE_AI_PROJECT_RESOURCE_ID:
+  ${AZURE_AI_PROJECT_ID}`, because `FOUNDRY_*` names are reserved there.
+- **Model deployment.** `AZURE_AI_MODEL_DEPLOYMENT_NAME` must match the
+  `Model(...)` literals, the optimizer baseline and `azure.yaml`.
+- **Toolboxes.** It flags any singular `toolbox:` key in `azure.yaml`. azd ai
+  agents 1.0.0-beta.22 and later require a `toolboxes:` list.
+
+Warnings exit 0. `--json` prints the report.
+
+`python -m castia doctor quota --region <location> [--model gpt-4.1]` is a
+read-only ARM GET. It lists the meters for a model, with each kind in its own
+group:
+
+- base-model serving
+- fine-tuned serving
+- developer tier
+- batch
+- the regional fine-tuned deployment count
+
+Each meter is independent, so a full serving meter doesn't mean fine-tune
+quota is full. Quota also isn't a guarantee of regional capacity. Meter names
+don't always match deployment names (for example, `gpt4.1` for serving and
+`gpt-4.1` for batch), so the model match ignores dashes.
+
+Castia calls a toolbox through its own `toolbox_mcp_tool` spec, using an Entra
+token for the toolbox audience. It doesn't generate `toolboxes:` entries in
+`azure.yaml`. Those entries, and any request-header bindings on toolbox
+connections, are authored for azd. Castia neither reads nor rewrites them.
+
 The [consumer agent guide](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md)
 has a complete Responses application,
 native MCP setup, credentials, and executable offline tests.
@@ -474,6 +509,62 @@ registered provider so baseline checks remain offline. The
 [complete application](https://github.com/sethjuarez/castia/blob/main/packages/python/AGENTS.md#write-a-complete-responses-agent)
 shows both paths.
 
+#### A toolbox tool with its own model-facing schema
+
+Some MCP tools have a wire schema you don't want the model to see. For example,
+Foundry IQ's `knowledge_base_retrieve` takes `query_variants: [str]`, but a
+tuned model calls it with one `query`. `toolbox_function_tool(...)` builds an
+ordinary local `Tool`. Its `name`, `description`, and `parameters` are exactly
+what the model and `tools.json` see. Castia maps the arguments onto the MCP
+`tools/call` request:
+
+```python
+from castia import McpToolboxError, toolbox_function_tool
+
+KB = "contracts-kb-mcp___knowledge_base_retrieve"
+
+def kb_error(exc: Exception) -> dict:
+    if isinstance(exc, McpToolboxError) and exc.status_code:
+        return {"ok": False, "error": {"status_code": exc.status_code, "body": exc.body}}
+    if isinstance(exc, McpToolboxError) and exc.rpc_error:
+        return {"ok": False, "error": exc.rpc_error}
+    return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+def kb_tools():
+    return [toolbox_function_tool(
+        KB,
+        description="Look up contract or policy context.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "A short search question."}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        to_mcp_arguments=lambda args: {"query_variants": [args["query"].strip()[:400]]},
+        from_mcp_result=lambda r: {"ok": not r.get("isError"), "content": r.get("content", [])},
+        on_error=kb_error,
+        kind="foundry_iq",
+        span_name="execute_tool foundry_iq_retrieve",
+        timeout=120,
+    )]
+
+app.tools(kb_tools)
+```
+
+Construction is pure. The endpoint is resolved, and a token minted, only when the
+model calls the tool. `mcp_tool=` sets a different wire name when it differs.
+Without `on_error`, failures raise, and `Model` feeds them back as
+`{"ok": False, "detail": ...}`. `span_name` renames the `execute_tool` span
+verbatim; `gen_ai.tool.name` stays the model-facing name. Prompty runners get
+the same tool through `prompty_runner_provider(tools=[...], toolbox=False)`.
+Pass `toolbox=False` so tools aren't also auto-discovered from `tools/list`.
+
+To stop an optimizer candidate from changing anything but wording, call
+`validate_optimized_tools(tools, config.tool_definitions)` before
+`apply_optimized_tools`. It raises unless the candidate changes only tool
+descriptions and top-level parameter descriptions, which is exactly what
+`apply_optimized_tools` applies.
+
 **Deploying:** the `azd ai toolbox` extension writes `TOOLBOX_<NAME>_MCP_ENDPOINT`
 into the **azd** environment, but does **not** auto-inject it into a hosted
 container — declare that env passthrough on your container yourself (there is no
@@ -821,36 +912,202 @@ register_trace_sink("otel", otel_trace_sink())
 ### Building a scored eval suite
 
 Once your traces are evaluable, `python -m castia eval` wraps the
-`azd ai agent eval` extension to synthesize and run a **scored** eval suite — a
-generated JSONL dataset plus an auto-generated, weighted **rubric** (a custom
-multi-dimension evaluator):
+`azd ai eval` command (the `azure.ai.evaluations` azd extension) to synthesize
+and run a **scored** eval suite — a generated JSONL dataset plus an
+auto-generated, weighted **rubric** (a custom multi-dimension evaluator):
 
 ```bash
-# Offline gate — validate eval.yaml + rubric files, no Azure, free in CI:
+# Offline gate — validate eval.yaml + rubric files (and evals/azure.eval.yaml
+# drift when it exists), no Azure, free in CI:
 python -m castia eval check
+
+# Scaffold evals/azure.eval.yaml from eval.yaml (run from the azd project root):
+python -m castia eval init
 
 # Synthesize a rubric + dataset from the agent instruction (billable):
 python -m castia eval generate --agent my-agent --max-samples 25
 
-# Re-upload locally edited rubric/dataset files as a new version:
-python -m castia eval update --evaluator-only
+# Publish locally edited dataset files as a new version:
+python -m castia eval update
 
-# Submit a scored run against the deployed agent (billable):
-python -m castia eval run
+# Deploy the eval definition, then run it against the agent (billable). The run
+# is named "<rung> · n<rows>" (rows default to the eval.yaml dataset line count):
+python -m castia eval run --rung baseline --deploy --fail-on pass-rate=0.8
+
+# Delete a run and block until Foundry confirms it is gone:
+python -m castia eval delete --eval-id <eval-id> --run-id <run-id> --wait --timeout 600
 ```
 
+Foundry runs can't be renamed after submit, so a live `eval run` needs
+`--rung` (or an explicit `--name`, which warns when it isn't templated).
+Foundry deletes are asynchronous: `DELETE` can return `deleted: false` with a
+`location`. `eval delete --wait` polls that location (or the resource itself)
+until it is gone, and exits 1 on timeout instead of leaving a timed cleanup
+script behind. It reads `FOUNDRY_PROJECT_ENDPOINT` or `--project-endpoint`.
+
+#### Pinning custom evaluators
+
+Foundry numbers evaluator versions per project, and an evaluator reference
+without a `version:` follows whatever was uploaded last. Live `eval run` refuses
+unpinned custom evaluators (pass `--allow-unpinned` to override): from
+`eval.yaml` on the legacy `azd ai agent eval` backend, and from the selected
+eval's references in `azure.eval.yaml` (add `version:` to each) on the
+`azure.ai.evaluations` backend. `eval check --require-pinned` reports both
+offline. Builtin evaluators are exempt.
+
+```bash
+# Export a version to evaluators/<name>@<hash12>.json (default: latest version):
+python -m castia eval evaluator export --name gold_rubric --version 3
+
+# In another project: reuse the version with the same content hash, or create one,
+# then write that version into eval.yaml:
+python -m castia eval evaluator import evaluators/gold_rubric@1a2b3c4d5e6f.json --pin-version
+```
+
+The bundle's identity is a `sha256` of the canonical JSON of `evaluator_type`,
+`categories`, `supported_evaluation_levels` and `definition`. Display names,
+descriptions and tags don't change it. Import is idempotent. It matches on the
+recomputed content of existing versions, or on the `castia.content_hash` tag
+when a listing omits definitions. It also verifies the stored definition hashes
+to the same value, and refuses a bundle edited after export.
+
+#### Repeated runs
+
+One run is a sample, not a measurement: grader noise between identical runs can
+be bigger than the gap you're trying to see. `--runs` repeats an existing run's
+data source through the Foundry REST API and gates every repeat:
+
+```bash
+python -m castia eval run --runs 5 --rung baseline \
+  --eval-id <eval-id> --template-run <run-id> \
+  --max-in-flight 3 --min-scored 0.95 --max-errors 10
+```
+
+Runs are named `baseline · n<rows> · r<i>`. A run is **rejected** unless it
+completes, scores at least `--min-scored` of its rows, and has at most
+`--max-errors` errored rows. Rejected runs never enter the aggregate. The
+report shows every per-run score with its `n`, then each criterion as
+`mean [min, max] (runs=k, n=…)`. It warns when a run has fewer than 50 scored
+rows, and exits 1 unless every requested run is accepted.
+
+Progress is saved to `.castia/eval_runs/<rung>-n<rows>.json` (or `--state`)
+after every submit and poll. An interrupted or timed-out harness resumes from
+that file without resubmitting. The harness talks to the service through the
+`castia.evaluation.harness.EvalBackend` protocol (`submit`, `poll`), so another
+backend can plug in without changing the gates or the report.
+
+A run whose tools were failing (an expired key, a 402 from a search API)
+measures the outage, not the agent. `--max-tool-error-rate 0.1` reads each
+otherwise-accepted run's per-row outputs, counts tool calls (`mcp_call`,
+`file_search_call`, … and `castia.tool_capture` documents) and rejects the run
+when more than that share failed. `--min-tool-calls N` also rejects runs with
+fewer than `N` calls, which catches tools that were silently dropped. The gate
+result (`castia.tool_error_gate/v1`) is saved with the run in the state file.
+It needs `castia.evaluation.tool_errors` (castia tool telemetry); the backend
+must implement the optional `tool_records(run_id)` method.
+
 `check` is a pure, offline referential-integrity gate: it resolves every
-evaluator/dataset `local_uri` and validates each rubric dimensions file.
-`generate` and `run` submit **billable** Foundry jobs, so both accept
-`--dry-run` to print the resolved `azd` command line without submitting
-anything. The YAML checks need `uv pip install "castia[deploy]"`. The live wrappers also
-require a separately installed and authenticated azd with `azd ai agent eval`.
+evaluator/dataset `local_uri` and validates each rubric dimensions file. When
+`evals/azure.eval.yaml` exists, it also reports drift between that file and
+`eval.yaml` (target agent, builtin evaluators, dataset file). `init` converts
+`agent.name`, `options.eval_model`, the local dataset and `builtin.*`
+evaluators. It refuses custom evaluators; register those with
+`azd ai eval evaluator create` and declare them in `azure.eval.yaml`.
+With several evals declared, pick one with `run --eval <name>`. `update`
+re-publishes datasets; publish an edited rubric with
+`azd ai eval evaluator update <name> --from-file <file>`.
+`generate` and `run` submit **billable** Foundry jobs, so every live command
+accepts `--dry-run` to print the resolved `azd` command lines without
+submitting anything. The YAML checks need `uv pip install "castia[deploy]"`.
+The live wrappers also require a separately installed and authenticated azd
+with the `azure.ai.evaluations` extension
+(`azd extension install azure.ai.evaluations`).
+
+castia auto-detects the backend from `azd extension list`. `azd ai agent eval`
+was removed in `azure.ai.agents` 1.0.0-beta.22. If you still run an older
+`azure.ai.agents` without `azure.ai.evaluations`, castia falls back to the
+legacy `azd ai agent eval` command lines; force a backend with
+`--backend evaluations|agent` or `CASTIA_EVAL_BACKEND`. Flags that exist on
+only one backend are rejected on the other.
 
 The rubric dimensions file is a **bare JSON list** where each entry is keyed by
 `id` (a stable slug like `correct_outcome`), with an optional
 `always_applicable: true` on the catch-all dimension. That cross-SDK shape is
 pinned in the monorepo at
 [`spec/conformance/rubric/`](https://github.com/sethjuarez/castia/tree/main/spec/conformance/rubric).
+
+#### Gate dimensions and gold-aware evaluators
+
+Foundry rubrics score one weighted mean against a `pass_threshold`, so a
+must-be-right dimension can be outvoted. Mark it `gate: true` in an authored
+rubric and compile it:
+
+```bash
+python -m castia eval rubric compile rubric.source.json --out rubric.json --pass-threshold 0.5
+```
+
+`compile` sets each gate's weight just high enough that a zero on any gate
+fails the rubric even when every other dimension is perfect. With several
+gates, the threshold must exceed `(gates - 1) / gates`, or use Boolean scoring.
+Reference the compiled file from `eval.yaml`; `eval check` reports a referenced
+rubric that still contains `gate: true`. Keep the source file in the repo,
+because Foundry does not keep the brief. In Python, use
+`RubricDimension(..., gate=True)` with `compile_gates()` and `rubric_to_wire()`.
+
+Optimizer run-time rows keep only `query` and `ground_truth`. A gold-aware
+evaluator must read the reference from `{{item.ground_truth}}` and nothing
+else from the row. Write a starting point with:
+
+```bash
+python -m castia eval template gold-aware --out evaluators
+```
+
+It writes `gold_rubric.source.json` (a `matches_ground_truth` gate plus quality
+dimensions), the compiled `gold_rubric.json`, a `string_check` testing criterion
+(`gold_string_check.json`, case-insensitive match of `{{sample.output_text}}`
+against `{{item.ground_truth}}`), and sample `query`/`ground_truth` rows. The
+`string_check` shape follows the OpenAI evals testing-criteria format; confirm
+how your azd eval extension registers it before a billable run.
+
+> **Optimizer caveat (observed live):** when the Agent Optimizer registers
+> evaluators, a **prompt** evaluator keeps `ground_truth`, but a **rubric**
+> evaluator has it stripped. The rubric's `{{item.ground_truth}}` then arrives
+> empty and the gate scores against nothing, without any error. For optimizer
+> runs, register the gold check as a prompt evaluator. Keep the gated rubric for
+> `castia eval run` and other runs outside the optimizer. `eval check` adds a note
+> for every rubric that references `{{item.ground_truth}}`.
+
+### Scheduled and trace evaluations
+
+`eval schedule` manages timer-triggered evaluation rules (azure-ai-projects
+2.11 `evaluation_rules`). These rules score either the agent's recent traces
+or a dataset file, using an existing eval id:
+
+```bash
+# Score the last interval's traces every 6 hours (billable per occurrence):
+python -m castia eval schedule create support-traces --eval-id eval_123 \
+  --agent support --traces --every-hours 6 --max-traces 200
+
+# Score a dataset nightly at 09:00 and 21:00 UTC (`--cron` is also accepted):
+python -m castia eval schedule create support-nightly --eval-id eval_123 \
+  --agent support --agent-version 4 --dataset-file-id file-abc --daily-at 9,21
+
+python -m castia eval schedule list --agent support
+python -m castia eval schedule delete support-nightly
+```
+
+`eval traces` scores one window of recent traces right now with a
+`TraceSourceEvalRunDataSource`:
+
+```bash
+python -m castia eval traces --eval-id eval_123 --agent support --window 24h \
+  --max-traces 100 --filter-strategy smart_filtering
+```
+
+`--window` accepts `30m`, `24h` or `7d`. `schedule create` and `traces` take
+`--dry-run`, which prints the exact payload and makes no network calls. The
+payload builders (`castia.evaluation.schedule`) are pinned in
+[`spec/evaluation/schedule.tsp`](https://github.com/sethjuarez/castia/tree/main/spec/evaluation/schedule.tsp).
 
 ## Optimizer-readiness
 
@@ -921,6 +1178,54 @@ Foundry. Deployment is still an `azd` handoff: set
 `OPTIMIZATION_CANDIDATE_ID=<candidate-id>`, then deploy the hosted agent with
 your existing `azd` workflow.
 
+**Preflight.** `optimize run` checks the request offline before anything is
+submitted, including with `--dry-run`. Problems block the run with exit 1:
+
+- **Evaluator level.** It rejects `options.evaluation_level: turn` (the service
+  returns 400). It also rejects turn-level evaluators (`string_check`, `python`,
+  `rubric`, and similar), which pass submit and then fail at run time.
+- **`item.*` references.** Every `{{item.<field>}}` in an evaluator's
+  `initialization_parameters`, or in a local definition passed with
+  `--evaluator-definition [NAME=]PATH`, must be a field the optimizer passes to
+  evaluators. That depends on the evaluator's registration type: `prompt`
+  evaluators get `query` and `ground_truth`, while `rubric` and unknown types get
+  only `query`. Anything else (for example `retrieval_context`) is dropped and
+  scores against nothing. The field must also be present in every inline dataset
+  row. If the service contract changes, override the list with
+  `--passthrough-field`.
+- **Size.** It prints rows × (candidates + baseline) × `--row-seconds` (default
+  30 s) ÷ concurrency, plus a cost if you pass `--hourly-usd`. It warns when the
+  estimate passes the 6-hour service cap. A run bigger than the pilot limits
+  (20 rows, 10 candidates, 1 hour), or with an unknown row count (pass `--rows`
+  for registered datasets), needs `--approve-run`.
+
+The limits and field lists live in
+`spec/conformance/optimization/preflight.json`.
+
+**Seeding and verifying.** The optimizer score is the mean of your evaluators on
+a subsample, so it isn't proof that a candidate is better. Before you deploy a
+candidate:
+
+```powershell
+# Start from what is deployed, not the local baseline (prompt agents only).
+python -m castia optimize run --from-version 4 --dry-run
+# After `optimize apply`: show the diff and flag copied training text.
+python -m castia optimize diff --candidate <id> --config eval.yaml
+# Gate on a held-out metric, with no leaks and no train/held-out overlap.
+python -m castia optimize verify --candidate <id> --config eval.yaml `
+  --held-out heldout.jsonl --metric accuracy `
+  --baseline-results base.jsonl --candidate-results cand.jsonl --out verify.json
+```
+
+- `diff` exits 1 when the candidate contains training text that isn't in the
+  baseline: any 6-word run, or a whole 3–5 word value.
+- `verify` exits 0 (pass), 1 (fail) or 3 (incomplete: no held-out results). The
+  results files are per-row JSON or JSONL from your own held-out eval.
+- `optimize status` now labels scores as optimizer scores. It shows a
+  "Maximum consecutive stall limit" success as `stopped early (no improvement)`.
+
+The thresholds live in `spec/conformance/optimization/verify.json`.
+
 For local functional checks, use `python -m castia observe drift` with an
 explicit project configuration and your local Azure credentials. See
 [the lifecycle guide](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md)
@@ -970,6 +1275,32 @@ operator can also switch a **deployed** agent onto a reasoning model with zero
 code by setting `MODEL_REASONING_EFFORT` — an explicit argument still wins.
 Because `configured_model()` builds its `Model` through the same path, that env
 override flows through to the resolved candidate automatically.
+
+### Routing to the account endpoint (MAI models)
+
+By default `Model` calls the Foundry **project** Responses route
+(`.../api/projects/<p>/openai/v1/`). Some deployments, MAI models among them,
+return a `400` there but answer on the AI Services **account** route
+(`https://<account>.services.ai.azure.com/openai/v1/`). Pick that route with
+`route="account"`; tracing, tool loops, and optimizer config are unchanged:
+
+```python
+from castia import configured_model, use_model
+
+mai = use_model("MAI-DS-R1", route="account")
+analyst = configured_model(route="account", reasoning_effort="medium")
+```
+
+The account URL is derived from `FOUNDRY_PROJECT_ENDPOINT`. Pass
+`account_endpoint=` (an account root, its `/openai/v1` URL, or a project
+endpoint) to set it explicitly; that implies `route="account"` and needs no
+project endpoint. Operators can switch with `MODEL_ROUTE=account` and
+`MODEL_ACCOUNT_ENDPOINT`; explicit arguments win, `route="project"` with an
+`account_endpoint` is rejected, and URLs with credentials, query strings, or
+non-Azure hosts are rejected. Authentication is a refreshing Entra token for
+`https://cognitiveservices.azure.com/.default` from `DefaultAzureCredential`, so
+the identity needs an OpenAI user role on the account. Spans carry
+`castia.model.route`.
 
 > **Responses-only constraint:** the optimizer accepts only single-protocol
 > `responses` agents — submitting a multi-protocol agent (one that also speaks
@@ -1029,12 +1360,125 @@ two namespaces only — `{{ sample.output_text }}` and `{{ item.<field> }}`.
 `rubric_to_score_model()` bridges an eval rubric straight into a `score_model`
 grader — the natural tie between the *evaluate* and *switch-models* steps.
 
+Some base models reject chat roles at RFT preprocessing, after upload and a
+billable submit. MAI bases (`mai-*`) reject `system`; use `developer`. Pass the
+base model to `finetune check --model` (or `validate_rft_splits(..., model=)`)
+to catch this offline. `finetune submit` already validates against `--model`
+and fails before uploading; add `--rewrite-roles` to upload rewritten copies
+(`system` -> `developer`) without changing your files. The rule table is pinned
+in `spec/conformance/finetuning/`.
+
+```bash
+python -m castia finetune check --type rft --model mai-code-2-flash \
+  --dataset train.jsonl --validation val.jsonl --grader grader.json
+python -m castia finetune submit --model mai-code-2-flash --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --rewrite-roles --dry-run
+```
+
+**Pre-submit checks.** These run before any upload, and each guards a failure
+seen in real RFT work. The rules and fixtures live in
+`spec/conformance/finetuning/preflight.json` and `python_grader_rules.json`.
+
+- `--batch-size -1` or `auto` is dropped from the payload so the service picks
+  the batch size; it rejects `-1` with a 400. Any other value must be in [1, 256].
+- RFT needs at least 10 training rows. The service rejects fewer with a 400.
+- Python graders are scanned for imports the grader service rejects (today
+  `urllib.parse`) and fail with a fix-it. An import that isn't on the list isn't
+  proven allowed.
+- RFT `submit` prints `estimate : ~N steps, ~H h, ~$C` with every assumption.
+  An automatic batch size gives an upper bound at batch 1. Pass
+  `--seconds-per-step` (measured by a probe) and `--hourly-usd` to sharpen it.
+- A live `submit` requires `--approve-train`. That approval covers training
+  only: the job handoff lists `evaluate` and `promote` as separate approvals.
+- `finetune status` splits `queue_seconds` from `training_seconds`. The
+  service's `estimated_finish` includes GPU queue time.
+- `finetune delete <job>` deletes the trained model too. It needs `--yes` for a
+  job without a model. For a job with a model it needs `--confirm-model <model>`,
+  and it lists the deployments that would stop serving.
+
+```bash
+python -m castia finetune submit --model o4-mini --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --batch-size auto \
+  --seconds-per-step 45 --approve-train
+python -m castia finetune delete ftjob-123 --confirm-model o4-mini-ft-abc
+```
+
+**Prove the grader before a full run.** Foundry's `graders/run` has returned
+`0.0` for Python graders that score correctly in-process, so a remote check
+doesn't prove much. Score your rows locally instead, then probe the trainer:
+
+- `finetune grade-local` runs the grader in this process (Python graders are
+  `exec`'d, so only grade code you trust). It handles `python`, `string_check`,
+  and `multi` of those; `score_model`, `text_similarity`, and `endpoint` are
+  reported as skipped. Model outputs come from `--outputs` JSONL or a row field
+  (`--output-field`).
+- `finetune probe` plans tiny jobs (10 rows, 1 epoch each) for an always-true
+  and an always-false Python grader, plus your real grader. It prints the
+  per-job and total spend and writes a record. Nothing is submitted without
+  `--approve-spend`.
+- `finetune probe-check --record` reads each job's reward metrics and records
+  `pass`, `fail`, or `pending`. It fails when always-true scores below 0.9, when
+  always-false scores above 0.1, or when the real grader's reward differs from
+  the offline score by more than the tolerance (default 0.15).
+- `finetune submit --probe-record probe.json` blocks unless the verdict is
+  `pass`. RFT submits without a record print a warning.
+
+Reward metric key names aren't pinned by the service: any numeric `*reward*`
+key in a `metrics` event counts (provisional). The thresholds live in
+`spec/conformance/finetuning/probe.json`.
+
+```bash
+python -m castia finetune grade-local --grader grader.json --dataset train.jsonl \
+  --outputs outputs.jsonl --out grade-report.json
+python -m castia finetune probe --model o4-mini --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --outputs outputs.jsonl --out probe.json
+python -m castia finetune probe ... --approve-spend   # billable
+python -m castia finetune probe-check --record probe.json
+python -m castia finetune submit ... --probe-record probe.json --approve-train
+```
+
 > ⚠️ **Provisional / doc-derived.** The grader JSON schema, the RFT
 > hyperparameter names, and the SFT/DPO/RFT `fine_tuning.jobs.create` payload
 > shapes are doc-derived and **have not been confirmed against live Castia
 > training jobs**. The builders and validators are fully offline-tested; treat
 > submitted wire shapes as provisional until real submissions validate them. The
 > RFT language-neutral contract is pinned in `spec/conformance/graders/`.
+
+## Machine-readable CLI output
+
+The eval, optimize, and finetune commands accept `--json`. Human text stays the
+default; `--json` prints exactly one `castia.cli.v1` envelope on stdout (tool
+chatter such as azd output goes to stderr):
+
+```json
+{"schema": "castia.cli.v1", "command": "optimize status", "ok": true,
+ "status": "running", "effects": {"network": true, "billable": false, "mutating": false},
+ "result": {"job_id": "opt_1"}, "diagnostics": [], "next": ["python -m castia optimize status opt_1 --watch"]}
+```
+
+`ok` is false when `status` is `error`, `failed`, `problems`, or `cancelled`, or
+when any diagnostic has `severity: "error"`. Exit codes are unchanged: 0 ok,
+1 problems or a failed job, 2 errors. Secret-looking keys (tokens, keys,
+passwords, SAS signatures, connection strings) and bearer/SAS values are
+redacted. `status --watch` emits only the final envelope. An unexpected
+exception in `--json` mode also becomes an `error` envelope (exit 2) whose
+diagnostic code is the exception type. Other tools can
+reuse `castia.lifecycle.output.command_envelope`; the contract is pinned in
+[`spec/lifecycle/output.tsp`](https://github.com/sethjuarez/castia/tree/main/spec/lifecycle/output.tsp).
+
+| Command | Network | Billable | Mutating |
+| --- | --- | --- | --- |
+| `eval check`, `finetune check`, any `--dry-run` | no | no | no |
+| `eval generate`, `eval run` | yes | yes | yes |
+| `eval schedule create`, `eval traces` | yes | yes | yes |
+| `eval schedule list/get` | yes | no | no |
+| `eval schedule delete` | yes | no | yes |
+| `eval update` | yes | no | yes |
+| `optimize`, `finetune grader --out` | no | no | writes local files |
+| `optimize run`, `finetune submit` | yes | yes | yes |
+| `optimize status`, `finetune list/status/events/checkpoints/handoff` | yes | no | no |
+| `optimize cancel`, `finetune cancel` | yes | no | yes |
+| `optimize apply`, `finetune results --out` | yes | no | writes local files |
 
 ## Design
 

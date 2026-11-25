@@ -10,11 +10,16 @@ Azure -- everything here is pure data.
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from castia import (
     Agent,
     Router,
     apply_optimized_tools,
     tools_json,
+    validate_optimized_tools,
 )
 from castia.inference.tools import Tool
 from castia.integrations.toolbox import toolbox_mcp_tool
@@ -314,3 +319,51 @@ def test_agentconfig_apply_tools_delegates():
     )
     applied = cfg.apply_tools([_tool("a", "orig")])
     assert applied[0].description == "cfg"
+
+
+# --- validate_optimized_tools ------------------------------------------------
+
+
+def _candidate(**changes):
+    entry = tools_json([_tool("send")])[0]
+    func = {**entry["function"], "parameters": json.loads(json.dumps(entry["function"]["parameters"]))}
+    for key, value in changes.items():
+        func[key] = value
+    return {"type": "function", "function": func}
+
+
+def test_validate_optimized_tools_accepts_description_rewrites() -> None:
+    cand = _candidate(description="better")
+    cand["function"]["parameters"]["properties"]["to"]["description"] = "better-to"
+    flat = {"type": "function", **cand["function"]}
+
+    validate_optimized_tools([_tool("send")], [cand])
+    validate_optimized_tools([_tool("send")], [flat])
+
+
+@pytest.mark.parametrize(
+    "mutate, message",
+    [
+        (lambda c: c["function"]["parameters"]["properties"]["to"].update(type="array"), "schema changed"),
+        (lambda c: c["function"]["parameters"].update(additionalProperties=True), "schema changed"),
+        (lambda c: c["function"]["parameters"]["properties"]["count"].pop("description"), "schema changed"),
+        (lambda c: c["function"]["parameters"]["properties"]["to"].update(description=""), "non-empty"),
+        (lambda c: c["function"].update(description=" "), "non-empty"),
+        (lambda c: c["function"].update(strict=True), "unsupported function fields"),
+        (lambda c: c.update(strict=True), "envelope"),
+        (lambda c: c["function"].update(name="other"), "unknown tool"),
+    ],
+)
+def test_validate_optimized_tools_rejects_more_than_wording(mutate, message) -> None:
+    cand = _candidate()
+    mutate(cand)
+    with pytest.raises(ValueError, match=message):
+        validate_optimized_tools([_tool("send")], [cand])
+
+
+def test_validate_optimized_tools_requires_each_tool_once() -> None:
+    with pytest.raises(ValueError, match="missing tool 'send'"):
+        validate_optimized_tools([_tool("send")], [])
+    validate_optimized_tools([_tool("send")], [], require_all=False)
+    with pytest.raises(ValueError, match="duplicate"):
+        validate_optimized_tools([_tool("send")], [_candidate(), _candidate()])

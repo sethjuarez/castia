@@ -3,6 +3,7 @@ use castia::delivery::{
     plan_manifest as build_manifest_plan, CastiaDeliveryAzdRuntime, CastiaDeliveryManifestRuntime,
 };
 use castia::evaluation::CastiaEvaluationSuiteRuntime;
+use castia::evaluation::{evaluation_rule, parse_window, schedule_trigger, trace_window_source};
 use castia::finetuning::{
     build_dpo_method as build_finetune_dpo_method, build_rft_job as build_finetune_rft_job,
     build_rft_method as build_finetune_rft_method, build_sft_job as build_finetune_sft_job,
@@ -41,6 +42,7 @@ use castia::lifecycle::{
     default_gate, diff_candidates, evaluate_outcomes, example_id, get_artifact, journal_read,
     normalize_record, put_artifact, record_id, safe_path, stage_candidate,
 };
+use castia::lifecycle::{command_envelope, redact_secrets};
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaConnectorRuntime, CastiaEntitiesRuntime,
     CastiaIdentityRuntime, CastiaInvokesRuntime, CastiaRoutingRuntime, CastiaStreamingRuntime,
@@ -312,6 +314,22 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
             sync_with_normalize(entities_sensitivity_label, normalize_special_json_keys),
         ),
         (
+            "EvaluationScheduleRuntime.evaluationRule",
+            sync(evaluation_schedule_rule),
+        ),
+        (
+            "EvaluationScheduleRuntime.parseWindow",
+            sync(evaluation_schedule_parse_window),
+        ),
+        (
+            "EvaluationScheduleRuntime.scheduleTrigger",
+            sync(evaluation_schedule_trigger),
+        ),
+        (
+            "EvaluationScheduleRuntime.traceWindowSource",
+            sync(evaluation_schedule_trace_window_source),
+        ),
+        (
             "EvaluationSuiteRuntime.buildGenerateArgv",
             sync(evaluation_build_generate_argv),
         ),
@@ -555,6 +573,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "IntegrationsGraphRuntime.driveShareResult",
             sync(graph_drive_share_result),
+        ),
+        (
+            "LifecycleOutputRuntime.commandEnvelope",
+            sync(lifecycle_command_envelope),
+        ),
+        (
+            "LifecycleOutputRuntime.redactSecrets",
+            sync(lifecycle_redact_secrets),
         ),
         (
             "LifecycleRecordsRuntime.canonicalJson",
@@ -1110,6 +1136,36 @@ fn entities_mention_entity(input: &Value, _: &Context) -> Result<Value, VectorEr
     ))
 }
 
+fn schedule_request(input: &Value) -> &Value {
+    input.get("request").unwrap_or(&Value::Null)
+}
+
+fn evaluation_schedule_rule(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    evaluation_rule(schedule_request(input)).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn evaluation_schedule_parse_window(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let text = input
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    parse_window(text)
+        .map(Value::from)
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn evaluation_schedule_trigger(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    schedule_trigger(schedule_request(input)).map_err(|error| VectorError::new(error.to_string()))
+}
+
+fn evaluation_schedule_trace_window_source(
+    input: &Value,
+    _: &Context,
+) -> Result<Value, VectorError> {
+    trace_window_source(schedule_request(input))
+        .map_err(|error| VectorError::new(error.to_string()))
+}
+
 fn evaluation_build_generate_argv(input: &Value, _: &Context) -> Result<Value, VectorError> {
     Ok(CastiaEvaluationSuiteRuntime
         .build_generate_argv(input.get("options").unwrap_or(&Value::Null)))
@@ -1632,6 +1688,39 @@ fn graph_drive_share_result(input: &Value, _: &Context) -> Result<Value, VectorE
             .unwrap_or_default() as i32),
         &string_input(input, "detail")?,
     ))
+}
+
+fn lifecycle_command_envelope(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let text = |key: &str| {
+        input
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let next_actions: Vec<String> = input
+        .get("nextActions")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    command_envelope(
+        &text("command"),
+        &text("status"),
+        input.get("result").unwrap_or(&Value::Null),
+        input.get("diagnostics").unwrap_or(&Value::Null),
+        &next_actions,
+        input.get("effects").unwrap_or(&Value::Null),
+    )
+    .map_err(vector_error)
+}
+
+fn lifecycle_redact_secrets(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(redact_secrets(input.get("value").unwrap_or(&Value::Null)))
 }
 
 fn lifecycle_canonical_json(input: &Value, _: &Context) -> Result<Value, VectorError> {

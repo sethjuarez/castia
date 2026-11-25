@@ -1,0 +1,40 @@
+{
+  "description": "RFT probe and in-process grading rules. Python graders are exec'd only by SDKs that host Python; the other cases are pure.",
+  "thresholds": {"probe_rows": 10, "pass_floor": 0.9, "fail_ceiling": 0.1, "default_tolerance": 0.15},
+  "probe_graders": {
+    "always_true": {"type": "python", "name": "probe_always_true", "source": "def grade(sample, item):\n    return 1.0\n"},
+    "always_false": {"type": "python", "name": "probe_always_false", "source": "def grade(sample, item):\n    return 0.0\n"}
+  },
+  "render": [
+    {"template": "{{ sample.output_text }} vs {{item.answer}}", "sample": {"output_text": "4"}, "item": {"answer": "4"}, "expected": "4 vs 4"},
+    {"template": "{{ item.meta.id }}|{{ item.missing }}", "sample": {}, "item": {"meta": {"id": 7}}, "expected": "7|"}
+  ],
+  "grade": [
+    {"name": "string-eq-hit", "grader": {"type": "string_check", "name": "g", "input": "{{ sample.output_text }}", "reference": "{{ item.answer }}", "operation": "eq"}, "output": "4", "item": {"answer": "4"}, "expected": 1.0},
+    {"name": "string-eq-miss", "grader": {"type": "string_check", "name": "g", "input": "{{ sample.output_text }}", "reference": "{{ item.answer }}", "operation": "eq"}, "output": "5", "item": {"answer": "4"}, "expected": 0.0},
+    {"name": "string-ilike", "grader": {"type": "string_check", "name": "g", "input": "{{ sample.output_text }}", "reference": "{{ item.answer }}", "operation": "ilike"}, "output": "The answer is PARIS.", "item": {"answer": "paris"}, "expected": 1.0},
+    {"name": "string-ne", "grader": {"type": "string_check", "name": "g", "input": "{{ sample.output_text }}", "reference": "{{ item.answer }}", "operation": "ne"}, "output": "4", "item": {"answer": "4"}, "expected": 0.0},
+    {"name": "multi-weighted", "grader": {"type": "multi", "name": "m", "calculate_output": "0.75 * exact + 0.25 * max(contains, 0)", "graders": {
+      "exact": {"type": "string_check", "name": "e", "input": "{{ sample.output_text }}", "reference": "{{ item.answer }}", "operation": "eq"},
+      "contains": {"type": "string_check", "name": "c", "input": "{{ sample.output_text }}", "reference": "{{ item.answer }}", "operation": "like"}
+    }}, "output": "x4", "item": {"answer": "4"}, "expected": 0.25},
+    {"name": "score-model-skipped", "grader": {"type": "score_model", "name": "s", "model": "gpt-4o", "input": []}, "output": "4", "item": {}, "expected": null}
+  ],
+  "reward_from_events": [
+    {"input": [], "expected": null},
+    {"input": [{"type": "message", "data": {"reward": 1.0}}], "expected": null},
+    {"input": [
+      {"type": "metrics", "data": {"step": 1, "train_reward_mean": 0.5}},
+      {"type": "metrics", "data": {"step": 2, "train_reward_mean": 1.0, "valid_reward_mean": 0.75, "flag": true}}
+    ], "expected": 0.75}
+  ],
+  "verdict": [
+    {"input": {"rewards": {"always_true": 1.0, "always_false": 0.0}}, "expected": "pass"},
+    {"input": {"rewards": {"always_true": null, "always_false": 0.0}}, "expected": "pending"},
+    {"input": {"rewards": {"always_true": 0.2, "always_false": 0.0}}, "expected": "fail"},
+    {"input": {"rewards": {"always_true": 1.0, "always_false": 0.6}}, "expected": "fail"},
+    {"input": {"rewards": {"always_true": 1.0, "always_false": 0.0, "real": 0.7}, "offline_score": 0.8}, "expected": "pass"},
+    {"input": {"rewards": {"always_true": 1.0, "always_false": 0.0, "real": 0.0}, "offline_score": 0.8}, "expected": "fail"},
+    {"input": {"rewards": {"always_true": 1.0, "always_false": 0.0, "real": 0.5}}, "expected": "pending"}
+  ]
+}

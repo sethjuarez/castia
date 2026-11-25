@@ -18,9 +18,19 @@ Resolution is **first-wins** over an ordered list of sources:
 4. **`none`** — nothing resolved; the SDK bridge degrades to environment
    defaults (env model, no instructions).
 
-The load must be **best-effort and non-fatal**: a missing optimizer package, a
-resolution error, or `none` all fall through to environment defaults so the
-agent runs identically with or without the optimizer installed.
+A **missing optimizer package** or `none` falls through to environment
+defaults, so the agent runs identically with or without the optimizer
+installed. A source that is **present but unusable** must fail loudly instead:
+
+- malformed or empty inline `OPTIMIZATION_CONFIG`, a resolver error, or an
+  unreadable local `tools.json` raises a candidate-config error;
+- a resolved candidate with no instructions raises;
+- an `OPTIMIZATION_CANDIDATE_ID` that silently falls back to `baseline/` warns
+  with the served source and config hash, and raises in strict mode.
+
+An explicit lenient opt-out may restore degrade-to-defaults. Resolution must
+not be cached process-wide, so a later-injected candidate always wins over an
+earlier baseline load.
 
 ### The `config_dir` rule
 

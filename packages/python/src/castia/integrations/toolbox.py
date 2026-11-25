@@ -109,7 +109,25 @@ class ToolboxAuthenticationError(RuntimeError):
 
 
 class McpToolboxError(RuntimeError):
-    """A toolbox MCP JSON-RPC or protocol error."""
+    """A toolbox MCP JSON-RPC or protocol error.
+
+    ``status_code`` and ``body`` are set for HTTP errors; ``rpc_error`` carries
+    the JSON-RPC ``error`` object. Use them to shape a tool-result payload
+    without parsing the message.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        body: Any = None,
+        rpc_error: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+        self.rpc_error = rpc_error
 
 
 class ToolboxMcpClient:
@@ -123,6 +141,7 @@ class ToolboxMcpClient:
         headers: Mapping[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
         trace_requests: bool = True,
+        timeout: float = 30.0,
     ) -> None:
         resolved = endpoint or resolve_toolbox_endpoint()
         if not resolved:
@@ -137,6 +156,7 @@ class ToolboxMcpClient:
         self.headers = dict(headers or {})
         self.client = client
         self.trace_requests = trace_requests
+        self.timeout = timeout
 
     async def list_tools(self) -> list[dict[str, Any]]:
         result = await self._request("tools/list")
@@ -224,21 +244,27 @@ class ToolboxMcpClient:
         else:
             import httpx
 
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await send(client)
 
         try:
             data = response.json()
         except ValueError as exc:
             raise McpToolboxError(
-                f"MCP endpoint returned non-JSON HTTP {response.status_code}."
+                f"MCP endpoint returned non-JSON HTTP {response.status_code}.",
+                status_code=response.status_code,
             ) from exc
         if response.status_code >= 400:
             raise McpToolboxError(
-                f"MCP endpoint returned HTTP {response.status_code}: {_safe_json(data)}"
+                f"MCP endpoint returned HTTP {response.status_code}: {_safe_json(data)}",
+                status_code=response.status_code,
+                body=data,
             )
         if isinstance(data, dict) and data.get("error"):
-            raise McpToolboxError(_mcp_json_rpc_error_message(method, data["error"]))
+            raise McpToolboxError(
+                _mcp_json_rpc_error_message(method, data["error"]),
+                rpc_error=data["error"],
+            )
         if not isinstance(data, dict) or "result" not in data:
             raise McpToolboxError(f"MCP response for {method} did not include result.")
         return data["result"]
@@ -310,6 +336,76 @@ def toolbox_tools_from_schema(
             )
         )
     return out
+
+
+def toolbox_function_tool(
+    name: str,
+    *,
+    description: str,
+    parameters: Mapping[str, Any],
+    mcp_tool: str | None = None,
+    to_mcp_arguments: Callable[[dict[str, Any]], Mapping[str, Any]] | None = None,
+    from_mcp_result: Callable[[dict[str, Any]], Any] | None = None,
+    on_error: Callable[[Exception], Any] | None = None,
+    kind: str = "mcp",
+    span_name: str | None = None,
+    endpoint: str | None = None,
+    token_provider: TokenProvider | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = 30.0,
+    trace_requests: bool = True,
+    mcp_client: ToolboxMcpClient | None = None,
+) -> Tool:
+    """One local function tool dispatched to a toolbox MCP tool, with a separate model-facing schema.
+
+    ``name``/``description``/``parameters`` are exactly what the model sees
+    (and what :func:`castia.optimizing.config.tools_json` writes to
+    ``tools.json``); ``mcp_tool`` is the wire ``tools/call`` name (defaults to
+    ``name``). ``to_mcp_arguments`` maps the model's arguments to the wire
+    arguments, and ``from_mcp_result`` maps the raw MCP ``result`` to the tool
+    result fed back to the model (default ``{"ok": True, "result": ...}``, as
+    :func:`toolbox_tools_from_schema`).
+
+    Construction is pure: no endpoint resolution, token, or network until the
+    model calls the tool, so this is safe in an ``app.tools`` provider and in
+    offline ``tools.json`` generation. Errors raised while mapping arguments,
+    resolving the endpoint, or calling MCP propagate (``Model`` feeds them back
+    as ``{"ok": False, "detail": ...}``) unless ``on_error`` turns the
+    exception into a result payload. :class:`McpToolboxError` exposes
+    ``status_code``/``body``/``rpc_error`` for that. ``span_name`` overrides
+    the ``execute_tool`` span name verbatim; ``kind`` sets ``gen_ai.tool.type``.
+    """
+    wire_name = mcp_tool or name
+    fixed_headers = dict(headers or {})
+
+    async def _call(_activity: object, **arguments: Any) -> Any:
+        try:
+            client = mcp_client or ToolboxMcpClient(
+                endpoint,
+                token_provider=token_provider,
+                headers=fixed_headers,
+                trace_requests=trace_requests,
+                timeout=timeout,
+            )
+            wire_arguments = to_mcp_arguments(dict(arguments)) if to_mcp_arguments else arguments
+            result = await client.call_tool(wire_name, wire_arguments)
+        except Exception as exc:
+            if on_error is None:
+                raise
+            return on_error(exc)
+        if from_mcp_result is not None:
+            return from_mcp_result(result)
+        return {"ok": True, "result": serialize_mcp_result(result)}
+
+    _call.__name__ = name
+    return Tool(
+        name=name,
+        description=description,
+        parameters=json.loads(json.dumps(dict(parameters))),
+        impl=_call,
+        kind=kind,
+        span_name=span_name,
+    )
 
 
 def platform_endpoint_env(name: str) -> str:

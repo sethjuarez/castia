@@ -349,6 +349,30 @@ fn entities_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn EntitiesRuntime> = Box::new(CompileOnlyEntitiesRuntime);
 }
 
+struct CompileOnlyEvaluationScheduleRuntime;
+
+#[async_trait::async_trait]
+impl EvaluationScheduleRuntime for CompileOnlyEvaluationScheduleRuntime {
+    fn evaluation_rule(&self, request: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.evaluationRule is a compile-only protocol scaffold.")
+    }
+    fn parse_window(&self, text: &String) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.parseWindow is a compile-only protocol scaffold.")
+    }
+    fn schedule_trigger(&self, request: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.scheduleTrigger is a compile-only protocol scaffold.")
+    }
+    fn trace_window_source(&self, request: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.traceWindowSource is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn evaluation_schedule_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn EvaluationScheduleRuntime> =
+        Box::new(CompileOnlyEvaluationScheduleRuntime);
+}
+
 struct CompileOnlyEvaluationSuiteRuntime;
 
 #[async_trait::async_trait]
@@ -880,6 +904,31 @@ impl LifecycleOperationsRuntime for CompileOnlyLifecycleOperationsRuntime {
 fn lifecycle_operations_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn LifecycleOperationsRuntime> =
         Box::new(CompileOnlyLifecycleOperationsRuntime);
+}
+
+struct CompileOnlyLifecycleOutputRuntime;
+
+#[async_trait::async_trait]
+impl LifecycleOutputRuntime for CompileOnlyLifecycleOutputRuntime {
+    fn command_envelope(
+        &self,
+        command: &String,
+        status: &String,
+        result: &serde_json::Value,
+        diagnostics: &serde_json::Value,
+        next_actions: &Vec<String>,
+        effects: &serde_json::Value,
+    ) -> serde_json::Value {
+        panic!("LifecycleOutputRuntime.commandEnvelope is a compile-only protocol scaffold.")
+    }
+    fn redact_secrets(&self, value: &serde_json::Value) -> serde_json::Value {
+        panic!("LifecycleOutputRuntime.redactSecrets is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn lifecycle_output_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn LifecycleOutputRuntime> = Box::new(CompileOnlyLifecycleOutputRuntime);
 }
 
 struct CompileOnlyLifecycleRecordsRuntime;

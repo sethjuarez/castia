@@ -218,8 +218,81 @@ class FineTuningClient:
         finally:
             Path(temporary).unlink(missing_ok=True)
 
+    def timing(self, job: FineTuningJob, *, now: int | None = None) -> dict | None:
+        """Queue and training time for ``job``, read from its events (bounded)."""
+        from castia.finetuning.preflight import split_job_timing, training_started_at
+
+        created = getattr(job, "created_at", None)
+        if not isinstance(created, int) or isinstance(created, bool):
+            return None
+        finished = getattr(job, "finished_at", None)
+        events = self.events(job.id, limit=100)
+        started = training_started_at(
+            {
+                "created_at": getattr(e, "created_at", None),
+                "type": getattr(e, "type", None),
+                "message": getattr(e, "message", None),
+            }
+            for e in events
+        )
+        return split_job_timing(
+            created_at=created,
+            started_at=started,
+            finished_at=finished if isinstance(finished, int) else None,
+            now=int(time.time()) if now is None else now,
+        )
+
+    def deployments(self) -> list[dict[str, str]]:
+        """Project model deployments as ``{"name", "model"}`` (one bounded read)."""
+        self.client  # noqa: B018 - builds the project client on first use
+        if self._project is None:
+            return []
+        return [
+            {"name": str(d.name), "model": str(getattr(d, "model_name", "") or "")}
+            for d in self._project.deployments.list()
+        ]
+
+    def delete(
+        self, job_id: str, *, confirm_model: str | None = None, yes: bool = False,
+    ) -> dict[str, object]:
+        """Delete a job only after the guard in :func:`preflight.delete_guard` passes.
+
+        Deleting a job deletes its trained model, so a job with a model needs
+        ``confirm_model`` set to that model's name. Deployments serving it are
+        listed in the decision. The DELETE route is provisional.
+        """
+        from castia.finetuning.preflight import delete_guard
+
+        job = self.status(job_id)
+        model = getattr(job, "fine_tuned_model", None) or None
+        try:
+            serving = self.deployments() if model else []
+        except Exception as exc:  # noqa: BLE001 - listing is informational only
+            serving = []
+            listing_error = str(exc)
+        else:
+            listing_error = None
+        decision = delete_guard(
+            fine_tuned_model=model, deployments=serving,
+            confirm_model=confirm_model, yes=yes,
+        )
+        decision["job_id"] = job.id
+        decision["fine_tuned_model"] = model
+        if listing_error:
+            decision["deployment_listing_error"] = listing_error
+        if not decision["allowed"]:
+            raise PermissionError(decision["reason"])
+        self.client.delete(
+            f"/fine_tuning/jobs/{_identifier(job_id, 'job_id')}",
+            cast_to=object, options={"timeout": self.request_timeout},
+        )
+        decision["deleted"] = True
+        return decision
+
     def deployment_handoff(self, job_id: str) -> dict[str, object]:
         """Identify a trained model for external deployment, not a deployment name."""
+        from castia.finetuning.preflight import approvals
+
         job = self.status(job_id)
         if job.status != "succeeded" or not job.fine_tuned_model:
             raise ValueError("deployment handoff requires a succeeded job with a model")
@@ -230,7 +303,11 @@ class FineTuningClient:
             "fine_tuned_model": job.fine_tuned_model,
             "result_files": list(job.result_files or []),
             "deployment_status": "not_deployed",
-            "next_step": "Deploy the selected model externally, then evaluate the deployment.",
+            "approvals": approvals(train=True),
+            "next_step": (
+                "Deploy the selected model externally, evaluate the deployment on "
+                "held-out data, then approve promotion as a separate step."
+            ),
         }
 
     def close(self) -> None:

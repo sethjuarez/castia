@@ -49,6 +49,9 @@ pub use delivery_manifest_runtime::*;
 pub mod entities_runtime;
 pub use entities_runtime::*;
 
+pub mod evaluation_schedule_runtime;
+pub use evaluation_schedule_runtime::*;
+
 pub mod evaluation_suite_runtime;
 pub use evaluation_suite_runtime::*;
 
@@ -87,6 +90,9 @@ pub use lifecycle_acceptance_runtime::*;
 
 pub mod lifecycle_operations_runtime;
 pub use lifecycle_operations_runtime::*;
+
+pub mod lifecycle_output_runtime;
+pub use lifecycle_output_runtime::*;
 
 pub mod lifecycle_records_runtime;
 pub use lifecycle_records_runtime::*;

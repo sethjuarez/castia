@@ -13,6 +13,27 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
+#: azure.ai.agents preview opt-ins. Since 1.0.0-beta.22 the extension reads them
+#: only from its own process environment; RBAC_WARNINGS keeps developer RBAC
+#: warnings in deploy output after 1.0.0.
+AZD_AGENTS_OPT_INS = {
+    "AZD_ALPHA_ENABLE_AGENTS_MANAGED_HARNESS": "true",
+    "AZD_ALPHA_ENABLE_AGENTS_VOICE": "true",
+    "AZD_ALPHA_ENABLE_AGENTS_LONG_RUNNING": "true",
+    "AZD_ALPHA_ENABLE_AGENTS_RBAC_WARNINGS": "true",
+}
+
+
+def azd_subprocess_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Copy ``base`` (default: ``os.environ``) with the azd agents opt-ins set.
+
+    A value the caller already set, including ``false``, is kept.
+    """
+    env = dict(os.environ if base is None else base)
+    for key, value in AZD_AGENTS_OPT_INS.items():
+        env.setdefault(key, value)
+    return env
+
 
 @dataclass(frozen=True)
 class DeploymentReceipt:
@@ -112,7 +133,7 @@ class AzdDeployment:
         executable = shutil.which("azd")
         if not executable:
             raise FileNotFoundError("azd is required for deployment handoff")
-        env = dict(os.environ)
+        env = azd_subprocess_env()
         # These cover host-side consumers only. The extension prioritizes stored
         # azd values, which must also pass _validate_environment.
         for key in ("FOUNDRY_PROJECT_ENDPOINT", "AZURE_AI_PROJECT_ENDPOINT", "AZURE_AIPROJECT_ENDPOINT"):

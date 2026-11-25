@@ -257,6 +257,7 @@ def test_respond_with_tools_stamps_mcp_tool_type(monkeypatch):
     class Tool:
         name = "remote_lookup"
         kind = "mcp"
+        span_name = "execute_tool foundry_iq_retrieve"
 
         def spec(self):
             return {"type": "function", "name": self.name, "parameters": {"type": "object"}}
@@ -313,7 +314,11 @@ def test_respond_with_tools_stamps_mcp_tool_type(monkeypatch):
     assert execute_calls == [
         (
             "remote_lookup",
-            {"tool_type": "mcp", "call_id": "call-remote-1"},
+            {
+                "tool_type": "mcp",
+                "call_id": "call-remote-1",
+                "span_name": "execute_tool foundry_iq_retrieve",
+            },
         )
     ]
 

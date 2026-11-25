@@ -18,14 +18,14 @@ Status labels:
 | What we hit | What to do | Castia |
 | --- | --- | --- |
 | Foundry evals call the agent with `background=true`. 0.15.0 rejected it with 400. | Pass a `ResponseStore` to `Agent(response_store=...)`. | **Handled** since 0.16.0. Without a store, the 400 says why. |
-| Agent versions are immutable. The `AZURE_AI_MODEL_DEPLOYMENT_NAME` env var labels usage in Optimizer and Monitor, even when code calls a different model. Our large-model versions were labelled with the small model's name. | Keep the env var equal to the model the agent really calls. Fix it before you create the version. | **Proposed:** warn at startup when `Model(deployment=...)` differs from `AZURE_AI_MODEL_DEPLOYMENT_NAME`. |
+| Agent versions are immutable. The `AZURE_AI_MODEL_DEPLOYMENT_NAME` env var labels usage in Optimizer and Monitor, even when code calls a different model. Our large-model versions were labelled with the small model's name. | Keep the env var equal to the model the agent really calls. Fix it before you create the version. | **Handled:** `Model(deployment=...)` logs a warning once when it differs from `AZURE_AI_MODEL_DEPLOYMENT_NAME`, and `python -m castia doctor` compares the env var with literal `Model(...)` calls, the optimizer baseline and `azure.yaml`. |
 | Apps that call the agent without a version pin drift from the version you evaluated. | Pin `agent_version` in callers and eval configs. | **Proposed:** warn in `castia optimize` and eval runs when the version is unpinned. |
 
 ## Tracing and Monitor
 
 | What we hit | What to do | Castia |
 | --- | --- | --- |
-| Foundry Traces and Monitor ignore spans without `microsoft.foundry.project.id`. Monitor showed $0 and 0 tokens. | Set `FOUNDRY_PROJECT_RESOURCE_ID` in `azure.yaml`. | **Handled** when the env var is set (`castia.observe`). **Proposed:** log a warning when it isn't. |
+| Foundry Traces and Monitor ignore spans without `microsoft.foundry.project.id`. Monitor showed $0 and 0 tokens. | Set `AZURE_AI_PROJECT_RESOURCE_ID: ${AZURE_AI_PROJECT_ID}` in the hosted service env in `azure.yaml` (`FOUNDRY_*` names are reserved there). Locally, `FOUNDRY_PROJECT_RESOURCE_ID` also works. | **Handled:** `castia.observe` stamps the ID when it's set and logs a warning at startup when it isn't. `python -m castia doctor` checks `.env` and `azure.yaml`. |
 | Caller, platform and agent spans were separate traces. | Send `traceparent` on every call to the hosted agent. | **Handled** on the agent side. **Proposed:** a client helper that injects it. |
 | Human review (confirm or override) should show on the Foundry trace. | Emit a `gen_ai.evaluation.result` event inside the `invoke_agent` span after the review is saved. | **Proposed:** a small `record_human_evaluation(...)` helper. |
 | Trace view returned 400 once App Insights held ~81K spans, because evals share it. | Use a separate App Insights per stage. Use Conversation view meanwhile. | Docs only. This is a portal bug. |
@@ -37,7 +37,7 @@ Status labels:
 | 20-row evals moved in 5-point steps. 150 rows × 5 runs gave stable means (81.5 / 87.3 / 94.5). | Use small sets for probes and 150+ rows × several runs for claims. Report mean and range. | **Proposed:** warn when n < 50 and print n beside every score. |
 | 20 concurrent runs failed 48-76 of 319 rows (`TARGET_INVOCATION_FAILED`, judge throttling). | Keep three or fewer runs in flight. Reject runs with too few scored rows. | **Proposed:** bounded concurrency and a row-completeness check (for example ≤10 errors, ≥95% scored). |
 | A knowledge-base quota ran out and every tool call returned `PaymentRequired`. Accuracy fell 13 points and looked like a regression. | Watch tool error rates during evals. | **Proposed:** count tool errors per run and mark runs over a threshold invalid. |
-| Foundry's generated rubric gave the key dimension 9 of 39 weight, so a wrong answer could pass. | Make the must-be-right dimension a gate (weight 10, others 1, pass 0.5). | **Proposed:** a `gate=True` dimension option, with the brief stored in the repo. Foundry doesn't keep the brief. |
+| Foundry's generated rubric gave the key dimension 9 of 39 weight, so a wrong answer could pass. | Make the must-be-right dimension a gate (weight 10, others 1, pass 0.5). | `gate: true` on a source rubric, then `castia eval rubric compile`; keep the source in the repo because Foundry doesn't keep the brief. `castia eval template gold-aware` writes a gated, `ground_truth`-based starting point. |
 | Evaluator names stayed the same while behavior changed between versions (gold-blind v2, gold-aware v3). | Pin evaluator versions in every eval. | **Proposed:** fail when an evaluator reference has no version. |
 | Run DELETE returned `deleted: false`, and runs disappeared hours later. | Poll until the run is gone. | **Proposed:** `delete(..., wait=True)` that polls and raises on timeout. |
 | Runs can't be renamed after creation. | Name them right at submit. | **Proposed:** a required, templated run name (`<rung> · n<rows>`). |

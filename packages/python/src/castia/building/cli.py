@@ -41,6 +41,78 @@ def register_dev_command(subparsers: argparse._SubParsersAction) -> None:
     dev.set_defaults(func=run_dev)
 
 
+def register_doctor_command(subparsers: argparse._SubParsersAction) -> None:
+    """Register ``doctor`` (offline identity checks) and ``doctor quota``."""
+    doctor = subparsers.add_parser(
+        "doctor",
+        help="check telemetry identity and model labelling; `doctor quota` reads regional quota",
+    )
+    doctor.add_argument("--project", default=".", help="project directory")
+    doctor.add_argument("--env-file", default=".env", help="local env file layered under the process env")
+    doctor.add_argument("--json", action="store_true", help="print the report as JSON")
+    doctor.set_defaults(func=run_doctor)
+    commands = doctor.add_subparsers(dest="doctor_command")
+    quota = commands.add_parser(
+        "quota",
+        help="read-only: list serving, fine-tune and developer-tier quota meters in a region",
+    )
+    quota.add_argument("--region", required=True, help="Azure location, e.g. swedencentral")
+    quota.add_argument("--model", help="model name, e.g. gpt-4.1 (default: every meter)")
+    quota.add_argument(
+        "--subscription",
+        help="subscription UUID (default: AZURE_SUBSCRIPTION_ID or the project ARM ID's subscription)",
+    )
+    quota.add_argument("--json", action="store_true", help="print the report as JSON")
+    quota.set_defaults(func=run_doctor_quota)
+
+
+def run_doctor(args: argparse.Namespace) -> int:
+    """Return 0 when no check fails (warnings still print), 2 on usage/I/O errors."""
+    from castia.building.doctor import identity_checks
+
+    try:
+        report = identity_checks(args.project, env_file=args.env_file)
+    except (OSError, ValueError, TypeError) as exc:
+        print(json.dumps({"ok": False, "error": type(exc).__name__}), file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"root         : {report.root}")
+        for item in report.diagnostics:
+            print(f"{item.status:7} {item.check}: {item.message}")
+        print(f"result       : {'ok' if report.ok else 'PROBLEMS FOUND'} ({report.warnings} warning(s))")
+    return 0 if report.ok else 1
+
+
+def run_doctor_quota(args: argparse.Namespace) -> int:
+    """Read-only ARM quota listing; 0 on success, 2 on configuration/auth/transport errors."""
+    from castia.building.dev import merged_env
+    from castia.building.quota import (
+        QuotaError,
+        format_report,
+        list_quota,
+        subscription_from_env,
+    )
+
+    subscription = args.subscription or subscription_from_env(
+        merged_env(args.project, env_file=args.env_file)
+    )
+    if not subscription:
+        print(
+            "error: pass --subscription or set AZURE_SUBSCRIPTION_ID / AZURE_AI_PROJECT_ID",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        report = list_quota(subscription, args.region, model=args.model)
+    except (QuotaError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(report.to_dict(), indent=2) if args.json else format_report(report))
+    return 0
+
+
 def register_commands(subparsers: argparse._SubParsersAction) -> None:
     """Register ``build scaffold/check/test`` on the root subparser action."""
     build = subparsers.add_parser("build", help="create and check an agent project offline")

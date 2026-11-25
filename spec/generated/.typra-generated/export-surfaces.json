@@ -49,6 +49,7 @@
         "DeliveryAzdRuntime",
         "DeliveryManifestRuntime",
         "EntitiesRuntime",
+        "EvaluationScheduleRuntime",
         "EvaluationSuiteRuntime",
         "FinetuningJobsRuntime",
         "FinetuningTrainingRuntime",
@@ -62,6 +63,7 @@
         "InvokesRuntime",
         "LifecycleAcceptanceRuntime",
         "LifecycleOperationsRuntime",
+        "LifecycleOutputRuntime",
         "LifecycleRecordsRuntime",
         "LifecycleStorageRuntime",
         "Mention",
@@ -196,6 +198,13 @@
           "protocol": true
         },
         {
+          "name": "EvaluationScheduleRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "evaluation_schedule_runtime",
+          "protocol": true
+        },
+        {
           "name": "EvaluationSuiteRuntime",
           "kind": "type",
           "group": "",
@@ -284,6 +293,13 @@
           "kind": "type",
           "group": "",
           "source": "lifecycle_operations_runtime",
+          "protocol": true
+        },
+        {
+          "name": "LifecycleOutputRuntime",
+          "kind": "type",
+          "group": "",
+          "source": "lifecycle_output_runtime",
           "protocol": true
         },
         {
@@ -1041,6 +1057,62 @@
               "params": {
                 "description": "string",
                 "name": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "EvaluationScheduleRuntime",
+          "group": "",
+          "symbol": "EvaluationScheduleRuntime",
+          "source": "evaluation_schedule_runtime",
+          "methods": [
+            {
+              "name": "evaluationRule",
+              "returns": "unknown",
+              "params": {
+                "request": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "parseWindow",
+              "returns": "unknown",
+              "params": {
+                "text": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "scheduleTrigger",
+              "returns": "unknown",
+              "params": {
+                "request": "unknown"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "traceWindowSource",
+              "returns": "unknown",
+              "params": {
+                "request": "unknown"
               },
               "optional": false,
               "sync": true,
@@ -2116,6 +2188,43 @@
                 "baseline": "unknown",
                 "files": "unknown",
                 "root": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            }
+          ]
+        },
+        {
+          "name": "LifecycleOutputRuntime",
+          "group": "",
+          "symbol": "LifecycleOutputRuntime",
+          "source": "lifecycle_output_runtime",
+          "methods": [
+            {
+              "name": "commandEnvelope",
+              "returns": "unknown",
+              "params": {
+                "command": "string",
+                "diagnostics": "unknown",
+                "effects": "unknown",
+                "nextActions": "string[]",
+                "result": "unknown",
+                "status": "string"
+              },
+              "optional": false,
+              "sync": true,
+              "runtimeCancellable": false,
+              "atomic": false,
+              "nonFatal": false
+            },
+            {
+              "name": "redactSecrets",
+              "returns": "unknown",
+              "params": {
+                "value": "unknown"
               },
               "optional": false,
               "sync": true,
@@ -3227,6 +3336,7 @@
         "delivery_azd_runtime",
         "delivery_manifest_runtime",
         "entities_runtime",
+        "evaluation_schedule_runtime",
         "evaluation_suite_runtime",
         "finetuning_jobs_runtime",
         "finetuning_training_runtime",
@@ -3240,6 +3350,7 @@
         "invokes_runtime",
         "lifecycle_acceptance_runtime",
         "lifecycle_operations_runtime",
+        "lifecycle_output_runtime",
         "lifecycle_records_runtime",
         "lifecycle_storage_runtime",
         "mention",

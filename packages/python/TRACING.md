@@ -198,10 +198,18 @@ only. They do not duplicate prompt text, tool arguments, or tool output. Payload
 content remains governed by the existing GenAI content-recording opt-in.
 
 For server-side MCP/toolbox calls passed as raw Responses `mcp` specs, Castia
-cannot safely reparent the platform's dependency spans under a separate local
-`execute_tool` span: the tool execution happens inside the Responses service call
-and is reported by the upstream instrumentors. Use this path when you want the
-platform to own MCP execution.
+cannot reparent the platform's dependency spans: the tool runs inside the
+Responses service call. Castia instead synthesizes one `execute_tool {name}`
+child span per `mcp_call` (and other server tool items) found in
+`response.output`, so Monitor and evaluators count them. The span carries
+`gen_ai.tool.type`, `gen_ai.tool.call.id`, `castia.tool.iteration`, and on
+failure `error.type` (for example `http_402`) plus ERROR status. Its timing is
+approximate: `castia.tool.timing = "request_window"` means it spans the model
+request. Tool arguments and results are added only under the content-recording
+opt-in, capped at 16 KB. The same normalizer feeds `castia.tool_capture/v1`
+records, which link to the synthesized span ids. Call
+`castia.observe.record_server_tools(response.output, iteration=...)` yourself
+when you drive the Responses API directly.
 
 When you need deterministic tool-call telemetry from Castia, build local tools
 from the MCP schema with `toolbox_tools_from_mcp(...)` and pass those tools to
@@ -209,6 +217,10 @@ from the MCP schema with `toolbox_tools_from_mcp(...)` and pass those tools to
 wraps each remote MCP invocation in the same `execute_tool {name}` span used for
 local functions, with `gen_ai.tool.type = mcp` and the Responses call id when
 available. That is the Castia-owned path for Monitor-countable toolbox calls.
+`toolbox_function_tool(...)` builds the same kind of local tool with its own
+model-facing schema. Its `kind` sets `gen_ai.tool.type`, and `span_name`
+replaces the span name verbatim (`Tool.span_name` works for any local tool,
+including Prompty-projected ones).
 
 For local MCP toolbox calls, Castia also creates an explicit outbound HTTP client
 span around the JSON-RPC POST. The span is named from the request path, for
@@ -233,6 +245,33 @@ Spans never carry full tool results. For evaluation, opt-in tool-result capture
 (`CASTIA_TOOL_CAPTURE`, see [LIFECYCLE.md](LIFECYCLE.md#capture-full-tool-results-for-evaluation))
 writes them to a private sink. It adds one attribute, `castia.tool_capture.id`,
 to the turn span, and records each `execute_tool` span id for joining.
+
+## GenAI semantic conventions
+
+Castia pins OpenTelemetry GenAI semantic conventions **1.42.0**
+(`castia.observe.genai.GENAI_SEMCONV_VERSION`). The castia tracer carries that
+`schema_url`. The shapes are pinned in
+`spec/conformance/observe/genai_semconv.json` and checked by both the Python and
+Rust SDKs.
+
+- **Content.** `gen_ai.input.messages` and `gen_ai.output.messages` use the parts
+  format: `[{"role", "parts": [{"type": "text", "content"}], "finish_reason"?}]`.
+  `Model` records `gen_ai.system_instructions` from its instructions. All three
+  are emitted only when `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true`.
+- **Request parameters.** `record_request_parameters(temperature=0, ...)` keeps
+  zero values such as `temperature=0` and `seed=0`; only `None` is dropped. These
+  are not content, so they are not gated.
+- **Trace correlation.** `inject_traceparent(headers)` adds the current W3C
+  `traceparent`, and `trace_http_client(client)` installs it as an httpx request
+  hook, so client calls into a hosted agent join the caller's trace.
+- **Human feedback.** `record_human_evaluation(name, score=..., label=...,
+  traceparent=...)` emits a `gen_ai.evaluation.result` log event parented to the
+  evaluated span (pass a `traceparent` or `trace_id` and `span_id`).
+- **Tool-error gate.** `castia.evaluation.tool_errors.tool_error_gate(records,
+  max_error_rate=0.1)` counts tool errors across tool_capture documents,
+  `execute_tool` span records, or normalized calls. It marks the eval run
+  invalid when the error rate exceeds the threshold, so an outage (for example
+  a KB returning HTTP 402) isn't scored as an agent regression.
 
 ## Azure SDK metadata dependency noise
 

@@ -30,7 +30,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -708,49 +708,49 @@ def finish_tool_call(
         turn.incomplete.add("capture_failed")
 
 
-_SERVER_TOOL_TYPES = (
-    "mcp_call",
-    "web_search_call",
-    "file_search_call",
-    "code_interpreter_call",
-    "image_generation_call",
-    "computer_call",
-    "local_shell_call",
-    "custom_tool_call",
-)
-
-
-def record_server_tool_outputs(output: Iterable[Any] | None, *, iteration: int | None = None) -> None:
+def record_server_tool_outputs(
+    output: Iterable[Any] | None,
+    *,
+    iteration: int | None = None,
+    spans: Sequence[Any] | None = None,
+) -> None:
     """Record provider-executed tool items from one Responses ``output`` list.
 
     The stored result is whatever the provider returned in the item (for
     ``mcp_call`` that is ``output``); providers may not expose full payloads.
+    ``spans`` are the synthesized ``execute_tool`` spans, in server-tool order,
+    from :func:`castia.observe.server_tools.record_server_tools`.
     """
     if _CURRENT.get() is None:
         return
-    for item in output or []:
+    from castia.observe.genai import SERVER_TOOL_TYPES, server_tool_calls
+
+    items = [
+        item for item in output or []
+        if str(_field(item, "type") or "") in SERVER_TOOL_TYPES
+    ]
+    for index, item in enumerate(items):
         try:
-            item_type = str(_field(item, "type") or "")
-            if item_type not in _SERVER_TOOL_TYPES:
-                continue
+            (call,) = server_tool_calls([item])
+            item_type = call["item_type"]
             handle = begin_tool_call(
-                name=str(_field(item, "name") or _field(item, "server_label") or item_type),
-                call_id=_field(item, "call_id") or _field(item, "id"),
+                name=call["name"],
+                call_id=call["call_id"],
                 tool_type=item_type,
                 source="server",
-                arguments=_field(item, "arguments") if item_type == "mcp_call" else _MISSING,
+                arguments=call["arguments"] if item_type == "mcp_call" else _MISSING,
                 iteration=iteration,
             )
-            error = _field(item, "error")
             if item_type == "mcp_call":
-                result = _field(item, "output")
+                result = call["result"]
             else:
                 result = _lossy(item) if not isinstance(item, Mapping) else dict(item)
             finish_tool_call(
                 handle,
                 result=result,
-                error_type="server_tool_error" if error else None,
-                error_message=str(error) if error else None,
+                error_type=call["error_type"],
+                error_message=call["error_message"] or call["error_type"],
+                span=spans[index] if spans and index < len(spans) else None,
             )
         except Exception:  # noqa: BLE001
             turn = _CURRENT.get()

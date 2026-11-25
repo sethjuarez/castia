@@ -99,6 +99,15 @@ _MUSTACHE = re.compile(r"\{\{\s*([a-zA-Z_][\w.]*)\s*\}\}")
 
 DEFAULT_METHOD_TYPE = "reinforcement"
 
+# Chat roles a base-model family's RFT service rejects at preprocessing, mapped
+# to the accepted replacement. MAI RFT fails a submitted job on ``system``
+# messages, but accepts ``developer``. Mirrors
+# ``spec/conformance/finetuning/rft_role_rules.json``.
+RFT_ROLE_REWRITES: dict[str, dict[str, str]] = {
+    "mai": {"system": "developer"},
+}
+_RFT_FAMILY_PREFIXES: dict[str, str] = {"mai": "mai-"}
+
 
 # --------------------------------------------------------------------------- #
 # Grader builders (pure)                                                       #
@@ -333,6 +342,10 @@ def validate_grader(grader: dict) -> list[str]:
             problems.append(
                 f"text_similarity metric {metric!r} not in {TEXT_SIMILARITY_METRICS}"
             )
+    if gtype == "python" and isinstance(grader.get("source"), str):
+        from castia.finetuning.preflight import python_grader_problems
+
+        problems.extend(python_grader_problems(grader["source"]))
     if gtype == "multi":
         subs = grader.get("graders")
         if isinstance(subs, dict):
@@ -350,13 +363,63 @@ def validate_grader(grader: dict) -> list[str]:
     return problems
 
 
-def validate_rft_example(row: dict) -> list[str]:
+def rft_model_family(model: str | None) -> str | None:
+    """The RFT base-model family with role rules, or ``None``.
+
+    Matches the model ID's last path segment case-insensitively, so
+    ``mai-code-2-flash`` and ``MAI-2`` are both ``"mai"``.
+    """
+    if not model:
+        return None
+    name = str(model).rstrip("/").rsplit("/", 1)[-1].lower()
+    for family, prefix in _RFT_FAMILY_PREFIXES.items():
+        if name.startswith(prefix):
+            return family
+    return None
+
+
+def rft_role_rewrites(model: str | None) -> dict[str, str]:
+    """Roles the ``model``'s RFT service rejects, mapped to their replacement."""
+    family = rft_model_family(model)
+    return dict(RFT_ROLE_REWRITES.get(family, {})) if family else {}
+
+
+def rewrite_rft_roles(rows: Sequence[dict], *, model: str | None) -> tuple[list, int]:
+    """Rewrite roles ``model``'s RFT service rejects (pure). Returns ``(rows, count)``.
+
+    Rows are deep-copied; malformed rows and messages are kept as-is so the
+    validators still report them. For an MAI base, ``system`` becomes
+    ``developer``. Other models are returned unchanged with a count of 0.
+    """
+    import copy
+
+    rewrites = rft_role_rewrites(model)
+    out = copy.deepcopy(list(rows))
+    if not rewrites:
+        return out, 0
+    count = 0
+    for row in out:
+        messages = row.get("messages") if isinstance(row, dict) else None
+        if not isinstance(messages, list):
+            continue
+        for msg in messages:
+            role = msg.get("role") if isinstance(msg, dict) else None
+            if isinstance(role, str) and role in rewrites:
+                msg["role"] = rewrites[role]
+                count += 1
+    return out, count
+
+
+def validate_rft_example(row: dict, *, model: str | None = None) -> list[str]:
     """Validate one RFT dataset row. Returns problems.
 
     The row must carry a non-empty ``messages`` chat list whose **final message
     is role ``user``** (RFT rolls the model's turn forward from that prompt), and
     every message needs a valid ``role``. Extra top-level keys are allowed -- they
     are the ground-truth fields the grader reads via ``{{ item.* }}``.
+
+    Pass the base ``model`` to also apply its family's role rules
+    (:data:`RFT_ROLE_REWRITES`), e.g. MAI rejects ``system`` messages.
     """
     problems: list[str] = []
     if not isinstance(row, dict):
@@ -367,6 +430,7 @@ def validate_rft_example(row: dict) -> list[str]:
         problems.append("example has no non-empty 'messages' list")
         return problems
 
+    rewrites = rft_role_rewrites(model)
     valid_roles = {"system", "developer", "user", "assistant", "tool"}
     for i, msg in enumerate(messages):
         if not isinstance(msg, dict) or "role" not in msg:
@@ -374,6 +438,12 @@ def validate_rft_example(row: dict) -> list[str]:
             continue
         if msg.get("role") not in valid_roles:
             problems.append(f"message #{i + 1} has invalid role {msg.get('role')!r}")
+        elif msg.get("role") in rewrites:
+            problems.append(
+                f"message #{i + 1} role {msg['role']!r} is rejected by RFT for base "
+                f"model {model!r}; use {rewrites[msg['role']]!r} "
+                "(or submit with --rewrite-roles)"
+            )
 
     last = messages[-1]
     if isinstance(last, dict) and last.get("role") != "user":
@@ -389,17 +459,19 @@ def validate_rft_dataset(
     *,
     grader: dict | None = None,
     split: str = "dataset",
+    model: str | None = None,
 ) -> list[str]:
     """Validate every row of one RFT split; optionally cross-check the grader.
 
     When ``grader`` is given, checks that each ``{{ item.<field> }}`` the grader
     references is present on every row (so grading won't fault at train time).
+    ``model`` applies the base model's role rules (see :func:`validate_rft_example`).
     """
     problems: list[str] = []
     if not rows:
         return [f"{split}: no examples"]
     for i, row in enumerate(rows):
-        for p in validate_rft_example(row):
+        for p in validate_rft_example(row, model=model):
             problems.append(f"{split}[{i}]: {p}")
 
     if grader is not None:
@@ -421,18 +493,21 @@ def validate_rft_splits(
     validation: Sequence[dict],
     *,
     grader: dict | None = None,
+    model: str | None = None,
 ) -> list[str]:
     """Validate an RFT submission needs **both** a training and validation split.
 
     Returns the combined problem list (empty == ready to submit, modulo the
-    doc-derived wire caveat).
+    doc-derived wire caveat). ``model`` applies the base model's role rules.
     """
     problems: list[str] = []
     if grader is not None:
         problems.extend(f"grader: {p}" for p in validate_grader(grader))
-    problems.extend(validate_rft_dataset(train, grader=grader, split="training"))
     problems.extend(
-        validate_rft_dataset(validation, grader=grader, split="validation")
+        validate_rft_dataset(train, grader=grader, split="training", model=model)
+    )
+    problems.extend(
+        validate_rft_dataset(validation, grader=grader, split="validation", model=model)
     )
     return problems
 

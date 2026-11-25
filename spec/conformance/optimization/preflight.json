@@ -1,0 +1,41 @@
+{
+  "description": "Offline optimize-run preflight. Evidence: Foundry field notes (optimizer section) and Waypoint 25e0ffe5: the native optimizer evaluator path keeps ground_truth only for PROMPT-type evaluators; RUBRIC and unknown types keep only query.",
+  "constants": {
+    "passthrough_fields": ["query"],
+    "passthrough_by_type": {"prompt": ["query", "ground_truth"], "rubric": ["query"]},
+    "known_dropped_fields": ["ground_truth", "retrieval_context"],
+    "turn_level_evaluator_types": ["string_check", "text_similarity", "python", "code", "label_model", "score_model"],
+    "pilot_max_rows": 20,
+    "pilot_max_candidates": 10,
+    "approval_hours": 1.0,
+    "service_cap_hours": 6.0,
+    "default_row_seconds": 30.0,
+    "assumed_candidates": 10
+  },
+  "item_references": [
+    {"value": {"a": "{{ item.query }} vs {{item.ground_truth}}", "b": ["{{ item.query }}", "{{ sample.output_text }}"]}, "expected": ["query", "ground_truth"]},
+    {"value": "no refs here", "expected": []}
+  ],
+  "evaluator_level": [
+    {"name": "builtin conversation evaluator passes", "evaluators": ["builtin.task_adherence"], "options": {}, "expected": []},
+    {"name": "evaluation_level turn is rejected", "evaluators": ["builtin.task_adherence"], "options": {"evaluation_level": "turn"}, "expected": ["options.evaluation_level"]},
+    {"name": "string_check entry is turn-level", "evaluators": [{"name": "exact", "type": "string_check"}], "options": {}, "expected": ["evaluator exact: type string_check"]},
+    {"name": "definition with level turn", "evaluators": ["gold"], "options": {}, "definitions": {"gold": {"name": "gold", "definition": {"level": "turn"}}}, "expected": ["evaluator gold (definition): level: turn"]}
+  ],
+  "item_fields": [
+    {"name": "query passes", "evaluators": [{"name": "rel", "initialization_parameters": {"data_mapping": {"query": "{{item.query}}"}}}], "rows": [{"query": "a"}], "expected": []},
+    {"name": "ground_truth is dropped", "evaluators": [{"name": "gold", "initialization_parameters": {"data_mapping": {"ground_truth": "{{item.ground_truth}}"}}}], "rows": [{"query": "a", "ground_truth": "b"}], "expected": ["evaluator gold: item.ground_truth scores against nothing because the optimizer drops it for this evaluator"]},
+    {"name": "unknown field names the pass-through", "evaluators": [{"name": "x", "initialization_parameters": {"m": "{{item.expected_label}}"}}], "rows": [{"query": "a"}], "expected": ["evaluator x: item.expected_label scores against nothing because the optimizer only passes item.query to this evaluator"]},
+    {"name": "override passthrough then check rows", "evaluators": [{"name": "gold", "initialization_parameters": {"m": "{{item.ground_truth}}"}}], "rows": [{"query": "a", "ground_truth": "b"}, {"query": "c"}], "passthrough": ["query", "ground_truth"], "expected": ["evaluator gold: item.ground_truth is missing from 1/2 dataset rows"]},
+    {"name": "prompt type keeps ground_truth", "evaluators": [{"name": "gold", "type": "prompt", "initialization_parameters": {"m": "{{item.ground_truth}}"}}], "rows": [{"query": "a", "ground_truth": "b"}], "expected": []},
+    {"name": "rubric definition drops ground_truth", "evaluators": ["gold"], "rows": [{"query": "a", "ground_truth": "b"}], "definitions": {"gold": {"name": "gold", "definition": {"type": "rubric", "data_mapping": {"ground_truth": "{{item.ground_truth}}"}}}}, "expected": ["evaluator gold: item.ground_truth scores against nothing because the optimizer drops it for rubric evaluators"]},
+    {"name": "definition refs are checked", "evaluators": ["gold"], "rows": [{"query": "a"}], "definitions": {"gold": {"testing_criteria": [{"reference": "{{ item.retrieval_context }}"}]}}, "expected": ["evaluator gold: item.retrieval_context scores against nothing because the optimizer drops it for this evaluator"]}
+  ],
+  "estimate": [
+    {"name": "pilot needs no approval", "input": {"rows": 12, "max_candidates": 5}, "expected": {"hours": 0.6, "needs_approval": false, "candidates_assumed": false}},
+    {"name": "assumed candidates", "input": {"rows": 1, "max_candidates": null}, "expected": {"hours": 0.0917, "needs_approval": false, "candidates_assumed": true}},
+    {"name": "150 rows blows the cap", "input": {"rows": 150, "max_candidates": 50, "row_seconds": 60, "concurrency": 2}, "expected": {"hours": 63.75, "needs_approval": true, "candidates_assumed": false}},
+    {"name": "cost from hourly", "input": {"rows": 20, "max_candidates": 10, "row_seconds": 30, "hourly_usd": 12}, "expected": {"hours": 1.8333, "cost_usd": 22.0, "needs_approval": true, "candidates_assumed": false}},
+    {"name": "unknown rows needs approval", "input": {"rows": null, "max_candidates": 3}, "expected": {"hours": null, "needs_approval": true, "candidates_assumed": false}}
+  ]
+}

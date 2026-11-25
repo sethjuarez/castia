@@ -1,0 +1,73 @@
+{
+  "cost_table": {
+    "developer": {
+      "training_hourly_usd": 40.0,
+      "deployment_daily_usd": 8.64,
+      "source": "Foundry field notes (developer tier), 2026-11"
+    }
+  },
+  "default_seconds_per_step": 60.0,
+  "approval_stages": ["train", "evaluate", "promote"],
+  "batch_size": [
+    {"input": null, "expected": null},
+    {"input": -1, "expected": null},
+    {"input": "-1", "expected": null},
+    {"input": "auto", "expected": null},
+    {"input": "AUTO", "expected": null},
+    {"input": "", "expected": null},
+    {"input": 1, "expected": 1},
+    {"input": "16", "expected": 16},
+    {"input": 256, "expected": 256},
+    {"input": 0, "error": "batch_size must be an integer in [1, 256]"},
+    {"input": 257, "error": "batch_size must be an integer in [1, 256]"},
+    {"input": "-2", "error": "batch_size must be an integer in [1, 256]"},
+    {"input": "eight", "error": "batch_size must be an integer in [1, 256]"},
+    {"input": true, "error": "batch_size must be an integer in [1, 256]"}
+  ],
+  "estimate": [
+    {
+      "input": {"rows": 100, "n_epochs": 2, "batch_size": 8, "seconds_per_step": 90, "hourly_usd": 40},
+      "expected": {"rows": 100, "n_epochs": 2, "batch_size": 8, "steps": 26, "hours": 0.65, "cost_usd": 26.0, "bound": "estimate", "assumptions": []}
+    },
+    {
+      "input": {"rows": 12, "n_epochs": null, "batch_size": null, "seconds_per_step": null, "hourly_usd": null},
+      "expected": {"rows": 12, "n_epochs": 1, "batch_size": 1, "steps": 12, "hours": 0.2, "cost_usd": 8.0, "bound": "upper", "assumptions": [
+        "n_epochs=1 (service default not known offline)",
+        "batch_size=1 upper bound (batch size is automatic)",
+        "60s per step (measure with a probe)",
+        "$40/h developer tier"
+      ]}
+    },
+    {
+      "input": {"rows": 10, "n_epochs": 1, "batch_size": -1, "seconds_per_step": 36, "hourly_usd": 0},
+      "expected": {"rows": 10, "n_epochs": 1, "batch_size": 1, "steps": 10, "hours": 0.1, "cost_usd": 0.0, "bound": "upper", "assumptions": [
+        "batch_size=1 upper bound (batch size is automatic)"
+      ]}
+    },
+    {"input": {"rows": 0, "n_epochs": 1, "batch_size": 1, "seconds_per_step": 1, "hourly_usd": 1}, "error": "rows must be a positive integer"},
+    {"input": {"rows": 5, "n_epochs": 1, "batch_size": 1, "seconds_per_step": 0, "hourly_usd": 1}, "error": "seconds_per_step must be finite and positive"}
+  ],
+  "training_started_at": [
+    {"input": [], "expected": null},
+    {"input": [{"created_at": 300, "type": "message", "message": "Job enqueued"}], "expected": null},
+    {"input": [
+      {"created_at": 900, "type": "metrics", "message": "Step 2/10"},
+      {"created_at": 700, "type": "message", "message": "Training started."},
+      {"created_at": 100, "type": "message", "message": "Validating training file"}
+    ], "expected": 700}
+  ],
+  "timing": [
+    {"input": {"created_at": 1000, "started_at": null, "finished_at": null, "now": 4600}, "expected": {"phase": "queued", "queue_seconds": 3600, "training_seconds": 0}},
+    {"input": {"created_at": 1000, "started_at": 8200, "finished_at": null, "now": 9000}, "expected": {"phase": "training", "queue_seconds": 7200, "training_seconds": 800}},
+    {"input": {"created_at": 1000, "started_at": 2000, "finished_at": 12800, "now": 99999}, "expected": {"phase": "finished", "queue_seconds": 1000, "training_seconds": 10800}}
+  ],
+  "delete": [
+    {"input": {"fine_tuned_model": null, "deployments": [], "confirm_model": null, "yes": false}, "expected": {"allowed": false, "deployments": []}},
+    {"input": {"fine_tuned_model": null, "deployments": [], "confirm_model": null, "yes": true}, "expected": {"allowed": true, "deployments": []}},
+    {"input": {"fine_tuned_model": "gpt-ft-1", "deployments": [{"name": "prod", "model": "gpt-ft-1"}, {"name": "other", "model": "gpt-4o"}], "confirm_model": null, "yes": true}, "expected": {"allowed": false, "deployments": ["prod"]}},
+    {"input": {"fine_tuned_model": "gpt-ft-1", "deployments": [{"name": "prod", "model": "gpt-ft-1"}], "confirm_model": "gpt-ft-1", "yes": false}, "expected": {"allowed": true, "deployments": ["prod"]}}
+  ],
+  "approvals": [
+    {"input": {"train": true, "evaluate": false, "promote": false}, "expected": {"train": "approved", "evaluate": "required", "promote": "required"}}
+  ]
+}

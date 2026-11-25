@@ -38,7 +38,9 @@ def test_operation_spans_use_trace_api(helper):
     with mock.patch("opentelemetry.trace.get_tracer", api.get_tracer), getattr(tracing, helper)("example") as span:
         assert span is expected
 
-    api.get_tracer.assert_called_once_with("castia")
+    api.get_tracer.assert_called_once_with(
+        "castia", schema_url="https://opentelemetry.io/schemas/1.42.0"
+    )
     assert api.get_tracer.return_value.start_as_current_span.call_args.args == (
         f"{helper} example",
     )
@@ -697,6 +699,20 @@ def test_custom_filters_do_not_suppress_semantic_or_toolbox_spans(monkeypatch):
         mock.call(local_trace),
     ]
 
+
+
+def test_agent_identity_processor_warns_when_project_id_unset(monkeypatch, caplog):
+    for key in ("FOUNDRY_PROJECT_RESOURCE_ID", "AZURE_AI_PROJECT_RESOURCE_ID", "AZURE_AI_PROJECT_ID"):
+        monkeypatch.delenv(key, raising=False)
+
+    with caplog.at_level("WARNING", logger=observability._logger.name):
+        observability._build_agent_identity_processors()
+    assert "project resource ID is unset" not in caplog.text
+
+    with caplog.at_level("WARNING", logger=observability._logger.name):
+        observability._build_agent_identity_processors(exporting=True)
+    assert "project resource ID is unset" in caplog.text
+    assert "$0 and 0" in caplog.text
 
 
 def test_agent_identity_processor_uses_azure_project_id_fallback(monkeypatch):

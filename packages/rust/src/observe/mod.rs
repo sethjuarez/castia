@@ -1,3 +1,4 @@
+pub mod genai;
 pub mod live;
 pub mod records;
 pub mod suite;

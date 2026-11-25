@@ -90,18 +90,23 @@ or training evidence.
 | `optimize --check` | FREE offline baseline drift check; writes nothing |
 | `optimize` | FREE offline baseline reconciliation; writes local files |
 | `optimize run --dry-run` | FREE offline payload preview |
+| `optimize run --estimate` | Service-side payload validation and cost estimate; starts no job |
 | `optimize run` | Billable job submission; waits unless `--no-wait` |
 | `optimize status --watch` | Remote polling; does not create a job |
-| `optimize apply` | Fetches a candidate and writes local config; does not deploy |
+| `optimize apply` | Rebuilds a candidate from the job baseline, its `config.json` file and mutations, then writes local config; refuses failed, skipped or baseline-best jobs; does not deploy |
 | `optimize cancel` | Requests cancellation of an existing remote job |
 
 Inspect the preview's prompt, tools, evaluator references, dataset, deployed
 agent, models, and candidate cap before authorizing submission.
+Every command accepts `--json` and then prints one `castia.cli.v1` envelope
+(`status`, `ok`, `effects`, `result`, `diagnostics`, `next`); with `--watch`
+only the final envelope is printed.
 After cancellation, inspect status to establish that the job stopped.
 The cancellation command reports a request, not completed cleanup.
 Use explicit project settings. The current wire contract is
 `/agent_optimization_jobs`, API version `v1`,
-`Foundry-Features: AgentsOptimization=V2Preview`, `{"inputs": ...}`, and scope
+the GA request body (`target_configuration`, `optimization_configuration`)
+with no preview header and no `inputs` wrapper, and scope
 `https://ai.azure.com/.default`.
 
 After apply, set `OPTIMIZATION_LOCAL_DIR` and `OPTIMIZATION_CANDIDATE_ID` in the
