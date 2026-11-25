@@ -1154,6 +1154,40 @@ python -m castia finetune submit --model o4-mini --dataset train.jsonl \
 python -m castia finetune delete ftjob-123 --confirm-model o4-mini-ft-abc
 ```
 
+**Prove the grader before a full run.** Foundry's `graders/run` has returned
+`0.0` for Python graders that score correctly in-process, so a remote check
+doesn't prove much. Score your rows locally instead, then probe the trainer:
+
+- `finetune grade-local` runs the grader in this process (Python graders are
+  `exec`'d, so only grade code you trust). It handles `python`, `string_check`,
+  and `multi` of those; `score_model`, `text_similarity`, and `endpoint` are
+  reported as skipped. Model outputs come from `--outputs` JSONL or a row field
+  (`--output-field`).
+- `finetune probe` plans tiny jobs (10 rows, 1 epoch each) for an always-true
+  and an always-false Python grader, plus your real grader. It prints the
+  per-job and total spend and writes a record. Nothing is submitted without
+  `--approve-spend`.
+- `finetune probe-check --record` reads each job's reward metrics and records
+  `pass`, `fail`, or `pending`. It fails when always-true scores below 0.9, when
+  always-false scores above 0.1, or when the real grader's reward differs from
+  the offline score by more than the tolerance (default 0.15).
+- `finetune submit --probe-record probe.json` blocks unless the verdict is
+  `pass`. RFT submits without a record print a warning.
+
+Reward metric key names aren't pinned by the service: any numeric `*reward*`
+key in a `metrics` event counts (provisional). The thresholds live in
+`spec/conformance/finetuning/probe.json`.
+
+```bash
+python -m castia finetune grade-local --grader grader.json --dataset train.jsonl \
+  --outputs outputs.jsonl --out grade-report.json
+python -m castia finetune probe --model o4-mini --dataset train.jsonl \
+  --validation val.jsonl --grader grader.json --outputs outputs.jsonl --out probe.json
+python -m castia finetune probe ... --approve-spend   # billable
+python -m castia finetune probe-check --record probe.json
+python -m castia finetune submit ... --probe-record probe.json --approve-train
+```
+
 > ⚠️ **Provisional / doc-derived.** The grader JSON schema, the RFT
 > hyperparameter names, and the SFT/DPO/RFT `fine_tuning.jobs.create` payload
 > shapes are doc-derived and **have not been confirmed against live Castia
