@@ -27,11 +27,18 @@ __all__ = [
     "AGENT_NAME_ENV",
     "AGENT_SESSION_ID_ENV",
     "AGENT_VERSION_ENV",
+    "SESSION_ID_HEADER",
     "InvalidAgentReferenceError",
+    "SessionHeaderMiddleware",
     "is_complete_agent_reference",
     "resolve_agent_reference",
     "resolve_agent_session_id",
+    "session_header_value",
 ]
+
+SESSION_ID_HEADER = "x-agent-session-id"
+# ``request.state`` attribute carrying the POST /responses resolved session.
+SESSION_STATE_KEY = "castia_agent_session_id"
 
 AGENT_NAME_ENV = "FOUNDRY_AGENT_NAME"
 AGENT_VERSION_ENV = "FOUNDRY_AGENT_VERSION"
@@ -152,3 +159,64 @@ def resolve_agent_session_id(
     version = reference.get("version") or ""
     seed = f"{name}:{version}:{hint}"
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:_SESSION_ID_LENGTH]
+
+
+def session_header_value(
+    resolved: str | None, *, env: Mapping[str, str] | None = None
+) -> str | None:
+    """agentserver ``_session_headers``: the ``x-agent-session-id`` value.
+
+    POST /responses reports its resolved session; other Responses endpoints
+    report ``FOUNDRY_AGENT_SESSION_ID``. ``None`` means no header.
+    """
+    return resolved or _env(AGENT_SESSION_ID_ENV, env) or None
+
+
+def _is_responses_path(scope) -> bool:
+    # Like Starlette's route path: match relative to any root_path/mount.
+    path = scope.get("path", "")
+    root = scope.get("root_path", "")
+    if root and path.startswith(root):
+        path = path[len(root) :]
+    return path == "/responses" or path.startswith("/responses/")
+
+
+class SessionHeaderMiddleware:
+    """Pure ASGI middleware setting ``x-agent-session-id`` on Responses endpoints."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or not _is_responses_path(scope):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_session(message) -> None:
+            if message["type"] == "http.response.start":
+                state = scope.get("state") or {}
+                value = session_header_value(state.get(SESSION_STATE_KEY))
+                encoded = _header_bytes(value)
+                if encoded is not None:
+                    name = SESSION_ID_HEADER.encode("latin-1")
+                    headers = [
+                        (key, item)
+                        for key, item in message.get("headers", [])
+                        if key.lower() != name
+                    ]
+                    headers.append((name, encoded))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_session)
+
+
+def _header_bytes(value: str | None) -> bytes | None:
+    # A client-supplied session id is arbitrary text; never emit one that is
+    # not a valid header value.
+    if not value or any(ch in value for ch in "\r\n\0"):
+        return None
+    try:
+        return value.encode("latin-1")
+    except UnicodeEncodeError:
+        return None

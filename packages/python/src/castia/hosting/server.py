@@ -46,7 +46,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from castia.hosting.agent_identity import (
+    SESSION_STATE_KEY,
     InvalidAgentReferenceError,
+    SessionHeaderMiddleware,
     is_complete_agent_reference,
     resolve_agent_reference,
     resolve_agent_session_id,
@@ -1541,18 +1543,6 @@ def _register_wire(
                         _FOUNDRY_AGENT_REFERENCE_REQUIRED,
                         param="agent_reference",
                     )
-                agent_session_id: str | None = None
-                if (
-                    foundry_storage_enabled()
-                    or agent_reference is not None
-                    or body.get("agent_session_id") is not None
-                ):
-                    agent_session_id = resolve_agent_session_id(
-                        body,
-                        agent_reference=agent_reference,
-                        previous_response_id=previous_response_id,
-                        conversation_id=conversation_id,
-                    )
                 try:
                     response_id = resolve_response_id(
                         _header_value(request, RESPONSE_ID_HEADER),
@@ -1562,6 +1552,22 @@ def _register_wire(
                     )
                 except InvalidResponseIdError as error:
                     return _api_error(str(error), param="response_id")
+                # agentserver always resolves a session and reports it in the
+                # x-agent-session-id header; the body field stays hosted-only.
+                resolved_session_id = resolve_agent_session_id(
+                    body,
+                    agent_reference=agent_reference,
+                    previous_response_id=previous_response_id,
+                    conversation_id=conversation_id,
+                )
+                setattr(request.state, SESSION_STATE_KEY, resolved_session_id)
+                agent_session_id: str | None = None
+                if (
+                    foundry_storage_enabled()
+                    or agent_reference is not None
+                    or body.get("agent_session_id") is not None
+                ):
+                    agent_session_id = resolved_session_id
                 supplied_id = bool(
                     (_header_value(request, RESPONSE_ID_HEADER) or "").strip()
                     or (
@@ -2340,6 +2346,7 @@ def build_app(
             await owned_store.aclose()
 
     app = FastAPI(title="castia", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app.add_middleware(SessionHeaderMiddleware)
 
     @app.get("/readiness")
     async def readiness(request: Request) -> Response:

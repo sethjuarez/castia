@@ -770,3 +770,95 @@ def test_agent_session_id_is_resolved_without_persistence(monkeypatch):
     assert reply.json()["agent_session_id"] == "requested-session"
     assert reply.json()["agent_reference"] == REF
     assert storage.calls == []
+
+
+def _call(app, method, path, **kwargs):
+    async def run():
+        async with AgentTestHarness(app) as test:
+            return await test.client.request(method, path, headers=CALL, **kwargs)
+
+    return asyncio.run(run())
+
+
+SESSION_HEADER = "x-agent-session-id"
+
+
+def test_post_reports_resolved_session_header_like_stock(monkeypatch):
+    app = _hosted(monkeypatch, FakeStorage())
+    reply = _post(app, {"input": "hi", "conversation": "conv-plain"})
+    assert reply.headers[SESSION_HEADER] == reply.json()["agent_session_id"]
+    stream = _post(app, {"input": "hi", "stream": True, "agent_session_id": "s-1"})
+    assert stream.headers[SESSION_HEADER] == "s-1"
+
+
+def test_session_header_prefers_payload_then_platform_env(monkeypatch):
+    app = _hosted(monkeypatch, FakeStorage())
+    monkeypatch.setenv("FOUNDRY_AGENT_SESSION_ID", "platform-session")
+    assert _post(app, {"input": "hi"}).headers[SESSION_HEADER] == "platform-session"
+    reply = _post(app, {"input": "hi", "agent_session_id": "requested"})
+    assert reply.headers[SESSION_HEADER] == "requested"
+
+
+def test_non_post_and_error_responses_report_platform_session(monkeypatch):
+    app = _hosted(monkeypatch, FakeStorage())
+    assert SESSION_HEADER not in _call(app, "GET", f"/responses/{NEW_ID}").headers
+    monkeypatch.setenv("FOUNDRY_AGENT_SESSION_ID", "platform-session")
+    assert _call(app, "GET", f"/responses/{NEW_ID}").headers[SESSION_HEADER] == (
+        "platform-session"
+    )
+    error = _call(app, "POST", "/responses", content=b"not json")
+    assert error.status_code == 400
+    assert error.headers[SESSION_HEADER] == "platform-session"
+    assert SESSION_HEADER not in _call(app, "GET", "/readiness").headers
+
+
+def test_unencodable_session_is_not_emitted_as_a_header(monkeypatch):
+    app = _hosted(monkeypatch, FakeStorage())
+    reply = _post(app, {"input": "hi", "store": False, "agent_session_id": "sess-\u2603"})
+    assert reply.status_code == 200
+    assert reply.json()["agent_session_id"] == "sess-\u2603"
+    assert SESSION_HEADER not in reply.headers
+
+
+def test_local_post_reports_generated_session_header_only(monkeypatch):
+    monkeypatch.delenv("FOUNDRY_AGENT_SESSION_ID", raising=False)
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str) -> str:
+        return text
+
+    reply_ = _post(app, {"input": "hi"})
+    assert re.fullmatch(r"[0-9a-f]{63}", reply_.headers[SESSION_HEADER])
+    assert "agent_session_id" not in reply_.json()
+
+
+def test_invalid_response_id_reports_platform_not_requested_session(monkeypatch):
+    app = _hosted(monkeypatch, FakeStorage())
+    monkeypatch.setenv("FOUNDRY_AGENT_SESSION_ID", "platform")
+    error = _post(app, {"input": "hi", "agent_session_id": "requested", "response_id": "bad"})
+    assert error.status_code == 400
+    assert error.headers[SESSION_HEADER] == "platform"
+
+
+def test_session_header_matches_route_path_under_root_path(monkeypatch):
+    from castia.hosting.agent_identity import SessionHeaderMiddleware
+
+    monkeypatch.setenv("FOUNDRY_AGENT_SESSION_ID", "platform")
+
+    async def inner(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    def headers_for(path, root_path):
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "http", "path": path, "root_path": root_path}
+        asyncio.run(SessionHeaderMiddleware(inner)(scope, None, send))
+        return dict(sent[0]["headers"])
+
+    assert headers_for("/api/responses/x", "/api")[b"x-agent-session-id"] == b"platform"
+    assert b"x-agent-session-id" not in headers_for("/api/readiness", "/api")

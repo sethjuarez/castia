@@ -1,5 +1,6 @@
 use castia::hosting::agent_identity::{
     is_complete_agent_reference, resolve_agent_reference, resolve_agent_session_id,
+    session_header_value, SESSION_ID_HEADER,
 };
 use castia::hosting::foundry_storage::{
     foundry_storage_enabled, is_retryable_status, storage_error, storage_snapshot,
@@ -318,4 +319,37 @@ fn agent_session_id_matches_stock_derivation() {
     );
     let random = resolve_agent_session_id(&body, None, None, None, &none);
     assert!(random.len() == 63 && random.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[test]
+fn session_header_matches_agentserver_session_headers() {
+    assert_eq!(SESSION_ID_HEADER, "x-agent-session-id");
+    let empty = HashMap::new();
+    let env = HashMap::from([(
+        "FOUNDRY_AGENT_SESSION_ID".to_string(),
+        " platform-session ".to_string(),
+    )]);
+    assert_eq!(
+        session_header_value("/responses", Some("requested"), &env).as_deref(),
+        Some("requested")
+    );
+    assert_eq!(
+        session_header_value("/responses", None, &env).as_deref(),
+        Some("platform-session")
+    );
+    assert_eq!(
+        session_header_value("/responses/caresp_1", None, &env).as_deref(),
+        Some("platform-session")
+    );
+    assert_eq!(session_header_value("/responses/x", None, &empty), None);
+    assert_eq!(session_header_value("/readiness", Some("s"), &env), None);
+    assert_eq!(session_header_value("/responsesx", Some("s"), &env), None);
+    assert_eq!(
+        session_header_value("/responses", Some("sess-\u{2603}"), &empty),
+        None
+    );
+    assert_eq!(
+        session_header_value("/responses", Some("a\r\nb"), &empty),
+        None
+    );
 }
