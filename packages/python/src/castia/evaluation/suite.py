@@ -21,9 +21,12 @@ superset config the optimizer reads -- a generated rubric can drive both
 The framework gives that tool three thin, principled seams:
 
 * :func:`build_generate_argv` / :func:`build_update_argv` / :func:`build_run_argv`
-  -- **pure** builders for the ``azd ai agent eval {generate,update,run}`` command
-  lines, anchored to this repo's baseline (instruction file, agent name, eval
-  config) so a caller need not remember the flag soup. They never run anything.
+  -- **pure** builders for the legacy ``azd ai agent eval {generate,update,run}``
+  command lines (``azure.ai.agents`` < 1.0.0-beta.22). The ``azd ai eval``
+  builders for the ``azure.ai.evaluations`` extension live in
+  :mod:`castia.evaluation.azd_eval`. Both are anchored to this repo's baseline
+  (instruction file, agent name, eval config) so a caller need not remember the
+  flag soup. They never run anything.
 * :func:`run_azd` -- the one impure seam: shell out to ``azd``. Kept separate so
   the builders stay unit-testable without Azure. The generator submits *billable*
   Foundry jobs, so nothing here runs by accident.
@@ -395,7 +398,7 @@ def run_azd(argv: Sequence[str], *, cwd: str | os.PathLike | None = None) -> int
     if shutil.which(str(exe)) is None:
         raise FileNotFoundError(
             f"{exe!r} is not on PATH -- install the Azure Developer CLI and the "
-            "azure.ai.agents extension (azd extension install azure.ai.agents)."
+            "azure.ai.evaluations extension (azd extension install azure.ai.evaluations)."
         )
     return subprocess.run(list(argv), cwd=cwd, check=False).returncode
 
