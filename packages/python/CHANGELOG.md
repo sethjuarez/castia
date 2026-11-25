@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/sethjuarez/castia/compare/python-v0.20.0...python-v0.20.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **hosting:** persist hosted Responses to Foundry storage and honor platform response ids ([#147](https://github.com/sethjuarez/castia/issues/147)) ([5a47579](https://github.com/sethjuarez/castia/commit/5a47579dbb53ba094b08411287c6d3b8a398db79)), closes [#143](https://github.com/sethjuarez/castia/issues/143)
+
 ## [0.20.0](https://github.com/sethjuarez/castia/compare/python-v0.19.0...python-v0.20.0) (2026-11-25)
 
 
