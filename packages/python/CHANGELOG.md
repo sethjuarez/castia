@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/sethjuarez/castia/compare/python-v0.20.1...python-v0.20.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **hosting:** send agent_reference and stock snapshot fields to Foundry storage ([#149](https://github.com/sethjuarez/castia/issues/149)) ([abd7a13](https://github.com/sethjuarez/castia/commit/abd7a132196e5582724dd5f18f94be3ccc4fcd69))
+
 ## [0.20.1](https://github.com/sethjuarez/castia/compare/python-v0.20.0...python-v0.20.1) (2026-11-25)
 
 
