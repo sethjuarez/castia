@@ -1,9 +1,22 @@
 import asyncio
+import json
 from contextlib import contextmanager
 
 from castia import Depends
 from castia.observe.tracing import clear_trace_sinks, register_trace_sink
 from castia.runtime import dispatch as runtime_dispatch
+
+
+def _user(text):
+    return json.dumps([{"role": "user", "parts": [{"type": "text", "content": text}]}])
+
+
+def _assistant(text):
+    return json.dumps([{
+        "role": "assistant",
+        "parts": [{"type": "text", "content": text}],
+        "finish_reason": "stop",
+    }])
 
 
 class FakeSpan:
@@ -33,10 +46,10 @@ def test_return_dispatch_records_input_output_when_content_recording_enabled(mon
     result = asyncio.run(runtime_dispatch.make_return_dispatch(reply)("hello"))
 
     assert result == "answer: hello"
-    assert span.attributes["gen_ai.input.messages"] == '[{"role": "user", "content": "hello"}]'
-    assert span.attributes["gen_ai.output.messages"] == '[{"role": "assistant", "content": "answer: hello"}]'
-    assert ambient_span.attributes["gen_ai.input.messages"] == '[{"role": "user", "content": "hello"}]'
-    assert ambient_span.attributes["gen_ai.output.messages"] == '[{"role": "assistant", "content": "answer: hello"}]'
+    assert span.attributes["gen_ai.input.messages"] == _user("hello")
+    assert span.attributes["gen_ai.output.messages"] == _assistant("answer: hello")
+    assert ambient_span.attributes["gen_ai.input.messages"] == _user("hello")
+    assert ambient_span.attributes["gen_ai.output.messages"] == _assistant("answer: hello")
 
 
 def test_return_dispatch_omits_content_by_default(monkeypatch):
@@ -77,8 +90,8 @@ def test_stream_dispatch_records_joined_output(monkeypatch):
     monkeypatch.setattr(runtime_dispatch, "flush_telemetry", lambda: None)
 
     assert asyncio.run(run()) == ["hello", " done"]
-    assert span.attributes["gen_ai.input.messages"] == '[{"role": "user", "content": "hello"}]'
-    assert span.attributes["gen_ai.output.messages"] == '[{"role": "assistant", "content": "hello done"}]'
+    assert span.attributes["gen_ai.input.messages"] == _user("hello")
+    assert span.attributes["gen_ai.output.messages"] == _assistant("hello done")
 
 
 def test_return_dispatch_emits_local_trace_steps(monkeypatch):

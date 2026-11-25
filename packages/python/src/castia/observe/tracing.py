@@ -44,10 +44,13 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlparse
 
-#: ``gen_ai.provider.name`` / ``gen_ai.system`` value for Foundry-hosted models.
-#: Matches what the model call's own ``chat`` span carries, so parent and child
-#: agree on the provider.
-PROVIDER = "microsoft.foundry"
+from castia.observe.genai import (
+    GENAI_SEMCONV_SCHEMA_URL,
+    PROVIDER,
+    request_parameter_attributes,
+    system_instructions,
+    text_messages,
+)
 
 _TRACER_NAME = "castia"
 _CONTENT_RECORDING_ENV = "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"
@@ -864,7 +867,7 @@ def _call_attributes(
 def _get_tracer():
     from opentelemetry import trace
 
-    return trace.get_tracer(_TRACER_NAME)
+    return trace.get_tracer(_TRACER_NAME, schema_url=GENAI_SEMCONV_SCHEMA_URL)
 
 
 def content_recording_enabled() -> bool:
@@ -873,14 +876,14 @@ def content_recording_enabled() -> bool:
 
 
 def record_turn_input(span: Any, text: str) -> None:
-    """Attach the external user turn text when content recording is enabled."""
+    """Attach the external user turn text when content recording is enabled.
+
+    The value follows the GenAI ``gen_ai.input.messages`` parts schema pinned by
+    :data:`castia.observe.genai.GENAI_SEMCONV_VERSION`.
+    """
     if not content_recording_enabled() or not text:
         return
-    _set_json_attribute(
-        span,
-        "gen_ai.input.messages",
-        [{"role": "user", "content": text}],
-    )
+    _set_json_attribute(span, "gen_ai.input.messages", text_messages("user", text))
 
 
 def record_turn_output(span: Any, text: str) -> None:
@@ -890,8 +893,47 @@ def record_turn_output(span: Any, text: str) -> None:
     _set_json_attribute(
         span,
         "gen_ai.output.messages",
-        [{"role": "assistant", "content": text}],
+        text_messages("assistant", text, finish_reason="stop"),
     )
+
+
+def record_system_instructions(text: str | None, span: Any = None) -> None:
+    """Attach ``gen_ai.system_instructions`` when content recording is enabled.
+
+    ``span`` defaults to the current span. Instructions are content (they often
+    embed policy or customer data), so they share the content-recording opt-in.
+    """
+    if not content_recording_enabled() or not text:
+        return
+    if span is None:
+        try:
+            from opentelemetry import trace
+
+            span = trace.get_current_span()
+        except Exception:  # noqa: BLE001
+            return
+    _set_json_attribute(span, "gen_ai.system_instructions", system_instructions(text))
+
+
+def record_request_parameters(span: Any = None, **params: Any) -> dict[str, Any]:
+    """Set ``gen_ai.request.*`` attributes, keeping zero values like ``temperature=0``.
+
+    Request parameters are not content, so they are recorded regardless of the
+    content opt-in. Returns the attributes that were set.
+    """
+    attributes = request_parameter_attributes(params)
+    if not attributes:
+        return attributes
+    try:
+        if span is None:
+            from opentelemetry import trace
+
+            span = trace.get_current_span()
+        for key, value in attributes.items():
+            span.set_attribute(key, value)
+    except Exception:
+        _logger.debug("Failed to set request parameter attributes", exc_info=True)
+    return attributes
 
 
 def _set_json_attribute(span: Any, key: str, value: object) -> None:

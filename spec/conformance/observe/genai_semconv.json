@@ -1,0 +1,401 @@
+{
+  "schema": "castia.conformance.genai_semconv/v1",
+  "semconv_version": "1.42.0",
+  "schema_url": "https://opentelemetry.io/schemas/1.42.0",
+  "provider": "microsoft.foundry",
+  "text_messages": [
+    {
+      "role": "user",
+      "text": "hello",
+      "finish_reason": null,
+      "expected": [{"role": "user", "parts": [{"type": "text", "content": "hello"}]}]
+    },
+    {
+      "role": "assistant",
+      "text": "hi there",
+      "finish_reason": "stop",
+      "expected": [
+        {
+          "role": "assistant",
+          "parts": [{"type": "text", "content": "hi there"}],
+          "finish_reason": "stop"
+        }
+      ]
+    }
+  ],
+  "system_instructions": [
+    {
+      "text": "Be terse.",
+      "expected": [{"type": "text", "content": "Be terse."}]
+    }
+  ],
+  "request_parameters": [
+    {
+      "name": "zero values are recorded, unset values dropped",
+      "params": {"temperature": 0, "top_p": 0.5, "seed": 0, "max_output_tokens": 256, "presence_penalty": null},
+      "expected": {
+        "gen_ai.request.temperature": 0,
+        "gen_ai.request.top_p": 0.5,
+        "gen_ai.request.seed": 0,
+        "gen_ai.request.max_tokens": 256
+      }
+    },
+    {
+      "name": "booleans and strings are not numbers",
+      "params": {"temperature": false, "top_k": "3", "stop": "END"},
+      "expected": {"gen_ai.request.stop_sequences": ["END"]}
+    },
+    {
+      "name": "max_output_tokens wins over max_tokens",
+      "params": {"max_output_tokens": 10, "max_tokens": 20},
+      "expected": {"gen_ai.request.max_tokens": 10}
+    }
+  ],
+  "server_tools": [
+    {
+      "name": "successful knowledge-base MCP call",
+      "iteration": 1,
+      "include_content": true,
+      "output": [
+        {"type": "message", "id": "msg_1"},
+        {
+          "type": "mcp_call",
+          "id": "mcp_1",
+          "name": "knowledge_base_retrieve",
+          "server_label": "kb",
+          "arguments": "{\"query\":\"refund\"}",
+          "output": "Refunds take 5 days.",
+          "error": null,
+          "status": "completed"
+        }
+      ],
+      "expected_calls": [
+        {
+          "name": "knowledge_base_retrieve",
+          "call_id": "mcp_1",
+          "item_type": "mcp_call",
+          "tool_type": "extension",
+          "server_label": "kb",
+          "status": "ok",
+          "error_type": null,
+          "error_message": null,
+          "arguments": "{\"query\":\"refund\"}",
+          "result": "Refunds take 5 days."
+        }
+      ],
+      "expected_spans": [
+        {
+          "span_name": "execute_tool knowledge_base_retrieve",
+          "status": "ok",
+          "status_description": null,
+          "attributes": {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.system": "microsoft.foundry",
+            "gen_ai.provider.name": "microsoft.foundry",
+            "gen_ai.tool.name": "knowledge_base_retrieve",
+            "gen_ai.tool.type": "extension",
+            "gen_ai.tool.call.id": "mcp_1",
+            "gen_ai.tool.call.arguments": "{\"query\":\"refund\"}",
+            "gen_ai.tool.call.result": "Refunds take 5 days.",
+            "castia.telemetry.source": "castia",
+            "castia.tool.source": "server",
+            "castia.tool.synthesized": true,
+            "castia.tool.item_type": "mcp_call",
+            "castia.tool.status": "ok",
+            "castia.mcp.server_label": "kb",
+            "castia.model.iteration": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "PaymentRequired MCP error without content",
+      "iteration": 2,
+      "include_content": false,
+      "output": [
+        {
+          "type": "mcp_call",
+          "id": "mcp_2",
+          "name": "knowledge_base_retrieve",
+          "server_label": "kb",
+          "arguments": "{}",
+          "output": null,
+          "error": "Error retrieving from knowledge base: 402 PaymentRequired",
+          "status": "failed"
+        }
+      ],
+      "expected_calls": [
+        {
+          "name": "knowledge_base_retrieve",
+          "call_id": "mcp_2",
+          "item_type": "mcp_call",
+          "tool_type": "extension",
+          "server_label": "kb",
+          "status": "error",
+          "error_type": "http_402",
+          "error_message": "Error retrieving from knowledge base: 402 PaymentRequired",
+          "arguments": "{}",
+          "result": null
+        }
+      ],
+      "expected_spans": [
+        {
+          "span_name": "execute_tool knowledge_base_retrieve",
+          "status": "error",
+          "status_description": "Error retrieving from knowledge base: 402 PaymentRequired",
+          "attributes": {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.system": "microsoft.foundry",
+            "gen_ai.provider.name": "microsoft.foundry",
+            "gen_ai.tool.name": "knowledge_base_retrieve",
+            "gen_ai.tool.type": "extension",
+            "gen_ai.tool.call.id": "mcp_2",
+            "castia.telemetry.source": "castia",
+            "castia.tool.source": "server",
+            "castia.tool.synthesized": true,
+            "castia.tool.item_type": "mcp_call",
+            "castia.tool.status": "error",
+            "castia.mcp.server_label": "kb",
+            "castia.model.iteration": 2,
+            "error.type": "http_402"
+          }
+        }
+      ]
+    },
+    {
+      "name": "structured error, incomplete status, non-MCP server tools",
+      "iteration": null,
+      "include_content": true,
+      "output": [
+        {"type": "mcp_call", "id": "mcp_3", "server_label": "docs", "error": {"code": "timeout", "message": "upstream timed out"}},
+        {"type": "file_search_call", "id": "fs_1", "status": "incomplete"},
+        {"type": "web_search_call", "id": "ws_1", "status": "completed"},
+        {"type": "function_call", "call_id": "call_1", "name": "local_tool"}
+      ],
+      "expected_calls": [
+        {
+          "name": "docs",
+          "call_id": "mcp_3",
+          "item_type": "mcp_call",
+          "tool_type": "extension",
+          "server_label": "docs",
+          "status": "error",
+          "error_type": "timeout",
+          "error_message": "upstream timed out",
+          "arguments": null,
+          "result": null
+        },
+        {
+          "name": "file_search_call",
+          "call_id": "fs_1",
+          "item_type": "file_search_call",
+          "tool_type": "datastore",
+          "server_label": null,
+          "status": "error",
+          "error_type": "server_tool_incomplete",
+          "error_message": null,
+          "arguments": null,
+          "result": null
+        },
+        {
+          "name": "web_search_call",
+          "call_id": "ws_1",
+          "item_type": "web_search_call",
+          "tool_type": "extension",
+          "server_label": null,
+          "status": "ok",
+          "error_type": null,
+          "error_message": null,
+          "arguments": null,
+          "result": null
+        }
+      ],
+      "expected_spans": [
+        {
+          "span_name": "execute_tool docs",
+          "status": "error",
+          "status_description": "upstream timed out",
+          "attributes": {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.system": "microsoft.foundry",
+            "gen_ai.provider.name": "microsoft.foundry",
+            "gen_ai.tool.name": "docs",
+            "gen_ai.tool.type": "extension",
+            "gen_ai.tool.call.id": "mcp_3",
+            "castia.telemetry.source": "castia",
+            "castia.tool.source": "server",
+            "castia.tool.synthesized": true,
+            "castia.tool.item_type": "mcp_call",
+            "castia.tool.status": "error",
+            "castia.mcp.server_label": "docs",
+            "error.type": "timeout"
+          }
+        },
+        {
+          "span_name": "execute_tool file_search_call",
+          "status": "error",
+          "status_description": null,
+          "attributes": {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.system": "microsoft.foundry",
+            "gen_ai.provider.name": "microsoft.foundry",
+            "gen_ai.tool.name": "file_search_call",
+            "gen_ai.tool.type": "datastore",
+            "gen_ai.tool.call.id": "fs_1",
+            "castia.telemetry.source": "castia",
+            "castia.tool.source": "server",
+            "castia.tool.synthesized": true,
+            "castia.tool.item_type": "file_search_call",
+            "castia.tool.status": "error",
+            "error.type": "server_tool_incomplete"
+          }
+        },
+        {
+          "span_name": "execute_tool web_search_call",
+          "status": "ok",
+          "status_description": null,
+          "attributes": {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.system": "microsoft.foundry",
+            "gen_ai.provider.name": "microsoft.foundry",
+            "gen_ai.tool.name": "web_search_call",
+            "gen_ai.tool.type": "extension",
+            "gen_ai.tool.call.id": "ws_1",
+            "castia.telemetry.source": "castia",
+            "castia.tool.source": "server",
+            "castia.tool.synthesized": true,
+            "castia.tool.item_type": "web_search_call",
+            "castia.tool.status": "ok"
+          }
+        }
+      ]
+    }
+  ],
+  "tool_error_gate": [
+    {
+      "name": "KB PaymentRequired run is invalid",
+      "max_error_rate": 0.1,
+      "min_calls": 0,
+      "records": [
+        {
+          "schema": "castia.tool_capture/v1",
+          "tool_calls": [
+            {"name": "knowledge_base_retrieve", "status": "error", "error": {"type": "http_402", "message": "PaymentRequired"}},
+            {"name": "knowledge_base_retrieve", "status": "ok", "tool_reported_ok": true},
+            {"name": "lookup_order", "status": "ok", "tool_reported_ok": false}
+          ]
+        },
+        {
+          "name": "execute_tool knowledge_base_retrieve",
+          "status": "ok",
+          "attributes": {"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "knowledge_base_retrieve"}
+        },
+        {
+          "name": "castia.model.respond",
+          "status": "ok",
+          "attributes": {"gen_ai.operation.name": "chat"}
+        }
+      ],
+      "expected": {
+        "schema": "castia.tool_error_gate/v1",
+        "total": 4,
+        "errors": 2,
+        "error_rate": 0.5,
+        "max_error_rate": 0.1,
+        "min_calls": 0,
+        "valid": false,
+        "reason": "tool_error_rate_exceeded",
+        "by_type": {"http_402": 1, "tool_reported_error": 1},
+        "by_tool": {"knowledge_base_retrieve": 1, "lookup_order": 1}
+      }
+    },
+    {
+      "name": "error rate at the threshold stays valid",
+      "max_error_rate": 0.25,
+      "min_calls": 0,
+      "records": [
+        {
+          "name": "execute_tool kb",
+          "status": "error",
+          "attributes": {"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "kb", "error.type": "http_402"}
+        },
+        {"name": "kb", "item_type": "mcp_call", "status": "ok", "error_type": null},
+        {"name": "kb", "item_type": "mcp_call", "status": "ok", "error_type": null},
+        {"name": "kb", "item_type": "mcp_call", "status": "ok", "error_type": null}
+      ],
+      "expected": {
+        "schema": "castia.tool_error_gate/v1",
+        "total": 4,
+        "errors": 1,
+        "error_rate": 0.25,
+        "max_error_rate": 0.25,
+        "min_calls": 0,
+        "valid": true,
+        "reason": null,
+        "by_type": {"http_402": 1},
+        "by_tool": {"kb": 1}
+      }
+    },
+    {
+      "name": "too few tool calls is invalid",
+      "max_error_rate": 0.1,
+      "min_calls": 1,
+      "records": [],
+      "expected": {
+        "schema": "castia.tool_error_gate/v1",
+        "total": 0,
+        "errors": 0,
+        "error_rate": 0.0,
+        "max_error_rate": 0.1,
+        "min_calls": 1,
+        "valid": false,
+        "reason": "insufficient_tool_calls",
+        "by_type": {},
+        "by_tool": {}
+      }
+    }
+  ],
+  "human_evaluation": [
+    {
+      "name": "score, label and trace references",
+      "input": {
+        "name": " helpfulness ",
+        "score": 4,
+        "label": "pass",
+        "explanation": "Answered with the right policy.",
+        "response_id": "resp_1",
+        "agent_id": "support:3",
+        "reviewer": "qa-team"
+      },
+      "expected": {
+        "gen_ai.evaluation.name": "helpfulness",
+        "gen_ai.evaluation.score.value": 4.0,
+        "gen_ai.evaluation.score.label": "pass",
+        "gen_ai.evaluation.explanation": "Answered with the right policy.",
+        "gen_ai.response.id": "resp_1",
+        "gen_ai.agent.id": "support:3",
+        "castia.evaluation.source": "human",
+        "castia.evaluation.reviewer": "qa-team"
+      }
+    },
+    {
+      "name": "label only",
+      "input": {"name": "groundedness", "label": "fail"},
+      "expected": {
+        "gen_ai.evaluation.name": "groundedness",
+        "gen_ai.evaluation.score.label": "fail",
+        "castia.evaluation.source": "human"
+      }
+    },
+    {"name": "needs a score or label", "input": {"name": "x"}, "error": "invalid"},
+    {"name": "needs a name", "input": {"name": "  ", "score": 1}, "error": "invalid"}
+  ],
+  "traceparent": [
+    {"value": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "expected": ["4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7", true]},
+    {"value": "00-4BF92F3577B34DA6A3CE929D0E0E4736-00F067AA0BA902B7-00", "expected": ["4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7", false]},
+    {"value": "00-00000000000000000000000000000000-00f067aa0ba902b7-01", "expected": null},
+    {"value": "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01", "expected": null},
+    {"value": "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "expected": null},
+    {"value": "garbage", "expected": null}
+  ]
+}
