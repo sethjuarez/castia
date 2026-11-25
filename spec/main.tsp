@@ -25,6 +25,7 @@ import "./building/testing.tsp";
 import "./delivery/azd.tsp";
 import "./delivery/manifest.tsp";
 import "./evaluation/suite.tsp";
+import "./evaluation/schedule.tsp";
 import "./finetuning/training.tsp";
 import "./finetuning/jobs.tsp";
 import "./lifecycle/records.tsp";

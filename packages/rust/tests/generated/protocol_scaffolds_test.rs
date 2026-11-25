@@ -349,6 +349,30 @@ fn entities_runtime_compile_only_conformance() {
     let _scaffold: Box<dyn EntitiesRuntime> = Box::new(CompileOnlyEntitiesRuntime);
 }
 
+struct CompileOnlyEvaluationScheduleRuntime;
+
+#[async_trait::async_trait]
+impl EvaluationScheduleRuntime for CompileOnlyEvaluationScheduleRuntime {
+    fn evaluation_rule(&self, request: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.evaluationRule is a compile-only protocol scaffold.")
+    }
+    fn parse_window(&self, text: &String) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.parseWindow is a compile-only protocol scaffold.")
+    }
+    fn schedule_trigger(&self, request: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.scheduleTrigger is a compile-only protocol scaffold.")
+    }
+    fn trace_window_source(&self, request: &serde_json::Value) -> serde_json::Value {
+        panic!("EvaluationScheduleRuntime.traceWindowSource is a compile-only protocol scaffold.")
+    }
+}
+
+#[test]
+fn evaluation_schedule_runtime_compile_only_conformance() {
+    let _scaffold: Box<dyn EvaluationScheduleRuntime> =
+        Box::new(CompileOnlyEvaluationScheduleRuntime);
+}
+
 struct CompileOnlyEvaluationSuiteRuntime;
 
 #[async_trait::async_trait]
