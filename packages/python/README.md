@@ -948,12 +948,12 @@ script behind. It reads `FOUNDRY_PROJECT_ENDPOINT` or `--project-endpoint`.
 #### Pinning custom evaluators
 
 Foundry numbers evaluator versions per project, and an evaluator reference
-without a `version:` follows whatever was uploaded last. On the legacy
-`azd ai agent eval` backend, live `eval run` refuses unpinned custom evaluators
-in `eval.yaml` (pass `--allow-unpinned` to override); the `azure.ai.evaluations`
-backend runs `azure.eval.yaml`, which `eval init` writes with builtin evaluators
-only. `eval check --require-pinned` reports unpinned evaluators offline.
-Builtin evaluators are exempt.
+without a `version:` follows whatever was uploaded last. Live `eval run` refuses
+unpinned custom evaluators (pass `--allow-unpinned` to override): from
+`eval.yaml` on the legacy `azd ai agent eval` backend, and from the selected
+eval's references in `azure.eval.yaml` (add `version:` to each) on the
+`azure.ai.evaluations` backend. `eval check --require-pinned` reports both
+offline. Builtin evaluators are exempt.
 
 ```bash
 # Export a version to evaluators/<name>@<hash12>.json (default: latest version):
@@ -1460,7 +1460,9 @@ chatter such as azd output goes to stderr):
 when any diagnostic has `severity: "error"`. Exit codes are unchanged: 0 ok,
 1 problems or a failed job, 2 errors. Secret-looking keys (tokens, keys,
 passwords, SAS signatures, connection strings) and bearer/SAS values are
-redacted. `status --watch` emits only the final envelope. Other tools can
+redacted. `status --watch` emits only the final envelope. An unexpected
+exception in `--json` mode also becomes an `error` envelope (exit 2) whose
+diagnostic code is the exception type. Other tools can
 reuse `castia.lifecycle.output.command_envelope`; the contract is pinned in
 [`spec/lifecycle/output.tsp`](https://github.com/sethjuarez/castia/tree/main/spec/lifecycle/output.tsp).
 

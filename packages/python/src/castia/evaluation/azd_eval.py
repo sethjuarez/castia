@@ -166,6 +166,27 @@ def select_eval(definitions: dict[str, Any], requested: str | None = None) -> st
     raise EvalPortError(f"several evals are declared ({', '.join(names)}); pass --eval NAME")
 
 
+def find_unpinned_eval_evaluators(definitions: dict[str, Any], eval_name: str) -> list[str]:
+    """Custom evaluator references in ``eval_name`` that carry no ``version:``.
+
+    An unversioned reference follows whatever version was published last, so the
+    same run can score differently over time. ``builtin.*`` evaluators are exempt.
+    """
+
+    unpinned: list[str] = []
+    for spec in _evals(definitions):
+        if str(spec.get("name")) != eval_name:
+            continue
+        for ref in spec.get("evaluators") or []:
+            name = str(ref.get("evaluator", "")) if isinstance(ref, dict) else str(ref)
+            if not name or name.startswith("builtin."):
+                continue
+            version = ref.get("version") if isinstance(ref, dict) else None
+            if version is None or str(version).strip() == "":
+                unpinned.append(name)
+    return unpinned
+
+
 # --------------------------------------------------------------------------- #
 # Command builders (pure)                                                      #
 # --------------------------------------------------------------------------- #
@@ -222,7 +243,12 @@ def build_init_argv(
 
     argv = [*_AZD_AI_EVAL, "init", "--source", "dataset"]
     _flag(argv, "--dataset", _relative(suite.root / dataset.local_uri, Path(cwd)))
-    _flag(argv, "--target", target)
+    if evaluation_level == "conversation":
+        # Non-interactive conversation init defaults to static mode, which scores
+        # completed messages and rejects --target; simulation needs a simulator model.
+        _flag(argv, "--conversation-mode", "static")
+    else:
+        _flag(argv, "--target", target)
     _flag(argv, "--judge-model", judge)
     builtins = [e.name for e in suite.evaluators if e.builtin]
     if builtins:

@@ -239,7 +239,7 @@ def compile_gates(
     below the threshold even when every other dimension is perfect. With ``k``
     gates of weight ``G`` and non-gate weight total ``N`` that needs
     ``G > N(1-t) / (1 - k(1-t))``, so this picks the smallest integer above
-    that bound (or the declared weight, if larger). Non-gate dimensions without
+    that bound (or the largest declared gate weight, applied to every gate). Non-gate dimensions without
     a weight default to 1. Raises :class:`ValueError` when the threshold is too
     low for the number of gates; raise ``pass_threshold`` or use Boolean
     scoring in that case. The returned dimensions have ``gate=False`` so the
@@ -263,11 +263,14 @@ def compile_gates(
     bound = others * (1.0 - t) / denominator
     # Nudge before truncating: a bound landing exactly on an integer must round up.
     gate_weight = float(int(bound + 1e-9) + 1)
+    # Every gate must share one weight: the bound assumes equal gate weights, and a
+    # heavier declared gate would otherwise outvote a failing lighter one.
+    declared = [float(d.weight) for d in gates if d.weight is not None]
+    gate_weight = max([gate_weight, *declared])
     out: list[RubricDimension] = []
     for d in dims:
         if d.gate:
-            declared = float(d.weight) if d.weight is not None else 0.0
-            out.append(_plain(d, max(gate_weight, declared)))
+            out.append(_plain(d, gate_weight))
         else:
             out.append(_plain(d, 1.0 if d.weight is None else float(d.weight)))
     return out

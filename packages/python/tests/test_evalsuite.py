@@ -227,6 +227,18 @@ def test_compile_gates_keeps_larger_declared_weight_and_defaults_others():
     assert [d.weight for d in compiled] == [50.0, 1.0]
 
 
+def test_compile_gates_shares_the_heaviest_declared_weight_across_gates():
+    dims = [
+        RubricDimension(id="heavy", description="d", weight=100, gate=True),
+        RubricDimension(id="light", description="d", gate=True),
+        RubricDimension(id="o", description="d"),
+    ]
+    compiled = compile_gates(dims, pass_threshold=0.75)
+    assert [d.weight for d in compiled] == [100.0, 100.0, 1.0]
+    perfect = {d.id: 1.0 for d in compiled}
+    assert _rubric_score(compiled, {**perfect, "light": 0.0}) < 0.75
+
+
 def test_compile_gates_rejects_unenforceable_threshold():
     dims = [RubricDimension(id=f"g{i}", description="d", gate=True) for i in range(2)]
     with pytest.raises(ValueError, match="raise pass_threshold above 0.500"):

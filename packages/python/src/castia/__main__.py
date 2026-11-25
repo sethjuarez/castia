@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,7 +32,17 @@ def main(argv: list[str] | None = None) -> int:
     register_observe(sub)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    from castia.lifecycle.output import emit_envelope, error_envelope, wants_json
+
+    if not wants_json(args):
+        return args.func(args)
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 - --json promises one envelope on stdout
+        tokens = sys.argv[1:] if argv is None else argv
+        command = " ".join(t for t in tokens[:2] if not t.startswith("-")) or "castia"
+        emit_envelope(error_envelope(command, exc))
+        return 2
 
 
 if __name__ == "__main__":

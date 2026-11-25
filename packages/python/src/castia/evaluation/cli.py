@@ -53,7 +53,9 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     _add_path(ev_init)
     ev_init.add_argument("--name", default=None, help="name of the eval to declare")
     ev_init.add_argument("--evaluation-level", dest="evaluation_level", default=None,
-                         choices=["turn", "conversation"], help="what one sample is")
+                         choices=["turn", "conversation"],
+                         help="what one sample is; conversation scaffolds static mode "
+                              "(scores completed messages, no agent target)")
     ev_init.add_argument("--dry-run", dest="dry_run", action="store_true",
                          help="print the resolved azd command and write nothing")
     ev_init.set_defaults(func=_cmd_eval_init)
@@ -289,6 +291,7 @@ def _cmd_eval_check(args: argparse.Namespace) -> int:
         EvalPortError,
         check_drift,
         eval_config_path,
+        find_unpinned_eval_evaluators,
         load_eval_definitions,
     )
     from castia.evaluation.suite import load_suite, validate_suite
@@ -317,7 +320,15 @@ def _cmd_eval_check(args: argparse.Namespace) -> int:
     if eval_config_path(args.path).exists():
         azd_config = str(eval_config_path(args.path))
         try:
-            extra_problems += check_drift(suite, load_eval_definitions(args.path), path=args.path)
+            definitions = load_eval_definitions(args.path)
+            extra_problems += check_drift(suite, definitions, path=args.path)
+            if getattr(args, "require_pinned", False):
+                for spec in definitions.get("evals") or []:
+                    eval_name = str(spec.get("name")) if isinstance(spec, dict) else ""
+                    extra_problems += [
+                        f"{azd_config}: eval '{eval_name}' evaluator '{name}' has no version"
+                        for name in find_unpinned_eval_evaluators(definitions, eval_name)
+                    ]
         except EvalPortError as exc:
             extra_problems.append(str(exc))
     if wants_json(args):
@@ -725,6 +736,8 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
         EvalPortError,
         build_create_argv,
         build_run_start_argv,
+        eval_config_path,
+        find_unpinned_eval_evaluators,
         load_eval_definitions,
         select_eval,
     )
@@ -769,7 +782,14 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
         )
 
     try:
-        eval_name = select_eval(load_eval_definitions(args.path), args.eval_name)
+        definitions = load_eval_definitions(args.path)
+        eval_name = select_eval(definitions, args.eval_name)
+        unpinned = find_unpinned_eval_evaluators(definitions, eval_name)
+        error = _unpinned_message(unpinned, str(eval_config_path(args.path)),
+                                  allow=args.allow_unpinned,
+                                  hint="add 'version:' to each custom evaluator reference")
+        if error:
+            return _eval_fail(args, "eval run", error)
         plans = []
         if args.deploy:
             plans.append(build_create_argv(eval_name, path=args.path,
@@ -965,6 +985,13 @@ def _unpinned_error(config: str, *, allow: bool) -> str | None:
     except OSError:
         return None  # azd reports a missing config itself
     unpinned = find_unpinned_evaluators(suite)
+    return _unpinned_message(
+        unpinned, config, allow=allow,
+        hint="python -m castia eval evaluator import BUNDLE --pin-version",
+    )
+
+
+def _unpinned_message(unpinned: list[str], config: str, *, allow: bool, hint: str) -> str | None:
     if not unpinned:
         return None
     names = ", ".join(unpinned)
@@ -972,9 +999,7 @@ def _unpinned_error(config: str, *, allow: bool) -> str | None:
         print(f"warning: unpinned evaluators ({names}); scores are not reproducible",
               file=sys.stderr)
         return None
-    return (f"unpinned evaluators: {names}. Pin a version in {config} "
-            "(python -m castia eval evaluator import BUNDLE --pin-version) "
-            "or pass --allow-unpinned")
+    return f"unpinned evaluators: {names}. Pin a version in {config} ({hint}) or pass --allow-unpinned"
 
 
 def _eval_client(args: argparse.Namespace):

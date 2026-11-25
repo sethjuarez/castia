@@ -233,3 +233,34 @@ def test_cli_rejects_flags_for_the_other_backend(project: Path, capsys):
 def test_cli_legacy_run_keeps_old_argv(project: Path, capsys):
     assert main(["eval", "run", "--backend", "agent", "--dry-run"]) == 0
     assert "azd ai agent eval run --config eval.yaml" in capsys.readouterr().out
+
+
+def test_cli_run_refuses_unpinned_custom_evaluators(project: Path, capsys):
+    cfg = project / "evals" / "azure.eval.yaml"
+    cfg.write_text(AZURE_EVAL_YAML.replace(
+        "    target:", "      - {evaluator: my_rubric}\n    target:"), encoding="utf-8")
+    args = ["eval", "run", "--backend", "evaluations", "--rung", "smoke", "--dry-run"]
+    assert main(args) == 2
+    assert "unpinned evaluators: my_rubric" in capsys.readouterr().err
+    assert main([*args, "--allow-unpinned"]) == 0
+    cfg.write_text(AZURE_EVAL_YAML.replace(
+        "    target:", "      - {evaluator: my_rubric, version: '3'}\n    target:"),
+        encoding="utf-8")
+    assert main(args) == 0
+
+
+def test_cli_json_reports_malformed_config_as_an_envelope(project: Path, capsys):
+    import json
+
+    (project / "evals" / "azure.eval.yaml").write_text("evals: [unclosed\n", encoding="utf-8")
+    rc = main(["eval", "run", "--backend", "evaluations", "--rung", "smoke", "--dry-run",
+               "--json"])
+    env = json.loads(capsys.readouterr().out)
+    assert rc == 2
+    assert env["command"] == "eval run" and env["status"] == "error"
+
+
+def test_init_conversation_level_uses_static_mode_without_target(project: Path):
+    argv = build_init_argv(load_suite("eval.yaml"), evaluation_level="conversation")
+    assert "--target" not in argv
+    assert argv[argv.index("--conversation-mode") + 1] == "static"
