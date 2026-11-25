@@ -229,6 +229,11 @@ tools with `toolbox_tools_from_mcp(..., trace_requests=False)` or pass
 is unaffected: those toolbox calls are executed by the model service, not by the
 Castia process, so Castia cannot wrap or reparent their outbound POSTs.
 
+Spans never carry full tool results. For evaluation, opt-in tool-result capture
+(`CASTIA_TOOL_CAPTURE`, see [LIFECYCLE.md](LIFECYCLE.md#capture-full-tool-results-for-evaluation))
+writes them to a private sink. It adds one attribute, `castia.tool_capture.id`,
+to the turn span, and records each `execute_tool` span id for joining.
+
 ## Azure SDK metadata dependency noise
 
 Azure Identity and Azure Monitor can emit standalone dependency spans such as

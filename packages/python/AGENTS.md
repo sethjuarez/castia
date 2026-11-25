@@ -369,6 +369,10 @@ agent and call `GET /diagnostics/last-turn` from loopback. It reports the last
 wire turn's input, selected local/Prompty tool calls, arguments, success/error
 summaries, and final output. The endpoint is disabled by default and hidden from
 non-loopback callers.
+Diagnostics summaries are truncated. When a grader needs the full, untruncated
+tool results, set `CASTIA_TOOL_CAPTURE=file` (or `blob` for hosted runs) instead.
+It is evaluation-only and off by default. See
+[LIFECYCLE.md](LIFECYCLE.md#capture-full-tool-results-for-evaluation).
 The POST invokes live Foundry inference and may execute the toolbox. Get
 approval for that spend and tool access before sending it.
 

@@ -59,6 +59,9 @@ prompty = ["jinja2>=3.1", "prompty[foundry,otel]>=2.0.2"]
 # Test-time only. Includes ruamel.yaml because the eval-suite tests parse real
 # eval.yaml / rubric fixtures.
 test = ["pytest>=8", "ruamel.yaml>=0.18", "openai>=1.66"]
+# Evaluation-only tool-result capture to Azure Blob (CASTIA_TOOL_CAPTURE=blob).
+# The local file sink needs no extra dependency.
+capture = ["azure-storage-blob>=12.19"]
 
 [tool.uv]
 prerelease = "allow"

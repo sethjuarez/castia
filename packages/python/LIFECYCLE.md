@@ -150,6 +150,89 @@ Python. `--adapter-root` selects its reviewed source directory. The existing
 `castia eval` and `castia optimize` commands remain the Foundry service entry
 points; lifecycle callbacks connect their results to your application's metrics.
 
+## Capture full tool results for evaluation
+
+A grader that checks grounding should not trust the citations an agent writes.
+It needs what the retrieval tool actually returned. Tool-result capture records
+that, for evaluation runs only. It is off by default. It never changes the
+model request, the tool list, or the response, and it adds no tool the model
+can see.
+
+```powershell
+$env:CASTIA_TOOL_CAPTURE = "file"                 # off (default) | file | blob
+$env:CASTIA_TOOL_CAPTURE_DIR = ".castia/tool-captures"
+python main.py
+python -m castia observe tool-captures .castia/tool-captures --response-id $responseId --require-complete
+```
+
+When enabled, every Responses turn (streaming, non-streaming, and background)
+writes one `castia.tool_capture/v1` JSON document. It covers local function
+tools and local MCP toolbox tools run by `Model.respond_with_tools`, Prompty
+tools, and provider-executed items such as `mcp_call` that appear in the
+Responses output. For local tools the stored result is the value returned to
+the model loop, before it is serialized for the model. Chat, invocations, and
+activity turns are not captured automatically. Offline code can open
+`castia.observe.tool_capture_scope()` around a direct SDK call.
+
+Join keys on each document:
+
+| Field | Join to |
+| --- | --- |
+| `response_id` | The Responses `id` returned to the client |
+| `request_metadata` | The request body `metadata`, for example an eval row id |
+| `platform_call_id` | The Foundry `x-agent-foundry-call-id` header |
+| `trace_id`, `span_id` | The OTel turn span; it also gets a `castia.tool_capture.id` attribute |
+| `input_sha256`, `output_sha256` | SHA-256 of the input and final output text |
+| `provenance` | Values the app adds with `annotate_tool_capture(...)` |
+
+Each `tool_calls[]` entry has `sequence`, `iteration`, `call_id`, `name`,
+`tool_type`, `source` (`local` or `server`), `status` (`ok`, `error`, or
+`incomplete`), `tool_reported_ok`, `error`, `span_id`, timing, and the
+`arguments` and `result` payloads. Each payload has `<field>_sha256` and
+`<field>_bytes` computed over canonical JSON (sorted keys, compact separators,
+UTF-8) of the original value. Flags show whether the stored copy differs:
+`_truncated` (with `_prefix`), `_redacted`, `_lossy` (not JSON-serializable, so
+stored as a dump or repr), and `_omitted`. `record_sha256` covers the whole
+document.
+
+Limits keep a runaway tool from filling the sink:
+
+| Variable | Default |
+| --- | --- |
+| `CASTIA_TOOL_CAPTURE_MAX_RESULT_BYTES` | 4 MiB per payload |
+| `CASTIA_TOOL_CAPTURE_MAX_TURN_BYTES` | 32 MiB per turn |
+| `CASTIA_TOOL_CAPTURE_MAX_CALLS` | 128 calls per turn |
+| `CASTIA_TOOL_CAPTURE_TIMEOUT_SECONDS` | 15 seconds per write |
+
+A payload over a limit keeps its hash and size but loses its content. The
+document then has `complete: false` and lists `incomplete_reasons`. A grader
+should treat a missing or incomplete capture as inconclusive, not as a pass.
+
+Sinks:
+
+- `file` appends one line per turn to `tool-captures-YYYYMMDD.jsonl`. Use it for
+  local development, and add the directory to `.gitignore`.
+- `blob` needs the `capture` extra (`castia[capture]`),
+  `CASTIA_TOOL_CAPTURE_BLOB_ACCOUNT_URL`, and optionally
+  `CASTIA_TOOL_CAPTURE_BLOB_CONTAINER` (default `castia-tool-captures`) and
+  `CASTIA_TOOL_CAPTURE_BLOB_PREFIX`. It writes one create-only blob per turn
+  with `DefaultAzureCredential`. Use a private container, a managed identity
+  scoped to it, and a retention policy.
+- `configure_tool_capture(sink=..., redact=...)` installs a custom sink or a
+  redactor. The redactor runs on every stored payload after original hashes are
+  computed.
+
+A sink failure or timeout never fails the turn. It increments
+`tool_capture_health()["failed"]`, so an eval harness should check that count.
+
+Captures contain full tool payloads and request metadata. Enable capture only
+where you are allowed to keep that data. The hashes show that a stored record
+is internally consistent. They are not signatures, and they do not prove that a
+record is authentic or that no turn is missing.
+`observe tool-captures --summary-only` prints join and integrity results without
+payloads. It exits 1 when nothing matches or a hash fails, and with
+`--require-complete` also when a capture is incomplete.
+
 ## Inspect traces and run a drift suite
 
 ```powershell
