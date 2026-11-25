@@ -945,6 +945,30 @@ submitted, including with `--dry-run`. Problems block the run with exit 1:
 The limits and field lists live in
 `spec/conformance/optimization/preflight.json`.
 
+**Seeding and verifying.** The optimizer score is the mean of your evaluators on
+a subsample, so it isn't proof that a candidate is better. Before you deploy a
+candidate:
+
+```powershell
+# Start from what is deployed, not the local baseline (prompt agents only).
+python -m castia optimize run --from-version 4 --dry-run
+# After `optimize apply`: show the diff and flag copied training text.
+python -m castia optimize diff --candidate <id> --config eval.yaml
+# Gate on a held-out metric, with no leaks and no train/held-out overlap.
+python -m castia optimize verify --candidate <id> --config eval.yaml `
+  --held-out heldout.jsonl --metric accuracy `
+  --baseline-results base.jsonl --candidate-results cand.jsonl --out verify.json
+```
+
+- `diff` exits 1 when the candidate contains training text that isn't in the
+  baseline: any 6-word run, or a whole 3–5 word value.
+- `verify` exits 0 (pass), 1 (fail) or 3 (incomplete: no held-out results). The
+  results files are per-row JSON or JSONL from your own held-out eval.
+- `optimize status` now labels scores as optimizer scores. It shows a
+  "Maximum consecutive stall limit" success as `stopped early (no improvement)`.
+
+The thresholds live in `spec/conformance/optimization/verify.json`.
+
 For local functional checks, use `python -m castia observe drift` with an
 explicit project configuration and your local Azure credentials. See
 [the lifecycle guide](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md)
