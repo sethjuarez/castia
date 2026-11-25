@@ -30,7 +30,7 @@ from castia.integrations.toolbox import (
     resolve_toolbox_endpoint,
     serialize_mcp_result,
 )
-from castia.observe import dev_diagnostics
+from castia.observe import dev_diagnostics, tool_capture
 from castia.optimizing.config import AgentConfig, load_agent_config
 from castia.runtime.usage import record_response_usage
 
@@ -722,6 +722,11 @@ def _traced_tool(
             status="running",
             kind="prompty",
         )
+        capture = tool_capture.begin_tool_call(
+            name=name,
+            tool_type=tool_type or "prompty",
+            arguments=_tool_arguments(args, kwargs),
+        )
         span_cm = execute_tool(name, tool_type=tool_type) if tool_type else execute_tool(name)
         with span_cm as span:
             _set_tool_span_start_attributes(span, event, name, args, kwargs)
@@ -729,7 +734,10 @@ def _traced_tool(
                 result = tool_function(*args, **kwargs)
                 if isawaitable(result):
                     result = await result
-            except Exception as exc:
+            except BaseException as exc:
+                tool_capture.finish_tool_call(capture, error=exc, span=span)
+                if not isinstance(exc, Exception):
+                    raise
                 _set_tool_span_error_attributes(span, event, exc)
                 dev_diagnostics.update_tool_call(
                     diagnostic_call,
@@ -740,6 +748,7 @@ def _traced_tool(
                 raise
             else:
                 _set_tool_span_success_attributes(span, event, result)
+                tool_capture.finish_tool_call(capture, result=result, span=span)
                 dev_diagnostics.update_tool_call(
                     diagnostic_call,
                     status="ok",

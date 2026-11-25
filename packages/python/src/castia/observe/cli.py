@@ -178,6 +178,50 @@ def _local_traces(args: argparse.Namespace) -> int:
 
 
 @_safe
+def _tool_captures(args: argparse.Namespace) -> int:
+    from castia.observe.tool_capture import (
+        load_tool_captures,
+        match_tool_captures,
+        verify_tool_capture,
+    )
+
+    metadata = {}
+    for item in args.metadata or []:
+        key, separator, value = item.partition("=")
+        if not separator or not key:
+            raise ValueError("--metadata expects key=value")
+        metadata[key] = value
+    documents, skipped = load_tool_captures(args.path)
+    selected = match_tool_captures(
+        documents,
+        response_id=args.response_id,
+        capture_id=args.capture_id,
+        platform_call_id=args.platform_call_id,
+        trace_id=args.trace_id,
+        metadata=metadata or None,
+    )
+    verification = [verify_tool_capture(document) for document in selected]
+    failed = sum(item["status"] != "verified" for item in verification)
+    incomplete = sum(not item["complete"] for item in verification)
+    data: dict[str, Any] = {
+        "schema_version": 1,
+        "source": args.path,
+        "summary": {
+            "record_count": len(selected),
+            "total_records": len(documents),
+            "skipped_incomplete_lines": skipped,
+            "integrity_failed": failed,
+            "incomplete_captures": incomplete,
+        },
+        "verification": verification,
+    }
+    if not args.summary_only:
+        data["records"] = selected
+    _emit(data, args.out)
+    return 1 if failed or (args.require_complete and incomplete) or not selected else 0
+
+
+@_safe
 def _verify(args: argparse.Namespace) -> int:
     query = _query(args)
     with AppInsightsClient(args.app_id, timeout_seconds=args.request_timeout) as client:
@@ -352,6 +396,24 @@ def register(subparsers: Any) -> argparse.ArgumentParser:
     local_traces.add_argument("--name-contains", help="filter by trace record name substring")
     _output(local_traces)
     local_traces.set_defaults(func=_local_traces)
+
+    captures = commands.add_parser(
+        "tool-captures",
+        help="read, join, and integrity-check local Castia tool-capture records offline",
+    )
+    captures.add_argument("path", help="tool-capture .jsonl/.json file or directory")
+    captures.add_argument("--response-id")
+    captures.add_argument("--capture-id")
+    captures.add_argument("--platform-call-id")
+    captures.add_argument("--trace-id")
+    captures.add_argument("--metadata", action="append", metavar="KEY=VALUE",
+                          help="match Responses request metadata (repeatable)")
+    captures.add_argument("--require-complete", action="store_true",
+                          help="exit 1 when any matched capture is incomplete")
+    captures.add_argument("--summary-only", action="store_true",
+                          help="omit payloads; print join and integrity results only")
+    _output(captures)
+    captures.set_defaults(func=_tool_captures)
 
     verify = commands.add_parser("verify", help="wait for an already submitted tagged probe in telemetry")
     _trace_options(verify, verify=True)

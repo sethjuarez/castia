@@ -185,7 +185,7 @@ class Model:
         """
         import json
 
-        from castia.observe import dev_diagnostics
+        from castia.observe import dev_diagnostics, tool_capture
         from castia.observe.tracing import execute_tool
 
         function_tools = [t for t in tools if not isinstance(t, dict)]
@@ -226,6 +226,9 @@ class Model:
                     extra_headers=trace_context_headers(),
                 )
                 record_response_usage(response)
+                tool_capture.record_server_tool_outputs(
+                    response.output, iteration=iteration + 1
+                )
                 calls = [
                     item
                     for item in response.output
@@ -263,7 +266,9 @@ class Model:
                             "arguments": call.arguments,
                         }
                     )
-                    result = await self._run_tool(call, by_name, activity, execute_tool)
+                    result = await self._run_tool(
+                        call, by_name, activity, execute_tool, iteration=iteration + 1
+                    )
                     conversation.append(
                         {
                             "type": "function_call_output",
@@ -280,21 +285,31 @@ class Model:
             return output
 
     @staticmethod
-    async def _run_tool(call, by_name: dict, activity: object, execute_tool) -> dict:
+    async def _run_tool(
+        call, by_name: dict, activity: object, execute_tool, *, iteration: int | None = None
+    ) -> dict:
         """Execute one function call, capturing every failure as a result dict."""
         import json
 
-        from castia.observe import dev_diagnostics
+        from castia.observe import dev_diagnostics, tool_capture
 
         tool_name = str(call.name)
+        tool = by_name.get(call.name)
+        capture = tool_capture.begin_tool_call(
+            name=tool_name,
+            call_id=getattr(call, "call_id", None),
+            tool_type=getattr(tool, "kind", "function") if tool is not None else None,
+            arguments=getattr(call, "arguments", None),
+            iteration=iteration,
+        )
         with trace_step(
             "castia.tool.execute",
             kind="tool",
             attributes={"gen_ai.tool.name": tool_name},
         ):
-            tool = by_name.get(call.name)
             args: dict = {}
             diagnostic_call = None
+            span = None
             if tool is None:
                 trace_attribute("castia.tool.status", "error")
                 trace_attribute("castia.tool.error_type", "unknown_tool")
@@ -311,7 +326,12 @@ class Model:
                     ok=False,
                     error_type="unknown_tool",
                 )
-                return {"ok": False, "detail": f"unknown tool '{call.name}'"}
+                result = {"ok": False, "detail": f"unknown tool '{call.name}'"}
+                tool_capture.finish_tool_call(
+                    capture, result=result, error_type="unknown_tool",
+                    error_message=result["detail"],
+                )
+                return result
             try:
                 args = json.loads(call.arguments or "{}")
             except json.JSONDecodeError as exc:
@@ -330,7 +350,12 @@ class Model:
                     ok=False,
                     error_type="bad_arguments",
                 )
-                return {"ok": False, "detail": f"bad tool arguments: {exc}"}
+                result = {"ok": False, "detail": f"bad tool arguments: {exc}"}
+                tool_capture.finish_tool_call(
+                    capture, result=result, error_type="bad_arguments",
+                    error_message=result["detail"],
+                )
+                return result
             try:
                 trace_attribute("castia.tool.argument_count", len(args))
                 diagnostic_call = dev_diagnostics.record_tool_call(
@@ -343,7 +368,7 @@ class Model:
                     call.name,
                     tool_type=getattr(tool, "kind", "function"),
                     call_id=getattr(call, "call_id", None),
-                ):
+                ) as span:
                     result = await tool.run(activity, **args)
                 dev_diagnostics.update_tool_call(
                     diagnostic_call,
@@ -352,6 +377,7 @@ class Model:
                 )
                 trace_attribute("castia.tool.status", "ok")
                 _add_model_event("castia.tool.call.completed", tool_name=tool_name, ok=True)
+                tool_capture.finish_tool_call(capture, result=result, span=span)
                 return result
             except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
                 dev_diagnostics.update_tool_call(
@@ -368,7 +394,12 @@ class Model:
                     ok=False,
                     error_type=type(exc).__name__,
                 )
-                return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+                result = {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+                tool_capture.finish_tool_call(capture, result=result, error=exc, span=span)
+                return result
+            except BaseException as exc:
+                tool_capture.finish_tool_call(capture, error=exc, span=span)
+                raise
 
 
 def get_model() -> Model:

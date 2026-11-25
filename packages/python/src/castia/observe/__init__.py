@@ -59,6 +59,17 @@ if TYPE_CHECKING:
         VerificationResult,
         verify_probe,
     )
+    from castia.observe.tool_capture import (
+        annotate_tool_capture,
+        blob_capture_sink,
+        configure_tool_capture,
+        file_capture_sink,
+        load_tool_captures,
+        match_tool_captures,
+        tool_capture_health,
+        tool_capture_scope,
+        verify_tool_capture,
+    )
     from castia.observe.tracing import (
         TraceRecord,
         clear_span_filters,
@@ -93,11 +104,17 @@ __all__ = [
     "TraceQuery",
     "TraceRecord",
     "VerificationResult",
+    "annotate_tool_capture",
+    "blob_capture_sink",
     "clear_span_filters",
     "clear_trace_sinks",
     "compare_reports",
+    "configure_tool_capture",
+    "file_capture_sink",
     "jsonl_trace_sink",
     "live_probes",
+    "load_tool_captures",
+    "match_tool_captures",
     "normalize_record",
     "otel_trace_sink",
     "register_span_filter",
@@ -110,9 +127,12 @@ __all__ = [
     "summarize",
     "suppress_telemetry_spans",
     "telemetry_probes",
+    "tool_capture_health",
+    "tool_capture_scope",
     "trace_attribute",
     "trace_step",
     "verify_probe",
+    "verify_tool_capture",
 ]
 
 _EXPORT_MODULES = {
@@ -126,6 +146,17 @@ _EXPORT_MODULES = {
     **dict.fromkeys((
         "AppInsightsClient", "ObserveError", "TraceQuery", "VerificationResult", "verify_probe",
     ), "telemetry"),
+    **dict.fromkeys((
+        "annotate_tool_capture",
+        "blob_capture_sink",
+        "configure_tool_capture",
+        "file_capture_sink",
+        "load_tool_captures",
+        "match_tool_captures",
+        "tool_capture_health",
+        "tool_capture_scope",
+        "verify_tool_capture",
+    ), "tool_capture"),
     **dict.fromkeys((
         "TraceRecord", "clear_span_filters", "clear_trace_sinks", "jsonl_trace_sink",
         "otel_trace_sink", "register_span_filter", "register_trace_sink",

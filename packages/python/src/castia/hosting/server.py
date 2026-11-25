@@ -59,7 +59,7 @@ from castia.messaging.routing import (
     teams_tagged_channel_message,
 )
 from castia.messaging.surfaces import Teams
-from castia.observe import dev_diagnostics
+from castia.observe import dev_diagnostics, tool_capture
 from castia.protocols.activity import Activity
 from castia.runtime.context import turn_scope
 from castia.runtime.dispatch import (
@@ -1281,11 +1281,18 @@ class _BackgroundResponses:
                     return
                 status = "in_progress"
                 try:
-                    with bind_response_history(history), dev_diagnostics.turn(
-                        "responses", text
-                    ), usage_scope() as usage:
-                        reply = await self._dispatch(text)
-                        dev_diagnostics.record_output(reply)
+                    async with tool_capture.tool_capture_scope(
+                        "responses",
+                        input_text=text,
+                        response_id=response_id,
+                        metadata=response_options.get("metadata"),
+                    ):
+                        with bind_response_history(history), dev_diagnostics.turn(
+                            "responses", text
+                        ), usage_scope() as usage:
+                            reply = await self._dispatch(text)
+                            dev_diagnostics.record_output(reply)
+                            tool_capture.record_output(reply)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -1542,37 +1549,44 @@ def _register_wire(
                                         "part": _streaming_content_part(""),
                                     },
                                 )
-                                if responses_stream_dispatch is not None:
-                                    async for delta in responses_stream_dispatch(text):
-                                        chunks.append(delta)
-                                        yield emit(
-                                            "response.output_text.delta",
-                                            {
-                                                "type": "response.output_text.delta",
-                                                "item_id": output_item_id,
-                                                "output_index": 0,
-                                                "content_index": 0,
-                                                "delta": delta,
-                                                "logprobs": [],
-                                            },
-                                        )
-                                else:
-                                    reply = await responses_dispatch(text)
-                                    if reply:
-                                        chunks.append(reply)
-                                        yield emit(
-                                            "response.output_text.delta",
-                                            {
-                                                "type": "response.output_text.delta",
-                                                "item_id": output_item_id,
-                                                "output_index": 0,
-                                                "content_index": 0,
-                                                "delta": reply,
-                                                "logprobs": [],
-                                            },
-                                        )
-                                output_text = "".join(chunks)
-                                dev_diagnostics.record_output(output_text)
+                                async with tool_capture.tool_capture_scope(
+                                    "responses",
+                                    input_text=text,
+                                    response_id=response_id,
+                                    metadata=response_options.get("metadata"),
+                                ):
+                                    if responses_stream_dispatch is not None:
+                                        async for delta in responses_stream_dispatch(text):
+                                            chunks.append(delta)
+                                            yield emit(
+                                                "response.output_text.delta",
+                                                {
+                                                    "type": "response.output_text.delta",
+                                                    "item_id": output_item_id,
+                                                    "output_index": 0,
+                                                    "content_index": 0,
+                                                    "delta": delta,
+                                                    "logprobs": [],
+                                                },
+                                            )
+                                    else:
+                                        reply = await responses_dispatch(text)
+                                        if reply:
+                                            chunks.append(reply)
+                                            yield emit(
+                                                "response.output_text.delta",
+                                                {
+                                                    "type": "response.output_text.delta",
+                                                    "item_id": output_item_id,
+                                                    "output_index": 0,
+                                                    "content_index": 0,
+                                                    "delta": reply,
+                                                    "logprobs": [],
+                                                },
+                                            )
+                                    output_text = "".join(chunks)
+                                    dev_diagnostics.record_output(output_text)
+                                    tool_capture.record_output(output_text)
                                 yield emit(
                                     "response.output_text.done",
                                     {
@@ -1672,12 +1686,19 @@ def _register_wire(
                         media_type="text/event-stream",
                     )
 
-                with bind_response_history(history), dev_diagnostics.turn(
-                    "responses", text
-                ), usage_scope() as turn_usage:
-                    reply = await responses_dispatch(text)
-                    dev_diagnostics.record_output(reply)
                 response_id = f"resp_{uuid4().hex}"
+                async with tool_capture.tool_capture_scope(
+                    "responses",
+                    input_text=text,
+                    response_id=response_id,
+                    metadata=response_options.get("metadata"),
+                ):
+                    with bind_response_history(history), dev_diagnostics.turn(
+                        "responses", text
+                    ), usage_scope() as turn_usage:
+                        reply = await responses_dispatch(text)
+                        dev_diagnostics.record_output(reply)
+                        tool_capture.record_output(reply)
                 output_item_id = f"msg_{uuid4().hex}"
                 created_at = int(time.time())
                 body_out = _responses_body(
