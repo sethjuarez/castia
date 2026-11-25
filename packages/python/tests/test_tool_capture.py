@@ -194,6 +194,21 @@ def test_server_mcp_call_items_are_captured():
     assert call["arguments"] == {"q": "travel"} and call["result"] == BIG
 
 
+def test_file_reader_keeps_unicode_line_separators_in_payloads(tmp_path):
+    sink = tool_capture.file_capture_sink(tmp_path)
+
+    async def run():
+        for text in ("a\u2028b\u0085c", "second"):
+            async with tool_capture.tool_capture_scope(sink=sink):
+                handle = tool_capture.begin_tool_call(name="scrape", arguments={})
+                tool_capture.finish_tool_call(handle, result={"text": text})
+
+    asyncio.run(run())
+    documents, skipped = tool_capture.load_tool_captures(tmp_path)
+    assert skipped == 0
+    assert [d["tool_calls"][0]["result"]["text"] for d in documents] == ["a\u2028b\u0085c", "second"]
+
+
 def test_tamper_is_detected_and_cli_reports_it(tmp_path, capsys):
     tool_capture.configure_tool_capture(sink=tool_capture.file_capture_sink(tmp_path))
     body = _post(_agent([_Tool()])).json()

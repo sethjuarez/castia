@@ -65,7 +65,7 @@ Implementation code lives in capability packages under `src/castia`.
 | `prompty` | Optional Prompty runtime/eval harness adapters (`castia[prompty]`) |
 | `building` | Scaffolding, readiness checks, offline protocol testing |
 | `evaluation` | Evaluation-suite configuration, rubric validation, azd evaluation commands |
-| `observe` | Telemetry configuration and tracing, execution records, queries, drift checks |
+| `observe` | Telemetry configuration and tracing, execution records, queries, drift checks, opt-in evaluation tool-result capture |
 | `optimizing` | Candidate configuration, baseline generation, optimizer jobs |
 | `finetuning` | SFT/DPO/RFT preparation/submission and existing-job management |
 | `lifecycle` | Snapshots, datasets, evaluation evidence, acceptance and promotion records |
@@ -169,6 +169,20 @@ For local debugging of a single turn, set `CASTIA_DEV_DIAGNOSTICS=1` and call
 input, selected local/Prompty tool calls, arguments, success/error summaries,
 and final output. The endpoint is disabled by default and returns 404 to
 non-loopback callers.
+
+Diagnostics summaries are truncated. When an evaluator needs full tool results,
+for example to check what a retrieval tool actually returned, set
+`CASTIA_TOOL_CAPTURE=file` (local JSONL under `.castia/tool-captures`) or
+`CASTIA_TOOL_CAPTURE=blob` (create-only Azure Blob, needs `castia[capture]` and
+`CASTIA_TOOL_CAPTURE_BLOB_ACCOUNT_URL`). It is off by default and meant for
+evaluation runs only. It writes one hashed `castia.tool_capture/v1` record per
+Responses turn and never changes the model request or response. Records hold
+full tool payloads and request metadata, which may include customer or
+sensitive content. Keep the sink private: gitignore the directory, use a
+private container with a scoped identity, and set retention. Check records
+with `python -m castia observe tool-captures <path> --require-complete`. The
+[lifecycle guide](https://github.com/sethjuarez/castia/blob/main/packages/python/LIFECYCLE.md#capture-full-tool-results-for-evaluation)
+lists every variable, the limits, and the join keys.
 
 ### Responses lifecycle support
 

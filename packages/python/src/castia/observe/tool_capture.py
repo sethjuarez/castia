@@ -787,7 +787,8 @@ def load_tool_captures(path: str | os.PathLike[str]) -> tuple[list[dict[str, Any
             value = json.loads(text)
             documents.extend(value if isinstance(value, list) else [value])
             continue
-        lines = text.splitlines()
+        # Not splitlines(): payloads may hold raw U+2028/U+0085, which it treats as breaks.
+        lines = text.split("\n")
         for index, line in enumerate(lines):
             if not line.strip():
                 continue
