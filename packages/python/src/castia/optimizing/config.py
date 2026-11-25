@@ -288,6 +288,10 @@ def tools_json_names(tools: list[Tool | dict]) -> list[str]:
 
 def configured_model(
     config: AgentConfig | None = None,
+    *,
+    reasoning_effort: str | None = None,
+    route: str | None = None,
+    account_endpoint: str | None = None,
 ) -> Callable[[], Model]:
     """A model dependency bound to the resolved optimizer config.
 
@@ -306,16 +310,30 @@ def configured_model(
 
     The config is resolved once (at call time if not supplied) and captured, so
     the dependency stays cheap and every handler shares one config.
+
+    ``reasoning_effort``, ``route``, and ``account_endpoint`` pass through to
+    :class:`~castia.inference.model.Model` (for example ``route="account"`` for
+    MAI deployments).
     """
     resolved = config or load_agent_config()
 
     def provider() -> Model:
         from castia.inference.model import Model
 
+        options = {
+            key: value
+            for key, value in (
+                ("reasoning_effort", reasoning_effort),
+                ("route", route),
+                ("account_endpoint", account_endpoint),
+            )
+            if value is not None
+        }
         return Model(
             resolved.model,
             instructions=resolved.instructions,
             tool_definitions=resolved.tool_definitions,
+            **options,
         )
 
     return provider
