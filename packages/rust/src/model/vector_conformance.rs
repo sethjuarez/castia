@@ -1883,7 +1883,7 @@ pub fn run_hosting_server_runtime_conformance<S: crate::model::HostingServerRunt
         let actual_value = serde_json::to_value(actual).expect("readiness-body: serialize");
         let expected: Value = serde_json::from_str(
             r####"
-"Agent running!"
+"{\"status\":\"ok\"}"
 "####,
         )
         .expect("readiness-body: expected parses");
@@ -3019,7 +3019,7 @@ pub fn run_lifecycle_storage_runtime_conformance<
 pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRuntime + ?Sized>(
     seam: &S,
 ) {
-    // vector: optimizer-best-candidate-by-score
+    // vector: optimizer-best-candidate-absent-without-summary
     {
         let status: serde_json::Value = serde_json::from_str(
             r####"
@@ -3027,11 +3027,7 @@ pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRunt
   "result": {
     "candidates": [
       {
-        "candidate_id": "low",
-        "avg_score": 0.1
-      },
-      {
-        "candidateId": "high",
+        "candidate_id": "legacy",
         "score": 0.9
       }
     ]
@@ -3041,26 +3037,29 @@ pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRunt
         )
         .expect("status parses");
         let actual = seam.best_optimizer_candidate_id(&status);
-        let actual_value =
-            serde_json::to_value(actual).expect("optimizer-best-candidate-by-score: serialize");
+        let actual_value = serde_json::to_value(actual)
+            .expect("optimizer-best-candidate-absent-without-summary: serialize");
         let expected: Value = serde_json::from_str(
             r####"
-"high"
+null
 "####,
         )
-        .expect("optimizer-best-candidate-by-score: expected parses");
+        .expect("optimizer-best-candidate-absent-without-summary: expected parses");
         assert_eq!(
             actual_value, expected,
-            "optimizer-best-candidate-by-score misrouted"
+            "optimizer-best-candidate-absent-without-summary misrouted"
         );
     }
-    // vector: optimizer-best-candidate-explicit-best
+    // vector: optimizer-best-candidate-from-candidate-summary
     {
         let status: serde_json::Value = serde_json::from_str(
             r####"
 {
   "result": {
-    "bestCandidateId": "cand_2"
+    "candidate_summary": {
+      "baseline_id": "cand_0",
+      "best_id": "cand_2"
+    }
   }
 }
 "####,
@@ -3068,83 +3067,16 @@ pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRunt
         .expect("status parses");
         let actual = seam.best_optimizer_candidate_id(&status);
         let actual_value = serde_json::to_value(actual)
-            .expect("optimizer-best-candidate-explicit-best: serialize");
+            .expect("optimizer-best-candidate-from-candidate-summary: serialize");
         let expected: Value = serde_json::from_str(
             r####"
 "cand_2"
 "####,
         )
-        .expect("optimizer-best-candidate-explicit-best: expected parses");
+        .expect("optimizer-best-candidate-from-candidate-summary: expected parses");
         assert_eq!(
             actual_value, expected,
-            "optimizer-best-candidate-explicit-best misrouted"
-        );
-    }
-    // vector: optimizer-best-candidate-falsy-score-falls-through
-    {
-        let status: serde_json::Value = serde_json::from_str(
-            r####"
-{
-  "result": {
-    "candidates": [
-      {
-        "candidate_id": "chosen",
-        "avg_score": 0,
-        "score": 0.9
-      }
-    ]
-  }
-}
-"####,
-        )
-        .expect("status parses");
-        let actual = seam.best_optimizer_candidate_id(&status);
-        let actual_value = serde_json::to_value(actual)
-            .expect("optimizer-best-candidate-falsy-score-falls-through: serialize");
-        let expected: Value = serde_json::from_str(
-            r####"
-"chosen"
-"####,
-        )
-        .expect("optimizer-best-candidate-falsy-score-falls-through: expected parses");
-        assert_eq!(
-            actual_value, expected,
-            "optimizer-best-candidate-falsy-score-falls-through misrouted"
-        );
-    }
-    // vector: optimizer-best-candidate-first-tie-wins
-    {
-        let status: serde_json::Value = serde_json::from_str(
-            r####"
-{
-  "result": {
-    "candidates": [
-      {
-        "candidate_id": "first",
-        "score": 0.5
-      },
-      {
-        "candidate_id": "second",
-        "score": 0.5
-      }
-    ]
-  }
-}
-"####,
-        )
-        .expect("status parses");
-        let actual = seam.best_optimizer_candidate_id(&status);
-        let actual_value = serde_json::to_value(actual)
-            .expect("optimizer-best-candidate-first-tie-wins: serialize");
-        let expected: Value = serde_json::from_str(
-            r####"
-"first"
-"####,
-        )
-        .expect("optimizer-best-candidate-first-tie-wins: expected parses");
-        assert_eq!(
-            actual_value, expected,
-            "optimizer-best-candidate-first-tie-wins misrouted"
+            "optimizer-best-candidate-from-candidate-summary misrouted"
         );
     }
     // vector: optimizer-job-id-extraction
@@ -3152,7 +3084,7 @@ pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRunt
         let payload: serde_json::Value = serde_json::from_str(
             r####"
 {
-  "operationId": "opt_1"
+  "id": "opt_1"
 }
 "####,
         )
@@ -3175,7 +3107,7 @@ pub fn run_optimizer_jobs_runtime_conformance<S: crate::model::OptimizerJobsRunt
     {
         let status: Option<String> = serde_json::from_str(
             r####"
-"running"
+"in_progress"
 "####,
         )
         .expect("status parses");
@@ -3191,6 +3123,28 @@ false
         assert_eq!(
             actual_value, expected,
             "optimizer-nonterminal-status misrouted"
+        );
+    }
+    // vector: optimizer-skipped-is-terminal
+    {
+        let status: Option<String> = serde_json::from_str(
+            r####"
+"skipped"
+"####,
+        )
+        .expect("status parses");
+        let actual = seam.terminal_optimizer_status(&status);
+        let actual_value =
+            serde_json::to_value(actual).expect("optimizer-skipped-is-terminal: serialize");
+        let expected: Value = serde_json::from_str(
+            r####"
+true
+"####,
+        )
+        .expect("optimizer-skipped-is-terminal: expected parses");
+        assert_eq!(
+            actual_value, expected,
+            "optimizer-skipped-is-terminal misrouted"
         );
     }
     // vector: optimizer-terminal-statuses
