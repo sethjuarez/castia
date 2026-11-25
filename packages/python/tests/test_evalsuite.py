@@ -322,7 +322,7 @@ def test_cli_rubric_compile_writes_wire_file(tmp_path: Path, capsys):
 def test_run_azd_sets_agents_opt_ins_without_overriding_user_values(monkeypatch):
     seen = {}
 
-    def fake_run(argv, *, cwd, env, check):
+    def fake_run(argv, *, cwd, env, check, stdout=None):
         seen.update(env)
         return SimpleNamespace(returncode=0)
 

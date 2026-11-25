@@ -43,7 +43,7 @@ import subprocess
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ruamel.yaml import YAML
@@ -487,7 +487,9 @@ def build_run_argv(
     return argv
 
 
-def run_azd(argv: Sequence[str], *, cwd: str | os.PathLike | None = None) -> int:
+def run_azd(
+    argv: Sequence[str], *, cwd: str | os.PathLike | None = None, stdout: Any = None,
+) -> int:
     """Shell out to ``azd`` (the only impure seam). Returns the exit code.
 
     Raises :class:`FileNotFoundError` with a clean message when ``azd`` is not on
@@ -501,7 +503,9 @@ def run_azd(argv: Sequence[str], *, cwd: str | os.PathLike | None = None) -> int
         )
     from castia.delivery.azd import azd_subprocess_env
 
-    return subprocess.run(list(argv), cwd=cwd, env=azd_subprocess_env(), check=False).returncode
+    return subprocess.run(
+        list(argv), cwd=cwd, env=azd_subprocess_env(), check=False, stdout=stdout
+    ).returncode
 
 
 def _tracked_instruction_file(root: str | os.PathLike = ".") -> str | None:

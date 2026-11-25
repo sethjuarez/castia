@@ -41,6 +41,7 @@ use castia::lifecycle::{
     default_gate, diff_candidates, evaluate_outcomes, example_id, get_artifact, journal_read,
     normalize_record, put_artifact, record_id, safe_path, stage_candidate,
 };
+use castia::lifecycle::{command_envelope, redact_secrets};
 use castia::messaging::{
     try_require_agentic_user, CastiaCardsRuntime, CastiaConnectorRuntime, CastiaEntitiesRuntime,
     CastiaIdentityRuntime, CastiaInvokesRuntime, CastiaRoutingRuntime, CastiaStreamingRuntime,
@@ -555,6 +556,14 @@ pub fn adapters() -> HashMap<&'static str, Adapter> {
         (
             "IntegrationsGraphRuntime.driveShareResult",
             sync(graph_drive_share_result),
+        ),
+        (
+            "LifecycleOutputRuntime.commandEnvelope",
+            sync(lifecycle_command_envelope),
+        ),
+        (
+            "LifecycleOutputRuntime.redactSecrets",
+            sync(lifecycle_redact_secrets),
         ),
         (
             "LifecycleRecordsRuntime.canonicalJson",
@@ -1632,6 +1641,39 @@ fn graph_drive_share_result(input: &Value, _: &Context) -> Result<Value, VectorE
             .unwrap_or_default() as i32),
         &string_input(input, "detail")?,
     ))
+}
+
+fn lifecycle_command_envelope(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    let text = |key: &str| {
+        input
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let next_actions: Vec<String> = input
+        .get("nextActions")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    command_envelope(
+        &text("command"),
+        &text("status"),
+        input.get("result").unwrap_or(&Value::Null),
+        input.get("diagnostics").unwrap_or(&Value::Null),
+        &next_actions,
+        input.get("effects").unwrap_or(&Value::Null),
+    )
+    .map_err(vector_error)
+}
+
+fn lifecycle_redact_secrets(input: &Value, _: &Context) -> Result<Value, VectorError> {
+    Ok(redact_secrets(input.get("value").unwrap_or(&Value::Null)))
 }
 
 fn lifecycle_canonical_json(input: &Value, _: &Context) -> Result<Value, VectorError> {

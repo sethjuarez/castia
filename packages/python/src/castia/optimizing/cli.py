@@ -7,6 +7,14 @@ import sys
 
 from castia.delivery.manifest import DEFAULT_APP, load_app
 from castia.evaluation.suite import DEFAULT_CONFIG as DEFAULT_EVAL_CONFIG
+from castia.lifecycle.output import (
+    add_json_argument,
+    command_envelope,
+    diagnostic,
+    emit_envelope,
+    error_envelope,
+    wants_json,
+)
 from castia.optimizing.baseline import (
     DEFAULT_CONFIG_DIR,
     OptimizePlan,
@@ -113,6 +121,22 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     opt_apply.set_defaults(func=_cmd_optimize_apply)
     optimize.set_defaults(func=_cmd_optimize)
 
+    for parser in (optimize, opt_run, opt_status, opt_cancel, opt_apply):
+        add_json_argument(parser)
+
+
+def _fail(args: argparse.Namespace, command: str, exc: BaseException | str,
+          *, effects: dict | None = None) -> int:
+    if wants_json(args):
+        emit_envelope(error_envelope(command, exc, effects=effects))
+    else:
+        print(f"error: {exc}", file=sys.stderr)
+    return 2
+
+
+def _status_name(status: dict) -> str:
+    return str(status.get("status") or "unknown").lower()
+
 
 def _format_list(protocols) -> str:
     return ", ".join(protocols) if protocols else "(none)"
@@ -138,20 +162,44 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     try:
         app = load_app(args.app)
     except Exception as exc:  # noqa: BLE001 - surface a clean CLI error
-        print(f"error: could not load app {args.app!r}: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize", f"could not load app {args.app!r}: {exc}")
 
     try:
         plan = generate_optimizer_config(
             app, args.config_dir, candidate=args.candidate, check=args.check
         )
     except Exception as exc:  # noqa: BLE001
-        print(f"error: could not reconcile baseline: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize", f"could not reconcile baseline: {exc}")
 
-    _print_optimize_plan(plan, check=args.check)
+    drift = args.check and plan.changed
+    if wants_json(args):
+        if not plan.changed:
+            status = "up_to_date"
+        elif drift:
+            status = "out_of_date"
+        else:
+            status = "written"
+        emit_envelope(command_envelope(
+            "optimize",
+            status=status,
+            result={
+                "baseline_dir": str(plan.baseline_dir),
+                "tools": plan.tools,
+                "tools_path": str(plan.tools_path),
+                "metadata_path": str(plan.metadata_path),
+                "tools_changed": plan.tools_changed,
+                "metadata_changed": plan.metadata_changed,
+                "written": plan.written,
+            },
+            diagnostics=[diagnostic("info", note) for note in plan.notes]
+            + ([diagnostic("error", "baseline drift", "baseline_drift")] if drift else []),
+            next_actions=["python -m castia optimize"] if drift else [],
+            effects={"mutating": plan.written},
+        ))
+    else:
+        _print_optimize_plan(plan, check=args.check)
 
-    if args.check and plan.changed:
+    if drift:
         return 1
     return 0
 
@@ -167,6 +215,7 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         save_optimizer_state,
     )
 
+    as_json = wants_json(args)
     try:
         cfg_path = args.config
         config_root = _Path(cfg_path).parent
@@ -184,21 +233,26 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
             candidate=args.candidate,
         )
     except (OSError, TypeError, ValueError, KeyError, ModuleNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize run", exc)
 
     import json as _json
 
-    print(f"agent         : {request['agent']['agent_name']}")
-    print(f"eval model    : {request['options']['eval_model']}")
-    print(f"optimize model: {request['options']['optimization_model']}")
     tools = request["options"]["optimization_config"].get("tools") or []
-    print(
-        "tools         : "
-        f"{_format_list([t.get('function', {}).get('name', '?') for t in tools])}"
-    )
+    tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+    if not as_json:
+        print(f"agent         : {request['agent']['agent_name']}")
+        print(f"eval model    : {request['options']['eval_model']}")
+        print(f"optimize model: {request['options']['optimization_model']}")
+        print(f"tools         : {_format_list(tool_names)}")
 
     if args.dry_run:
+        if as_json:
+            emit_envelope(command_envelope(
+                "optimize run", status="dry_run",
+                result={"tools": tool_names, "request": request},
+                next_actions=["rerun without --dry-run to submit a billable optimizer job"],
+            ))
+            return 0
         print("payload       :")
         print(_json.dumps(request, indent=2))
         print("result        : dry-run (nothing submitted)")
@@ -208,22 +262,21 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         "FOUNDRY_PROJECT_ENDPOINT"
     )
     if not endpoint:
-        print(
-            "error: FOUNDRY_PROJECT_ENDPOINT is not set (or pass --project-endpoint)",
-            file=sys.stderr,
+        return _fail(
+            args, "optimize run",
+            "FOUNDRY_PROJECT_ENDPOINT is not set (or pass --project-endpoint)",
         )
-        return 2
 
+    live = {"network": True, "billable": True, "mutating": True}
     try:
         response = OptimizerClient(endpoint).start(request)
     except RuntimeError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize run", exc, effects=live)
 
     submitted_job_id = job_id(response)
     if not submitted_job_id:
-        print("error: optimizer response did not include a job id", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize run", "optimizer response did not include a job id",
+                     effects=live)
     save_optimizer_state(
         OptimizerState(
             job_id=str(submitted_job_id),
@@ -232,82 +285,132 @@ def _cmd_optimize_run(args: argparse.Namespace) -> int:
         ),
         config_dir=config_dir,
     )
-    print(f"job           : {submitted_job_id}")
-    print(f"status        : {response.get('status', 'unknown')}")
-    print("result        : submitted (billable optimizer job)")
+    if not as_json:
+        print(f"job           : {submitted_job_id}")
+        print(f"status        : {response.get('status', 'unknown')}")
+        print("result        : submitted (billable optimizer job)")
     if not args.no_wait:
         args.job_id = str(submitted_job_id)
         args.project_endpoint = endpoint
         args.config_dir = str(config_dir)
         args.watch = True
-        return _cmd_optimize_status(args)
+        return _optimizer_status(args, command="optimize run", effects=live)
+    if as_json:
+        emit_envelope(command_envelope(
+            "optimize run", status="submitted",
+            result={"job_id": str(submitted_job_id), "job": response},
+            next_actions=[f"python -m castia optimize status {submitted_job_id} --watch"],
+            effects=live,
+        ))
     return 0
 
-def _cmd_optimize_status(args: argparse.Namespace) -> int:
-    from castia.optimizing.jobs import (
-        OptimizerClient,
-        is_terminal_status,
-        load_optimizer_state,
-    )
+def _resolve_job(args: argparse.Namespace):
+    from castia.optimizing.jobs import load_optimizer_state
 
+    config_dir = _resolve_config_dir(args.config_dir)
+    state = (
+        None
+        if args.job_id and args.project_endpoint
+        else load_optimizer_state(config_dir=config_dir)
+    )
+    return config_dir, args.job_id or state.job_id, args.project_endpoint or state.project_endpoint
+
+def _cmd_optimize_status(args: argparse.Namespace) -> int:
+    return _optimizer_status(args, command="optimize status", effects={"network": True})
+
+def _optimizer_status(args: argparse.Namespace, *, command: str, effects: dict) -> int:
+    from castia.optimizing.jobs import OptimizerClient, is_terminal_status
+
+    as_json = wants_json(args)
     try:
-        config_dir = _resolve_config_dir(args.config_dir)
-        state = (
-            None
-            if args.job_id and args.project_endpoint
-            else load_optimizer_state(config_dir=config_dir)
-        )
-        job_id = args.job_id or state.job_id
-        endpoint = args.project_endpoint or state.project_endpoint
+        _, job_id, endpoint = _resolve_job(args)
         client = OptimizerClient(endpoint)
         while True:
             status = client.status(job_id)
-            _print_optimizer_status(status)
+            if not as_json:
+                _print_optimizer_status(status)
             if not args.watch or is_terminal_status(status.get("status")):
-                return 0 if str(status.get("status", "")).lower() != "failed" else 1
+                break
             __import__("time").sleep(args.poll_interval)
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, command, exc, effects=effects)
+    code = 0 if _status_name(status) != "failed" else 1
+    if as_json:
+        emit_envelope(_optimizer_status_envelope(command, job_id, status, effects=effects))
+    return code
+
+def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effects: dict) -> dict:
+    from castia.optimizing.jobs import best_candidate_id, is_terminal_status
+
+    name = _status_name(status)
+    progress = status.get("progress") or {}
+    result = status.get("result") or {}
+    candidates = result.get("candidates") if isinstance(result, dict) else None
+    summary = [
+        {
+            "candidate_id": c.get("candidate_id") or c.get("candidateId"),
+            "name": c.get("name"),
+            "score": c.get("avg_score") if c.get("avg_score") is not None else c.get("score"),
+        }
+        for c in (candidates if isinstance(candidates, list) else [])
+        if isinstance(c, dict)
+    ]
+    best = best_candidate_id(status) if name == "succeeded" else None
+    if name == "succeeded":
+        next_actions = [f"python -m castia optimize apply --job-id {job_id}"]
+    elif not is_terminal_status(name):
+        next_actions = [f"python -m castia optimize status {job_id} --watch"]
+    else:
+        next_actions = []
+    return command_envelope(
+        command,
+        status=name,
+        result={
+            "job_id": job_id,
+            "terminal": is_terminal_status(name),
+            "progress": progress,
+            "candidates": summary,
+            "best_candidate_id": best,
+            "job": status,
+        },
+        diagnostics=[diagnostic("error", f"optimizer job {name}", "job_failed")]
+        if name == "failed" else [],
+        next_actions=next_actions,
+        effects=effects,
+    )
 
 def _cmd_optimize_cancel(args: argparse.Namespace) -> int:
-    from castia.optimizing.jobs import OptimizerClient, load_optimizer_state
+    from castia.optimizing.jobs import OptimizerClient
 
+    effects = {"network": True, "mutating": True}
     try:
-        config_dir = _resolve_config_dir(args.config_dir)
-        state = (
-            None
-            if args.job_id and args.project_endpoint
-            else load_optimizer_state(config_dir=config_dir)
-        )
-        job_id = args.job_id or state.job_id
-        endpoint = args.project_endpoint or state.project_endpoint
+        _, job_id, endpoint = _resolve_job(args)
         status = OptimizerClient(endpoint).cancel(job_id)
-        print(f"job           : {job_id}")
-        print(f"status        : {status.get('status', 'cancel requested')}")
-        print("result        : cancel requested")
-        return 0
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize cancel", exc, effects=effects)
+    if wants_json(args):
+        emit_envelope(command_envelope(
+            "optimize cancel", status="cancel_requested",
+            result={"job_id": job_id, "job": status},
+            next_actions=[f"python -m castia optimize status {job_id}"],
+            effects=effects,
+        ))
+        return 0
+    print(f"job           : {job_id}")
+    print(f"status        : {status.get('status', 'cancel requested')}")
+    print("result        : cancel requested")
+    return 0
 
 def _cmd_optimize_apply(args: argparse.Namespace) -> int:
     from castia.optimizing.jobs import (
         OptimizerClient,
         apply_candidate_config,
         best_candidate_id,
-        load_optimizer_state,
     )
 
+    effects = {"network": True, "mutating": True}
     try:
-        config_dir = _resolve_config_dir(args.config_dir)
-        state = (
-            None
-            if args.job_id and args.project_endpoint
-            else load_optimizer_state(config_dir=config_dir)
-        )
-        job_id = args.job_id or state.job_id
-        endpoint = args.project_endpoint or state.project_endpoint
+        config_dir, job_id, endpoint = _resolve_job(args)
         client = OptimizerClient(endpoint)
         candidate = args.candidate
         if candidate == "best":
@@ -317,9 +420,28 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
         config = client.candidate_config(job_id, candidate)
         plan = apply_candidate_config(candidate, config, config_dir=config_dir)
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return _fail(args, "optimize apply", exc, effects=effects)
 
+    next_step = (
+        "set OPTIMIZATION_LOCAL_DIR=.agent_configs and "
+        f"OPTIMIZATION_CANDIDATE_ID={candidate}, then deploy with azd"
+    )
+    if wants_json(args):
+        emit_envelope(command_envelope(
+            "optimize apply", status="applied",
+            result={
+                "job_id": job_id,
+                "candidate_id": candidate,
+                "candidate_dir": str(plan.candidate_dir),
+                "metadata_path": str(plan.metadata_path),
+                "instructions_path": str(plan.instructions_path) if plan.instructions_path else None,
+                "tools_path": str(plan.tools_path) if plan.tools_path else None,
+                "skills_dir": str(plan.skills_dir) if plan.skills_dir else None,
+            },
+            next_actions=[next_step],
+            effects=effects,
+        ))
+        return 0
     print(f"candidate     : {candidate}")
     print(f"wrote         : {plan.metadata_path}")
     if plan.instructions_path:
@@ -328,12 +450,8 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
         print(f"tools         : {plan.tools_path.name}")
     if plan.skills_dir:
         print(f"skills        : {plan.skills_dir.name}")
-    print(
-        "next          : set OPTIMIZATION_LOCAL_DIR=.agent_configs and "
-        f"OPTIMIZATION_CANDIDATE_ID={candidate}, then deploy with azd"
-    )
+    print(f"next          : {next_step}")
     return 0
-
 def _print_optimizer_status(status: dict) -> None:
     from castia.optimizing.jobs import job_id as optimizer_job_id
 

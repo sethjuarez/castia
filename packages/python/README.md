@@ -1340,6 +1340,37 @@ python -m castia finetune submit ... --probe-record probe.json --approve-train
 > submitted wire shapes as provisional until real submissions validate them. The
 > RFT language-neutral contract is pinned in `spec/conformance/graders/`.
 
+## Machine-readable CLI output
+
+The eval, optimize, and finetune commands accept `--json`. Human text stays the
+default; `--json` prints exactly one `castia.cli.v1` envelope on stdout (tool
+chatter such as azd output goes to stderr):
+
+```json
+{"schema": "castia.cli.v1", "command": "optimize status", "ok": true,
+ "status": "running", "effects": {"network": true, "billable": false, "mutating": false},
+ "result": {"job_id": "opt_1"}, "diagnostics": [], "next": ["python -m castia optimize status opt_1 --watch"]}
+```
+
+`ok` is false when `status` is `error`, `failed`, `problems`, or `cancelled`, or
+when any diagnostic has `severity: "error"`. Exit codes are unchanged: 0 ok,
+1 problems or a failed job, 2 errors. Secret-looking keys (tokens, keys,
+passwords, SAS signatures, connection strings) and bearer/SAS values are
+redacted. `status --watch` emits only the final envelope. Other tools can
+reuse `castia.lifecycle.output.command_envelope`; the contract is pinned in
+[`spec/lifecycle/output.tsp`](https://github.com/sethjuarez/castia/tree/main/spec/lifecycle/output.tsp).
+
+| Command | Network | Billable | Mutating |
+| --- | --- | --- | --- |
+| `eval check`, `finetune check`, any `--dry-run` | no | no | no |
+| `eval generate`, `eval run` | yes | yes | yes |
+| `eval update` | yes | no | yes |
+| `optimize`, `finetune grader --out` | no | no | writes local files |
+| `optimize run`, `finetune submit` | yes | yes | yes |
+| `optimize status`, `finetune list/status/events/checkpoints/handoff` | yes | no | no |
+| `optimize cancel`, `finetune cancel` | yes | no | yes |
+| `optimize apply`, `finetune results --out` | yes | no | writes local files |
+
 ## Design
 
 `castia` is deliberately import-cheap: `import castia` never pulls in the

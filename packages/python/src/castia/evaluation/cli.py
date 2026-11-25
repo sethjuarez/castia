@@ -7,6 +7,14 @@ import sys
 
 from castia.evaluation.suite import DEFAULT_CONFIG as DEFAULT_EVAL_CONFIG
 from castia.evaluation.suite import DEFAULT_INSTRUCTION_FILE
+from castia.lifecycle.output import (
+    add_json_argument,
+    command_envelope,
+    diagnostic,
+    emit_envelope,
+    error_envelope,
+    wants_json,
+)
 
 
 def register_commands(sub: argparse._SubParsersAction) -> None:
@@ -208,6 +216,9 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                         help="Foundry project endpoint (default: FOUNDRY_PROJECT_ENDPOINT)")
     ev_del.set_defaults(func=_cmd_eval_delete)
 
+    for parser in (ev_check, ev_gen, ev_up, ev_run):
+        add_json_argument(parser)
+
 
 def _format_list(protocols) -> str:
     return ", ".join(protocols) if protocols else "(none)"
@@ -233,34 +244,94 @@ def _cmd_eval_check(args: argparse.Namespace) -> int:
     try:
         suite = load_suite(args.config)
     except OSError as exc:
-        print(f"error: could not read {args.config}: {exc}", file=sys.stderr)
+        if wants_json(args):
+            emit_envelope(error_envelope("eval check", exc))
+        else:
+            print(f"error: could not read {args.config}: {exc}", file=sys.stderr)
         return 2
 
     plan = validate_suite(suite)
-    _print_suite_plan(plan)
+    unpinned: list[str] = []
     if getattr(args, "require_pinned", False):
         from castia.evaluation.evaluators import find_unpinned_evaluators
 
         unpinned = find_unpinned_evaluators(suite)
-        for name in unpinned:
-            print(f"problem       : evaluator '{name}' has no version -- pin it "
-                  "(python -m castia eval evaluator import ... --pin-version)")
-        if unpinned:
-            return 1
+    unpinned_problems = [
+        f"evaluator '{name}' has no version -- pin it "
+        "(python -m castia eval evaluator import ... --pin-version)"
+        for name in unpinned
+    ]
+    if wants_json(args):
+        emit_envelope(_suite_plan_envelope(plan, extra_problems=unpinned_problems))
+    else:
+        _print_suite_plan(plan)
+        for problem in unpinned_problems:
+            print(f"problem       : {problem}")
+    if unpinned:
+        return 1
     return 0 if plan.ok else 1
 
-def _run_azd_argv(argv: list[str], *, dry_run: bool) -> int:
+def _suite_plan_envelope(plan, extra_problems: list[str] | None = None) -> dict:
+    problems = list(plan.problems) + list(extra_problems or [])
+    return command_envelope(
+        "eval check",
+        status="ok" if not problems else "problems",
+        result={
+            "config": str(plan.suite.path),
+            "evaluators": [e.name or e.local_uri for e in plan.suite.evaluators],
+            "rubrics": {label: [d.id for d in dims] for label, dims in plan.rubrics.items()},
+            "datasets": [d.local_uri or d.dataset_file or d.role for d in plan.suite.datasets],
+        },
+        diagnostics=[diagnostic("info", note) for note in plan.notes]
+        + [diagnostic("error", problem) for problem in problems],
+        next_actions=[] if not problems else ["fix the problems, then rerun python -m castia eval check"],
+    )
+
+# Live azd effects per eval subcommand: (billable, mutating).
+_AZD_EFFECTS = {
+    "eval generate": (True, True),
+    "eval update": (False, True),
+    "eval run": (True, True),
+}
+
+def _run_azd_argv(
+    argv: list[str], *, dry_run: bool, command: str = "eval run", json_output: bool = False,
+) -> int:
     from castia.evaluation.suite import run_azd
 
-    print("command       : " + " ".join(argv))
+    if not json_output:
+        print("command       : " + " ".join(argv))
     if dry_run:
-        print("result        : dry-run (nothing submitted)")
+        if json_output:
+            emit_envelope(command_envelope(
+                command, status="dry_run", result={"argv": argv},
+                next_actions=["rerun without --dry-run to submit (live azd call)"],
+            ))
+        else:
+            print("result        : dry-run (nothing submitted)")
         return 0
+    billable, mutating = _AZD_EFFECTS.get(command, (False, False))
+    effects = {"network": True, "billable": billable, "mutating": mutating}
     try:
-        return run_azd(argv)
+        # In JSON mode azd's own text goes to stderr so stdout stays one envelope.
+        code = run_azd(argv, stdout=sys.stderr if json_output else None)
     except FileNotFoundError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        if json_output:
+            emit_envelope(error_envelope(command, exc, code="azd_not_found"))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
         return 2
+    if json_output:
+        emit_envelope(command_envelope(
+            command,
+            status="succeeded" if code == 0 else "failed",
+            result={"argv": argv, "exit_code": code},
+            diagnostics=[] if code == 0 else [
+                diagnostic("error", f"azd exited with code {code}; see stderr", "azd_failed")
+            ],
+            effects=effects,
+        ))
+    return code
 
 def _cmd_eval_generate(args: argparse.Namespace) -> int:
     from castia.evaluation.suite import (
@@ -304,7 +375,9 @@ def _cmd_eval_generate(args: argparse.Namespace) -> int:
         no_wait=args.no_wait,
         no_prompt=args.no_prompt,
     )
-    return _run_azd_argv(argv, dry_run=args.dry_run)
+    return _run_azd_argv(
+        argv, dry_run=args.dry_run, command="eval generate", json_output=wants_json(args),
+    )
 
 def _cmd_eval_update(args: argparse.Namespace) -> int:
     from castia.evaluation.suite import build_update_argv
@@ -315,7 +388,9 @@ def _cmd_eval_update(args: argparse.Namespace) -> int:
         dataset_only=args.dataset_only,
         no_prompt=args.no_prompt,
     )
-    return _run_azd_argv(argv, dry_run=args.dry_run)
+    return _run_azd_argv(
+        argv, dry_run=args.dry_run, command="eval update", json_output=wants_json(args),
+    )
 
 def _resolve_run_name(args: argparse.Namespace) -> tuple[str | None, str | None]:
     """Return ``(name, error)`` for ``eval run`` from --name / --rung / --rows."""
@@ -367,6 +442,12 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
     from castia.evaluation.suite import build_run_argv
 
     if args.runs is not None:
+        if wants_json(args):
+            emit_envelope(error_envelope(
+                "eval run", ValueError("--json is not supported with --runs yet"),
+                code="unsupported_option",
+            ))
+            return 2
         return _cmd_eval_run_repeated(args)
     name, error = _resolve_run_name(args)
     if error:
@@ -382,7 +463,9 @@ def _cmd_eval_run(args: argparse.Namespace) -> int:
         no_wait=args.no_wait,
         no_prompt=args.no_prompt,
     )
-    return _run_azd_argv(argv, dry_run=args.dry_run)
+    return _run_azd_argv(
+        argv, dry_run=args.dry_run, command="eval run", json_output=wants_json(args),
+    )
 
 def _cmd_eval_rubric_compile(args: argparse.Namespace) -> int:
     import json
