@@ -1,7 +1,9 @@
 # Conformance fixture: rubric dimensions
 
 `rubric_dimensions.json` is the language-neutral golden for the **rubric
-dimensions file** that Microsoft Foundry's `azd ai agent eval generate` writes
+dimensions file** that Microsoft Foundry's `azd ai agent eval generate` wrote
+(since replaced by `azd ai eval generate` in the `azure.ai.evaluations`
+extension, whose rubric output has not yet been re-validated against this golden)
 and that every castia SDK must read. It was validated against a live
 `eval generate` run, not reverse-engineered.
 

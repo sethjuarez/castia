@@ -78,7 +78,8 @@ def _json_out(capsys) -> dict:
 def test_eval_run_dry_run_json_is_offline(capsys):
     from castia.__main__ import main
 
-    assert main(["eval", "run", "--config", "eval.yaml", "--dry-run", "--json"]) == 0
+    assert main(["eval", "run", "--config", "eval.yaml", "--backend", "agent",
+                 "--dry-run", "--json"]) == 0
     env = _json_out(capsys)
     assert env["command"] == "eval run" and env["status"] == "dry_run" and env["ok"]
     assert env["effects"] == {"network": False, "billable": False, "mutating": False}

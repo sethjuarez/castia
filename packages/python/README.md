@@ -912,23 +912,27 @@ register_trace_sink("otel", otel_trace_sink())
 ### Building a scored eval suite
 
 Once your traces are evaluable, `python -m castia eval` wraps the
-`azd ai agent eval` extension to synthesize and run a **scored** eval suite — a
-generated JSONL dataset plus an auto-generated, weighted **rubric** (a custom
-multi-dimension evaluator):
+`azd ai eval` command (the `azure.ai.evaluations` azd extension) to synthesize
+and run a **scored** eval suite — a generated JSONL dataset plus an
+auto-generated, weighted **rubric** (a custom multi-dimension evaluator):
 
 ```bash
-# Offline gate — validate eval.yaml + rubric files, no Azure, free in CI:
+# Offline gate — validate eval.yaml + rubric files (and evals/azure.eval.yaml
+# drift when it exists), no Azure, free in CI:
 python -m castia eval check
+
+# Scaffold evals/azure.eval.yaml from eval.yaml (run from the azd project root):
+python -m castia eval init
 
 # Synthesize a rubric + dataset from the agent instruction (billable):
 python -m castia eval generate --agent my-agent --max-samples 25
 
-# Re-upload locally edited rubric/dataset files as a new version:
-python -m castia eval update --evaluator-only
+# Publish locally edited dataset files as a new version:
+python -m castia eval update
 
-# Submit a scored run against the deployed agent (billable). The run is
-# named "<rung> · n<rows>" (rows default to the eval.yaml dataset line count):
-python -m castia eval run --rung baseline
+# Deploy the eval definition, then run it against the agent (billable). The run
+# is named "<rung> · n<rows>" (rows default to the eval.yaml dataset line count):
+python -m castia eval run --rung baseline --deploy --fail-on pass-rate=0.8
 
 # Delete a run and block until Foundry confirms it is gone:
 python -m castia eval delete --eval-id <eval-id> --run-id <run-id> --wait --timeout 600
@@ -944,9 +948,12 @@ script behind. It reads `FOUNDRY_PROJECT_ENDPOINT` or `--project-endpoint`.
 #### Pinning custom evaluators
 
 Foundry numbers evaluator versions per project, and an evaluator reference
-without a `version:` follows whatever was uploaded last. Live `eval run` refuses
-unpinned custom evaluators (pass `--allow-unpinned` to override), and
-`eval check --require-pinned` reports them offline. Builtin evaluators are exempt.
+without a `version:` follows whatever was uploaded last. On the legacy
+`azd ai agent eval` backend, live `eval run` refuses unpinned custom evaluators
+in `eval.yaml` (pass `--allow-unpinned` to override); the `azure.ai.evaluations`
+backend runs `azure.eval.yaml`, which `eval init` writes with builtin evaluators
+only. `eval check --require-pinned` reports unpinned evaluators offline.
+Builtin evaluators are exempt.
 
 ```bash
 # Export a version to evaluators/<name>@<hash12>.json (default: latest version):
@@ -1000,11 +1007,28 @@ It needs `castia.evaluation.tool_errors` (castia tool telemetry); the backend
 must implement the optional `tool_records(run_id)` method.
 
 `check` is a pure, offline referential-integrity gate: it resolves every
-evaluator/dataset `local_uri` and validates each rubric dimensions file.
-`generate` and `run` submit **billable** Foundry jobs, so both accept
-`--dry-run` to print the resolved `azd` command line without submitting
-anything. The YAML checks need `uv pip install "castia[deploy]"`. The live wrappers also
-require a separately installed and authenticated azd with `azd ai agent eval`.
+evaluator/dataset `local_uri` and validates each rubric dimensions file. When
+`evals/azure.eval.yaml` exists, it also reports drift between that file and
+`eval.yaml` (target agent, builtin evaluators, dataset file). `init` converts
+`agent.name`, `options.eval_model`, the local dataset and `builtin.*`
+evaluators. It refuses custom evaluators; register those with
+`azd ai eval evaluator create` and declare them in `azure.eval.yaml`.
+With several evals declared, pick one with `run --eval <name>`. `update`
+re-publishes datasets; publish an edited rubric with
+`azd ai eval evaluator update <name> --from-file <file>`.
+`generate` and `run` submit **billable** Foundry jobs, so every live command
+accepts `--dry-run` to print the resolved `azd` command lines without
+submitting anything. The YAML checks need `uv pip install "castia[deploy]"`.
+The live wrappers also require a separately installed and authenticated azd
+with the `azure.ai.evaluations` extension
+(`azd extension install azure.ai.evaluations`).
+
+castia auto-detects the backend from `azd extension list`. `azd ai agent eval`
+was removed in `azure.ai.agents` 1.0.0-beta.22. If you still run an older
+`azure.ai.agents` without `azure.ai.evaluations`, castia falls back to the
+legacy `azd ai agent eval` command lines; force a backend with
+`--backend evaluations|agent` or `CASTIA_EVAL_BACKEND`. Flags that exist on
+only one backend are rejected on the other.
 
 The rubric dimensions file is a **bare JSON list** where each entry is keyed by
 `id` (a stable slug like `correct_outcome`), with an optional
