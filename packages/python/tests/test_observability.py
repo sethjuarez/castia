@@ -38,7 +38,9 @@ def test_operation_spans_use_trace_api(helper):
     with mock.patch("opentelemetry.trace.get_tracer", api.get_tracer), getattr(tracing, helper)("example") as span:
         assert span is expected
 
-    api.get_tracer.assert_called_once_with("castia")
+    api.get_tracer.assert_called_once_with(
+        "castia", schema_url="https://opentelemetry.io/schemas/1.42.0"
+    )
     assert api.get_tracer.return_value.start_as_current_span.call_args.args == (
         f"{helper} example",
     )
