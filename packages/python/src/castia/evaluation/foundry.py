@@ -163,6 +163,18 @@ class FoundryEvalClient:
             if status in {"failed", "canceled", "cancelled"}:
                 raise RuntimeError(f"delete of {path} ended with status {status!r}: {poll.data}")
 
+    # -- eval runs ---------------------------------------------------------
+
+    def get_eval_run(self, eval_id: str, run_id: str) -> dict[str, Any]:
+        """Fetch one eval run object."""
+        path = f"{OPENAI_PREFIX}/evals/{quote(eval_id, safe='')}/runs/{quote(run_id, safe='')}"
+        return self._send("GET", path).data
+
+    def create_eval_run(self, eval_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST a new run of ``eval_id`` and return it."""
+        path = f"{OPENAI_PREFIX}/evals/{quote(eval_id, safe='')}/runs"
+        return self._send("POST", path, json_body=body).data
+
     # -- evaluators ----------------------------------------------------------
 
     def get_evaluator_version(self, name: str, version: str) -> dict[str, Any]:
