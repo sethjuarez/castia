@@ -129,6 +129,13 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                          help="reject runs scoring fewer than this fraction of rows (default: 0.95)")
     harness.add_argument("--max-errors", dest="max_errors", type=int, default=10,
                          help="reject runs with more errored rows (default: 10; -1 = no limit)")
+    harness.add_argument("--max-tool-error-rate", dest="max_tool_error_rate", type=float,
+                         default=None,
+                         help="also reject runs whose tool calls fail above this rate "
+                              "(e.g. 0.1; reads per-row outputs; needs castia.evaluation.tool_errors)")
+    harness.add_argument("--min-tool-calls", dest="min_tool_calls", type=int, default=0,
+                         help="with --max-tool-error-rate, reject runs with fewer tool calls "
+                              "(catches tools silently dropped; default: 0)")
     harness.add_argument("--state", default=None,
                          help="resumable state file (default: .castia/eval_runs/<rung>-n<rows>.json)")
     harness.add_argument("--poll-interval", dest="poll_interval", type=float, default=30.0,
@@ -382,6 +389,10 @@ def _cmd_eval_run_repeated(args: argparse.Namespace) -> int:
     if error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    tool_gate, error = _tool_gate(args)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
     backend = None
     rows = args.rows or _dataset_rows(args.config)
@@ -411,7 +422,9 @@ def _cmd_eval_run_repeated(args: argparse.Namespace) -> int:
     print(f"runs          : {args.runs} x '{names[0].rsplit(' · ', 1)[0]}', "
           f"max {config.max_in_flight} in flight")
     print(f"accept        : status completed, scored >= {config.min_scored:.0%}"
-          + (f", errors <= {config.max_errors}" if config.max_errors is not None else ""))
+          + (f", errors <= {config.max_errors}" if config.max_errors is not None else "")
+          + (f", tool error rate <= {args.max_tool_error_rate:.0%}"
+             if tool_gate is not None else ""))
     print(f"state         : {state_path}")
     if args.dry_run:
         print("result        : dry-run (nothing submitted)")
@@ -421,13 +434,37 @@ def _cmd_eval_run_repeated(args: argparse.Namespace) -> int:
     if backend is None:
         return 2
     try:
-        state = run_harness(backend, config, state_path, log=print)
+        state = run_harness(backend, config, state_path, log=print, tool_gate=tool_gate)
     except (TimeoutError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     for line in format_report(state, requested=args.runs):
         print(line)
     return 0 if summarize(state)["accepted"] == args.runs else 1
+
+
+def _tool_gate(args: argparse.Namespace):
+    """Return ``(gate, error)`` for --max-tool-error-rate."""
+    if args.max_tool_error_rate is None:
+        return None, None
+    if not 0.0 <= args.max_tool_error_rate <= 1.0:
+        return None, "--max-tool-error-rate must be between 0 and 1"
+    if args.min_tool_calls < 0:
+        return None, "--min-tool-calls must be >= 0"
+    try:
+        from castia.evaluation.tool_errors import tool_error_gate
+        from castia.observe.genai import (
+            server_tool_calls,  # noqa: F401 - used by the backend
+        )
+    except ImportError:
+        return None, ("--max-tool-error-rate needs castia.evaluation.tool_errors and "
+                      "castia.observe.genai (castia tool telemetry), which this install lacks")
+    rate, min_calls = args.max_tool_error_rate, args.min_tool_calls
+
+    def gate(records):
+        return tool_error_gate(records, max_error_rate=rate, min_calls=min_calls)
+
+    return gate, None
 
 
 def _harness_backend(args: argparse.Namespace):
