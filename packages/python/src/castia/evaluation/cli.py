@@ -113,6 +113,30 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
                         help="print the resolved azd command and submit nothing")
     ev_run.add_argument("--allow-unpinned", dest="allow_unpinned", action="store_true",
                         help="run even when a custom evaluator has no version (not reproducible)")
+    harness = ev_run.add_argument_group(
+        "repeated runs",
+        "--runs N re-submits a template run's data source N times through the Foundry "
+        "REST API, gates each run, and reports mean [min, max] with n",
+    )
+    harness.add_argument("--runs", type=int, default=None,
+                         help="number of repeats (enables the harness)")
+    harness.add_argument("--eval-id", dest="eval_id", default=None, help="eval id to repeat")
+    harness.add_argument("--template-run", dest="template_run", default=None,
+                         help="existing run of --eval-id whose data source is reused")
+    harness.add_argument("--max-in-flight", dest="max_in_flight", type=int, default=3,
+                         help="concurrent runs (default: 3)")
+    harness.add_argument("--min-scored", dest="min_scored", type=float, default=0.95,
+                         help="reject runs scoring fewer than this fraction of rows (default: 0.95)")
+    harness.add_argument("--max-errors", dest="max_errors", type=int, default=10,
+                         help="reject runs with more errored rows (default: 10; -1 = no limit)")
+    harness.add_argument("--state", default=None,
+                         help="resumable state file (default: .castia/eval_runs/<rung>-n<rows>.json)")
+    harness.add_argument("--poll-interval", dest="poll_interval", type=float, default=30.0,
+                         help="seconds between polls (default: 30)")
+    harness.add_argument("--timeout", type=float, default=4 * 3600.0,
+                         help="seconds before giving up; rerun to resume (default: 14400)")
+    harness.add_argument("--project-endpoint", dest="project_endpoint", default=None,
+                         help="Foundry project endpoint (default: FOUNDRY_PROJECT_ENDPOINT)")
     ev_run.set_defaults(func=_cmd_eval_run)
 
     ev_rubric = evsub.add_parser("rubric", help="offline rubric authoring helpers")
@@ -335,6 +359,8 @@ def _dataset_rows(config: str) -> int | None:
 def _cmd_eval_run(args: argparse.Namespace) -> int:
     from castia.evaluation.suite import build_run_argv
 
+    if args.runs is not None:
+        return _cmd_eval_run_repeated(args)
     name, error = _resolve_run_name(args)
     if error:
         print(f"error: {error}", file=sys.stderr)
@@ -394,6 +420,87 @@ def _cmd_eval_template(args: argparse.Namespace) -> int:
     print("                registrations; for optimizer runs, register the gold check as a")
     print("                prompt evaluator (see README: gold-aware evaluators)")
     return 0
+
+
+def _cmd_eval_run_repeated(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from castia.evaluation.foundry import run_name
+    from castia.evaluation.harness import (
+        HarnessConfig,
+        format_report,
+        run_harness,
+        summarize,
+    )
+
+    missing = [flag for flag, value in (("--rung", args.rung), ("--eval-id", args.eval_id),
+                                        ("--template-run", args.template_run)) if not value]
+    if args.name:
+        print("error: --runs names each run '<rung> · n<rows> · r<i>'; use --rung, not --name",
+              file=sys.stderr)
+        return 2
+    if missing:
+        print(f"error: --runs needs {', '.join(missing)}", file=sys.stderr)
+        return 2
+    error = _unpinned_error(args.config, allow=args.allow_unpinned)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+    backend = None
+    rows = args.rows or _dataset_rows(args.config)
+    if rows is None and not args.dry_run:
+        backend = _harness_backend(args)
+        if backend is None:
+            return 2
+        rows = backend.default_rows()
+    if rows is None:
+        print("error: could not determine the row count; pass --rows", file=sys.stderr)
+        return 2
+    try:
+        config = HarnessConfig(
+            rung=args.rung, rows=rows, runs=args.runs, max_in_flight=args.max_in_flight,
+            min_scored=args.min_scored,
+            max_errors=None if args.max_errors is not None and args.max_errors < 0 else args.max_errors,
+            poll_interval=args.poll_interval, timeout=args.timeout,
+        )
+        names = [run_name(args.rung, rows, repeat=i) for i in range(1, args.runs + 1)]
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    safe_rung = "".join(c if c.isalnum() or c in "-_." else "_" for c in args.rung)
+    state_path = Path(args.state or Path(".castia") / "eval_runs" / f"{safe_rung}-n{rows}.json")
+
+    print(f"eval          : {args.eval_id} (template run {args.template_run})")
+    print(f"runs          : {args.runs} x '{names[0].rsplit(' · ', 1)[0]}', "
+          f"max {config.max_in_flight} in flight")
+    print(f"accept        : status completed, scored >= {config.min_scored:.0%}"
+          + (f", errors <= {config.max_errors}" if config.max_errors is not None else ""))
+    print(f"state         : {state_path}")
+    if args.dry_run:
+        print("result        : dry-run (nothing submitted)")
+        return 0
+
+    backend = backend or _harness_backend(args)
+    if backend is None:
+        return 2
+    try:
+        state = run_harness(backend, config, state_path, log=print)
+    except (TimeoutError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    for line in format_report(state, requested=args.runs):
+        print(line)
+    return 0 if summarize(state)["accepted"] == args.runs else 1
+
+
+def _harness_backend(args: argparse.Namespace):
+    from castia.evaluation.harness import FoundryRestBackend
+
+    client = _eval_client(args)
+    if client is None:
+        return None
+    return FoundryRestBackend(client, args.eval_id, args.template_run)
 
 
 def _project_endpoint(args: argparse.Namespace) -> str | None:

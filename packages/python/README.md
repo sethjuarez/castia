@@ -964,6 +964,31 @@ recomputed content of existing versions, or on the `castia.content_hash` tag
 when a listing omits definitions. It also verifies the stored definition hashes
 to the same value, and refuses a bundle edited after export.
 
+#### Repeated runs
+
+One run is a sample, not a measurement: grader noise between identical runs can
+be bigger than the gap you're trying to see. `--runs` repeats an existing run's
+data source through the Foundry REST API and gates every repeat:
+
+```bash
+python -m castia eval run --runs 5 --rung baseline \
+  --eval-id <eval-id> --template-run <run-id> \
+  --max-in-flight 3 --min-scored 0.95 --max-errors 10
+```
+
+Runs are named `baseline · n<rows> · r<i>`. A run is **rejected** unless it
+completes, scores at least `--min-scored` of its rows, and has at most
+`--max-errors` errored rows. Rejected runs never enter the aggregate. The
+report shows every per-run score with its `n`, then each criterion as
+`mean [min, max] (runs=k, n=…)`. It warns when a run has fewer than 50 scored
+rows, and exits 1 unless every requested run is accepted.
+
+Progress is saved to `.castia/eval_runs/<rung>-n<rows>.json` (or `--state`)
+after every submit and poll. An interrupted or timed-out harness resumes from
+that file without resubmitting. The harness talks to the service through the
+`castia.evaluation.harness.EvalBackend` protocol (`submit`, `poll`), so another
+backend can plug in without changing the gates or the report.
+
 `check` is a pure, offline referential-integrity gate: it resolves every
 evaluator/dataset `local_uri` and validates each rubric dimensions file.
 `generate` and `run` submit **billable** Foundry jobs, so both accept
