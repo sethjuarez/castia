@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.20.0](https://github.com/sethjuarez/castia/compare/python-v0.19.0...python-v0.20.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **python:** castia eval run/generate/update now target azd ai eval by default. Legacy-only flags (generate --dataset/--evaluator/--name, update --evaluator-only) are rejected on the new backend, and update no longer re-publishes rubric evaluators.
+* **python:** eval.yaml options max_stalls and evaluation_level are rejected; registered datasets require a version; malformed optimizer config now raises instead of degrading to defaults.
+* **python:** live `castia finetune submit` now requires --approve-train.
+
+### Features
+
+* add castia.cli.v1 command envelope contract with Rust parity ([95c1e6b](https://github.com/sethjuarez/castia/commit/95c1e6b51d07ce4a1ec7d7cd0b1b9cf7cdfe598e)), closes [#79](https://github.com/sethjuarez/castia/issues/79)
+* **python:** add --json output to eval, optimize, and finetune commands ([eabaa10](https://github.com/sethjuarez/castia/commit/eabaa10bdd136696a26269004ccf210ff36af5d2)), closes [#79](https://github.com/sethjuarez/castia/issues/79)
+* **python:** add account model route for MAI deployments ([4c6f1a4](https://github.com/sethjuarez/castia/commit/4c6f1a4917f71f78373dc1613101cd901a8741cb))
+* **python:** add castia doctor identity, toolbox and quota checks ([603b801](https://github.com/sethjuarez/castia/commit/603b8015b179005ddf1bde4f3164912e5bfcdd7c))
+* **python:** add eval delete --wait and templated eval run names ([2e246d0](https://github.com/sethjuarez/castia/commit/2e246d0e70820e5b479d0275636b105a962fa113))
+* **python:** add eval schedule and eval traces --window ([80b9feb](https://github.com/sethjuarez/castia/commit/80b9febd62600bf02f17f0d716f4a0533a2c1436))
+* **python:** add fine-tune pre-submit checks, spend gate and guarded delete ([b8011e7](https://github.com/sethjuarez/castia/commit/b8011e78595b92ddf88d39ea26d7dc83662ed4c1))
+* **python:** add finetune probe, probe-check and grade-local with divergence gate ([57e00c2](https://github.com/sethjuarez/castia/commit/57e00c2461a94b68f04c03dc8ff23988f9105d8b))
+* **python:** add hash-identified evaluator export/import and version pinning ([a01e1f1](https://github.com/sethjuarez/castia/commit/a01e1f110940eac9af08f229ab40d2038270a283))
+* **python:** add optimize run preflight for evaluator level, item fields and size ([a8b0519](https://github.com/sethjuarez/castia/commit/a8b0519a4892caf62690fdff76cdd9d9b19b41fd))
+* **python:** add optimize verify, candidate leak diff, --from-version seeding and early-stop label ([3cca84c](https://github.com/sethjuarez/castia/commit/3cca84c0098fe6926c2959df619923f9be053efc))
+* **python:** add resumable repeated eval runs with acceptance gates ([e0a3984](https://github.com/sethjuarez/castia/commit/e0a39841e3d481e61d74a8ce014e26083204d2ae))
+* **python:** add rubric gate dimensions and gold-aware evaluator template ([c835660](https://github.com/sethjuarez/castia/commit/c835660d432d830e95810089478162d7c85ef86b))
+* **python:** add tool-error gate, traceparent helpers and human eval events ([093ca71](https://github.com/sethjuarez/castia/commit/093ca71f3b45a1497bb784e09acacd04b0645fc3))
+* **python:** add toolbox_function_tool with separate model-facing schema ([1f76a28](https://github.com/sethjuarez/castia/commit/1f76a289d7931fcf54b647420a890e129c5d45e2))
+* **python:** gate repeated eval runs on tool error rate ([8d8bc3e](https://github.com/sethjuarez/castia/commit/8d8bc3ef115caf1e40b600fe9a0e89364f8ac88c))
+* **python:** move optimizer to GA agent_optimization_jobs API ([cb72c5a](https://github.com/sethjuarez/castia/commit/cb72c5a140c7f788dabe1d9401ab4107a1dd3072))
+* **python:** pin GenAI semconv 1.42.0 and emit parts-format content ([da5f5d5](https://github.com/sethjuarez/castia/commit/da5f5d562bc9258fe86201a46425d134cc2c2c59))
+* **python:** port castia eval to azd ai eval (azure.ai.evaluations) ([801bdb5](https://github.com/sethjuarez/castia/commit/801bdb596af861d88f3cf530f6c26491835409f8))
+* **python:** set azd agents opt-ins in azd subprocess env ([b590262](https://github.com/sethjuarez/castia/commit/b5902627ac21c25f969dc95d1871cf4210006f28))
+* **python:** synthesize execute_tool spans for server-side tool calls ([312f7fe](https://github.com/sethjuarez/castia/commit/312f7fec8cb75c3599948fe06e6548fa627180bd))
+* **python:** warn when gold-aware rubrics rely on ground_truth under the optimizer ([fbaf93f](https://github.com/sethjuarez/castia/commit/fbaf93f90a96e7697de32a2056c4c0a5c2d8829a))
+
+
+### Bug Fixes
+
+* **hosting:** mint Responses ids in the Foundry platform format ([dbee41b](https://github.com/sethjuarez/castia/commit/dbee41bcf8c0e29cda4d202ceb4cc1bd8383e987)), closes [#143](https://github.com/sethjuarez/castia/issues/143)
+* **python:** adapt optimize preflight, seeding and verify to the GA request ([0025115](https://github.com/sethjuarez/castia/commit/0025115db2a956dc6d56135db4b2324723d544a7))
+* **python:** clear stale tools on seeding and reject nonfinite verify metrics ([e2ea6ff](https://github.com/sethjuarez/castia/commit/e2ea6ff61da98b32dc6f8b72c9a0a3c5dba9b8b4))
+* **python:** enforce eval gates and pins across the integrated eval backends ([8e86bf9](https://github.com/sethjuarez/castia/commit/8e86bf9d9a1fb9fa6344c2b7eb171a786de27206))
+* **python:** reject system role for MAI RFT and add --rewrite-roles ([51d4d21](https://github.com/sethjuarez/castia/commit/51d4d216c7df03074ffa4a1eafaaaf24d581f6f2))
+* refresh stale readiness vector and make eval tests hermetic ([3f9ec0d](https://github.com/sethjuarez/castia/commit/3f9ec0df143f5a69b2a2aefb480e51a70e81d61c))
+
 ## [0.19.0](https://github.com/sethjuarez/castia/compare/python-v0.18.1...python-v0.19.0) (2026-11-25)
 
 
