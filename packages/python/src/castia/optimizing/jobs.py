@@ -7,6 +7,7 @@ optimization cannot drift through azd metadata rewrites.
 
 The wire shape is the GA ``agent_optimization_jobs`` contract (``api-version=v1``,
 no ``Foundry-Features`` preview header), matching ``azure-ai-projects`` 2.8+.
+Candidate config resolution uses the agentserver resolver shape instead.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from azure.core.rest import HttpRequest
 from castia.optimizing.baseline import DEFAULT_CANDIDATE, DEFAULT_CONFIG_DIR
 
 API_VERSION = "v1"
+# The candidate config resolver keeps agentserver-optimization's API version.
+RESOLVER_API_VERSION = "2025-11-15-preview"
 AUTH_SCOPE = "https://ai.azure.com/.default"
 LAST_RUN_FILE = ".castia/last_optimize.json"
 
@@ -354,27 +357,103 @@ class OptimizerClient:
         return bytes(response.read() if hasattr(response, "read") else response.content)
 
     def candidate_config(self, job_id: str, candidate_id: str) -> dict[str, Any]:
-        """Reconstruct a candidate's full runnable configuration.
+        """Fetch a candidate's full runnable configuration.
 
-        The job's server-side baseline is the base layer. The candidate's
-        ``config.json`` file is authoritative for instructions and model; tool
-        and skill mutations are layered on by name. Anything that cannot be
-        reconstructed exactly raises :class:`CandidateResolutionError` instead of
-        silently falling back to the local baseline.
+        Uses the same resolver call as ``azure-ai-agentserver-optimization``:
+        ``GET {job}/candidates/{id}/config?api-version=2025-11-15-preview`` with
+        no ``Foundry-Features`` header. The GA ``candidates/{id}?expand=mutations``
+        read 404s for freshly minted candidates unless the preview feature
+        header is sent, which crashed hosted candidate containers at import.
+        A payload without instructions raises :class:`CandidateResolutionError`
+        instead of silently falling back to the local baseline.
         """
 
-        job = self.status(job_id)
-        candidate = self.get_candidate(job_id, candidate_id)
-        config_file = None
-        if _has_file(candidate, "config.json"):
-            raw = self.download_file(job_id, "config.json", candidate_id=candidate_id)
-            try:
-                config_file = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        payload = self._send_json(
+            "GET",
+            f"/agent_optimization_jobs/{_seg(job_id)}/candidates/{_seg(candidate_id)}/config",
+            api_version=RESOLVER_API_VERSION,
+        )
+        config: dict[str, Any] = {}
+        for key in ("instructions", "model"):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, str):
                 raise CandidateResolutionError(
-                    f"candidate {candidate_id}: config.json is not valid JSON: {exc}"
-                ) from exc
-        return resolve_candidate_config(job, candidate, config_file)
+                    f"candidate {candidate_id}: config {key} must be a string"
+                )
+            if value:
+                config[key] = value
+        for key in ("tools", "skills"):
+            value = payload.get(key)
+            if value is not None and not isinstance(value, list):
+                raise CandidateResolutionError(
+                    f"candidate {candidate_id}: config {key} must be a list"
+                )
+            if value:
+                config[key] = list(value)
+        temperature = payload.get("temperature")
+        if temperature is not None:
+            if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+                raise CandidateResolutionError(
+                    f"candidate {candidate_id}: config temperature must be a number"
+                )
+            config["temperature"] = temperature
+        if not config.get("instructions"):
+            raise CandidateResolutionError(
+                f"candidate {candidate_id}: resolved configuration has no instructions"
+            )
+        return config
+
+    def eval_run_output_items(self, eval_id: str, run_id: str) -> list[dict[str, Any]]:
+        """Every output item of one eval run, following ``has_more`` pagination."""
+
+        path = f"/openai/v1/evals/{_seg(eval_id)}/runs/{_seg(run_id)}/output_items"
+        items: list[dict[str, Any]] = []
+        params = {"limit": "100"}
+        while True:
+            page = self._send_json("GET", path, params=params, api_version=None)
+            data = page.get("data")
+            if not isinstance(data, list):
+                raise TypeError("eval output_items response has no data array")
+            batch = [item for item in data if isinstance(item, dict)]
+            items.extend(batch)
+            after = page.get("last_id") or (batch[-1].get("id") if batch else None)
+            if not page.get("has_more") or not after:
+                return items
+            params = {"limit": "100", "after": str(after)}
+
+    def sample_error_report(self, job_id: str) -> dict[str, Any]:
+        """Count errored samples across every candidate's eval run.
+
+        The native optimizer scores an item even when the target invocation
+        failed (``sample.error``), so a job can report ``succeeded``/improved on
+        judge noise over empty outputs. Trust native scores only when this
+        report's ``errored`` count is zero.
+        """
+
+        runs: list[dict[str, Any]] = []
+        errored: list[dict[str, Any]] = []
+        for candidate in self.list_candidates(job_id):
+            candidate_id = str(candidate.get("candidate_id") or "")
+            eval_id = candidate.get("eval_id")
+            run_id = candidate.get("eval_run_id")
+            if not eval_id or not run_id:
+                continue
+            items = self.eval_run_output_items(str(eval_id), str(run_id))
+            failures = sample_errors(items)
+            runs.append({
+                "candidate_id": candidate_id,
+                "eval_id": eval_id,
+                "eval_run_id": run_id,
+                "items": len(items),
+                "errored": len(failures),
+            })
+            errored.extend({"candidate_id": candidate_id, **item} for item in failures)
+        return {
+            "runs": runs,
+            "items": sum(run["items"] for run in runs),
+            "errored": len(errored),
+            "errors": errored,
+        }
 
     def _send(
         self,
@@ -383,10 +462,14 @@ class OptimizerClient:
         *,
         params: dict[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
+        api_version: str | None = API_VERSION,
     ) -> Any:
         query = dict(params or {})
-        query["api-version"] = API_VERSION
-        url = f"{self.project_endpoint}{path}?{urlencode(query)}"
+        if api_version:
+            query["api-version"] = api_version
+        url = f"{self.project_endpoint}{path}"
+        if query:
+            url = f"{url}?{urlencode(query)}"
         request = HttpRequest(method, url)
         if json_body is not None:
             request.headers["Content-Type"] = "application/json"
@@ -412,8 +495,11 @@ class OptimizerClient:
         *,
         params: dict[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
+        api_version: str | None = API_VERSION,
     ) -> dict[str, Any]:
-        response = self._send(method, path, params=params, json_body=json_body)
+        response = self._send(
+            method, path, params=params, json_body=json_body, api_version=api_version
+        )
         data = response.json()
         if not isinstance(data, dict):
             raise TypeError(f"{method} {path} returned non-object JSON")
@@ -582,6 +668,32 @@ def is_terminal_status(status: str | None) -> bool:
     """Return whether an optimizer status is terminal (``skipped`` included)."""
 
     return str(status or "").lower() in TERMINAL_STATUSES
+
+
+def sample_errors(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return ``{id, code, message}`` for eval output items whose sample errored.
+
+    Reads the OpenAI evals shape (``item.sample.error``) and the flattened
+    ``sample_error`` receipt shape.
+    """
+
+    failures: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        sample = item.get("sample")
+        error = sample.get("error") if isinstance(sample, dict) else None
+        if not error:
+            error = item.get("sample_error")
+        if not error:
+            continue
+        detail = error if isinstance(error, dict) else {"message": str(error)}
+        failures.append({
+            "id": item.get("id"),
+            "code": detail.get("code"),
+            "message": detail.get("message"),
+        })
+    return failures
 
 
 def candidate_summary(status: dict[str, Any]) -> dict[str, Any]:

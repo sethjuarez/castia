@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from castia import Agent
+from castia import Agent, response_history
 from castia.building import AgentTestHarness
 from castia.hosting import foundry_storage, server
 from castia.hosting.agent_identity import (
@@ -74,6 +74,7 @@ class FakeStorage:
         self.responses: dict[str, dict] = {}
         self.input_items: dict[str, list] = {}
         self.items: dict[str, dict] = {}
+        self.history: dict[str, list] = {}
         self.calls: list[tuple[str, str, dict, object]] = []
         self.fail: dict[tuple[str, str], int] = {}
 
@@ -92,11 +93,13 @@ class FakeStorage:
                 )
             self.responses[response["id"]] = response
             self.input_items[response["id"]] = body["input_items"]
+            self.history[response["id"]] = body["history_item_ids"]
+            self._index(response, body["input_items"])
             return httpx.Response(200, json=response)
         if path == "items/batch/retrieve":
             return httpx.Response(200, json=[self.items.get(i) for i in body["item_ids"]])
         if path == "history/item_ids":
-            return httpx.Response(200, json=["msg_prev_1", "msg_prev_2"])
+            return self._history(request.url.params)
         parts = path.split("/")
         response_id = parts[1]
         if response_id not in self.responses:
@@ -116,7 +119,38 @@ class FakeStorage:
             del self.responses[response_id]
             return httpx.Response(200, json={"deleted": True})
         self.responses[response_id] = body
+        self._index(body, [])
         return httpx.Response(200, json=body)
+
+    def _index(self, response, input_items):
+        for item in [*input_items, *response.get("output", [])]:
+            if isinstance(item, dict) and item.get("id"):
+                self.items[item["id"]] = item
+
+    def _item_ids(self, response_id):
+        response = self.responses[response_id]
+        return [
+            *self.history[response_id],
+            *(i["id"] for i in self.input_items[response_id] if i),
+            *(o["id"] for o in response.get("output", [])),
+        ]
+
+    def _history(self, params):
+        """Stock ``get_history_item_ids``: prior ids + inputs + outputs, per response."""
+        previous = params.get("previous_response_id")
+        conversation = params.get("conversation_id")
+        ids = []
+        if previous is not None:
+            if previous not in self.responses:
+                return httpx.Response(
+                    404, json={"error": {"code": "not_found", "message": "nope"}}
+                )
+            ids += self._item_ids(previous)
+        if conversation is not None:
+            for response_id, response in self.responses.items():
+                if (response.get("conversation") or {}).get("id") == conversation:
+                    ids += self._item_ids(response_id)
+        return httpx.Response(200, json=list(dict.fromkeys(ids)))
 
 
 def _store(storage: FakeStorage, **kwargs) -> FoundryResponseStore:
@@ -192,6 +226,9 @@ def test_item_ids_use_agentserver_type_prefixes():
 def test_create_posts_the_agentserver_envelope_with_call_id_and_scope():
     storage = FakeStorage()
     storage.items["msg_ref"] = {"id": "msg_ref", "type": "message", "role": "user"}
+    storage.responses[LEGACY_ID] = {"id": LEGACY_ID, "output": [{"id": "msg_prev_2"}]}
+    storage.input_items[LEGACY_ID] = [{"id": "msg_prev_1"}]
+    storage.history[LEGACY_ID] = []
     store = _store(storage)
     record = _record(
         previous_response_id=LEGACY_ID,
@@ -216,7 +253,7 @@ def test_create_posts_the_agentserver_envelope_with_call_id_and_scope():
     assert batch[:2] == ("POST", f"{STORAGE}items/batch/retrieve?api-version=v1")
     assert batch[3] == {"item_ids": ["msg_ref"]}
     assert history[1] == (
-        f"{STORAGE}history/item_ids?api-version=v1&limit=1000"
+        f"{STORAGE}history/item_ids?api-version=v1&limit=-1"
         f"&previous_response_id={LEGACY_ID}"
     )
     method, url, headers, body = create
@@ -497,15 +534,170 @@ def test_hosted_reads_go_to_foundry_storage_with_the_call_id(monkeypatch):
     assert all(c[2]["x-agent-foundry-call-id"] == "call-123" for c in storage.calls)
 
 
-def test_hosted_default_store_keeps_background_and_history_off(monkeypatch):
+def test_hosted_default_store_runs_background_like_agentserver(monkeypatch):
+    storage = FakeStorage()
+    seen = []
+    app = _hosted(monkeypatch, storage, seen=seen)
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            queued = await test.client.post(
+                "/responses", json={"input": "hi", "background": True}, headers=CALL
+            )
+            response_id = queued.json()["id"]
+            for _ in range(100):
+                polled = await test.client.get(f"/responses/{response_id}", headers=CALL)
+                if polled.json()["status"] == "completed":
+                    break
+                await asyncio.sleep(0.01)
+            return queued, polled
+
+    queued, polled = asyncio.run(run())
+    assert queued.status_code == 200
+    assert queued.json()["status"] == "queued" and queued.json()["background"] is True
+    assert queued.json()["id"].startswith("caresp_")
+    assert polled.json()["status"] == "completed" and seen == ["hi"]
+    stored = storage.responses[polled.json()["id"]]
+    assert stored["background"] is True and stored["agent_reference"]["name"] == REF["name"]
+    assert all(c[2]["x-agent-foundry-call-id"] == "call-123" for c in storage.calls)
+
+
+def test_hosted_background_handler_failure_is_marked_failed(monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setenv("FOUNDRY_HOSTING_ENVIRONMENT", "production")
+    monkeypatch.setenv("FOUNDRY_AGENT_NAME", REF["name"])
+    monkeypatch.setenv("FOUNDRY_AGENT_VERSION", REF["version"])
+    monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", ENDPOINT)
+    monkeypatch.setattr(
+        server.FoundryResponseStore, "from_env", classmethod(lambda cls: _store(storage))
+    )
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str) -> str:
+        raise RuntimeError("boom")
+
+    async def run():
+        async with AgentTestHarness(app) as test:
+            queued = await test.client.post(
+                "/responses", json={"input": "hi", "background": True}, headers=CALL
+            )
+            for _ in range(100):
+                polled = await test.client.get(
+                    f"/responses/{queued.json()['id']}", headers=CALL
+                )
+                if polled.json()["status"] == "failed":
+                    break
+                await asyncio.sleep(0.01)
+            return polled
+
+    polled = asyncio.run(run())
+    assert polled.json()["status"] == "failed"
+    assert polled.json()["error"]["code"] == "server_error"
+
+
+def test_hosted_default_store_keeps_background_stream_off(monkeypatch):
     storage = FakeStorage()
     app = _hosted(monkeypatch, storage)
-    background = _post(app, {"input": "hi", "background": True})
-    assert background.status_code == 400
-    assert background.json()["error"]["param"] == "background"
-    history = _post(app, {"input": "hi", "previous_response_id": NEW_ID})
-    assert history.status_code == 400
+    streamed = _post(app, {"input": "hi", "background": True, "stream": True})
+    assert streamed.status_code == 400 and streamed.json()["error"]["param"] == "stream"
     assert storage.calls == []
+
+
+def _hosted_with_history(monkeypatch, storage, seen):
+    _hosted(monkeypatch, storage)
+    app = Agent()
+
+    @app.responses()
+    async def reply(text: str) -> str:
+        seen.append(
+            [(m["role"], m["content"][0]["text"]) for m in response_history()]
+        )
+        return f"echo:{text}"
+
+    return app
+
+
+def _turns(app, *payloads):
+    async def run():
+        results = []
+        async with AgentTestHarness(app) as test:
+            for payload in payloads:
+                payload = payload(results) if callable(payload) else payload
+                results.append(
+                    await test.client.post("/responses", json=payload, headers=CALL)
+                )
+        return results
+
+    return asyncio.run(run())
+
+
+def test_hosted_previous_response_id_loads_history_from_storage(monkeypatch):
+    storage = FakeStorage()
+    seen = []
+    app = _hosted_with_history(monkeypatch, storage, seen)
+    first, second = _turns(
+        app,
+        {"input": "one"},
+        lambda done: {"input": "two", "previous_response_id": done[0].json()["id"]},
+    )
+    assert first.status_code == second.status_code == 200
+    assert seen == [[], [("user", "one"), ("assistant", "echo:one")]]
+    first_id, second_id = first.json()["id"], second.json()["id"]
+    lookups = [c[1] for c in storage.calls if "history/item_ids" in c[1]]
+    # Prefetch for the handler, then again for the create (stock does both).
+    assert lookups == [
+        (
+            f"{STORAGE}history/item_ids?api-version=v1&limit=-1"
+            f"&previous_response_id={first_id}"
+        )
+    ] * 2
+    assert storage.history[second_id] == storage._item_ids(first_id)
+    assert storage.responses[second_id]["previous_response_id"] == first_id
+    assert all(c[2]["x-agent-foundry-call-id"] == "call-123" for c in storage.calls)
+
+
+def test_hosted_conversation_loads_history_from_storage(monkeypatch):
+    storage = FakeStorage()
+    seen = []
+    app = _hosted_with_history(monkeypatch, storage, seen)
+    first, second = _turns(
+        app,
+        {"input": "one", "conversation": "conv_1"},
+        {"input": "two", "conversation": {"id": "conv_1"}},
+    )
+    assert first.status_code == second.status_code == 200
+    assert seen == [[], [("user", "one"), ("assistant", "echo:one")]]
+    stored = storage.responses[second.json()["id"]]
+    assert stored["conversation"] == {"id": "conv_1"}
+    # Stock creates conversation turns without history ids.
+    assert storage.history[second.json()["id"]] == []
+
+
+def test_hosted_foundry_history_is_not_recapped(monkeypatch):
+    # Storage already applied limit=-1; castia's consumer-store cap must not
+    # drop the single Foundry history group when inline input pushes past it.
+    monkeypatch.setattr("castia.hosting.server._HISTORY_MAX_ITEMS", 2)
+    storage = FakeStorage()
+    seen = []
+    app = _hosted_with_history(monkeypatch, storage, seen)
+    _turns(
+        app,
+        {"input": "one", "conversation": "conv_1"},
+        {"input": "two", "conversation": "conv_1"},
+    )
+    assert seen[1] == [("user", "one"), ("assistant", "echo:one")]
+
+
+def test_hosted_unknown_previous_response_is_404_before_the_handler(monkeypatch):
+    storage = FakeStorage()
+    seen = []
+    app = _hosted_with_history(monkeypatch, storage, seen)
+    missing = _post(app, {"input": "hi", "previous_response_id": NEW_ID})
+    assert missing.status_code == 404 and seen == []
+    storage.fail[("GET", "history/item_ids")] = 503
+    down = _post(app, {"input": "hi", "conversation": "conv_1"})
+    assert down.status_code >= 500 and seen == []
 
 
 def test_hosted_without_project_endpoint_fails_fast(monkeypatch):

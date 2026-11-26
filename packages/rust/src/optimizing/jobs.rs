@@ -10,6 +10,8 @@ use std::error::Error;
 use std::fmt;
 
 pub const API_VERSION: &str = "v1";
+/// API version of the agentserver-optimization candidate config resolver.
+pub const RESOLVER_API_VERSION: &str = "2025-11-15-preview";
 
 const TERMINAL_STATUSES: [&str; 4] = ["succeeded", "failed", "cancelled", "skipped"];
 const TARGET_ATTRIBUTES: [&str; 4] = ["instructions", "model", "skills", "tools"];
@@ -396,8 +398,10 @@ pub fn optimizer_request(
 /// Describe the HTTP request for one GA optimizer REST action.
 ///
 /// Actions: `start`, `estimate`, `status`, `cancel`, `candidates`, `candidate`
-/// (with `expand=mutations`), and `candidate_config_file` (the candidate's
-/// `config.json` download).
+/// (with `expand=mutations`), `candidate_config_file` (the candidate's
+/// `config.json` download), and `candidate_resolved_config` (the
+/// agentserver-optimization resolver call, `candidates/{id}/config` on the
+/// `2025-11-15-preview` API version).
 pub fn optimizer_rest_request(
     project_endpoint: &str,
     action: &str,
@@ -447,7 +451,21 @@ pub fn optimizer_rest_request(
                 false,
             )
         }
+        "candidate_resolved_config" => {
+            let job = job()?;
+            (
+                "GET",
+                format!("{jobs}/{job}/candidates/{}/config", segment(candidate()?)),
+                Vec::new(),
+                false,
+            )
+        }
         _ => return Err(error(format!("unknown optimizer action {action:?}"))),
+    };
+    let api_version = if action == "candidate_resolved_config" {
+        RESOLVER_API_VERSION
+    } else {
+        API_VERSION
     };
     let mut headers = Map::new();
     if send_body {
@@ -459,7 +477,7 @@ pub fn optimizer_rest_request(
     let query = params
         .iter()
         .map(|(key, value)| (*key, value.as_str()))
-        .chain(std::iter::once(("api-version", API_VERSION)))
+        .chain(std::iter::once(("api-version", api_version)))
         .map(|(key, value)| format!("{}={}", query_encode(key), query_encode(value)))
         .collect::<Vec<_>>()
         .join("&");
@@ -474,6 +492,43 @@ pub fn optimizer_rest_request(
 /// Whether an optimizer status is terminal (`skipped` included).
 pub fn terminal_optimizer_status(status: Option<&str>) -> bool {
     TERMINAL_STATUSES.contains(&status.unwrap_or_default().to_ascii_lowercase().as_str())
+}
+
+/// `{id, code, message}` for eval output items whose sample errored: the
+/// OpenAI evals `sample.error` shape or the flattened `sample_error` receipt.
+/// Native scores are invalid when this is non-empty.
+pub fn optimizer_sample_errors(items: &[Value]) -> Vec<Value> {
+    fn present(value: Option<&Value>) -> Option<&Value> {
+        value.filter(|v| match v {
+            Value::Null | Value::Bool(false) => false,
+            Value::String(s) => !s.is_empty(),
+            Value::Object(m) => !m.is_empty(),
+            Value::Array(a) => !a.is_empty(),
+            Value::Number(n) => n.as_f64() != Some(0.0),
+            Value::Bool(true) => true,
+        })
+    }
+    items
+        .iter()
+        .filter(|item| item.is_object())
+        .filter_map(|item| {
+            let error = present(item.get("sample").and_then(|s| s.get("error")))
+                .or_else(|| present(item.get("sample_error")))?;
+            let (code, message) = match error {
+                Value::Object(detail) => (
+                    detail.get("code").cloned().unwrap_or(Value::Null),
+                    detail.get("message").cloned().unwrap_or(Value::Null),
+                ),
+                Value::String(text) => (Value::Null, Value::String(text.clone())),
+                other => (Value::Null, Value::String(other.to_string())),
+            };
+            Some(json!({
+                "id": item.get("id").cloned().unwrap_or(Value::Null),
+                "code": code,
+                "message": message,
+            }))
+        })
+        .collect()
 }
 
 /// `result.candidate_summary` from a GA job payload (or an empty map).

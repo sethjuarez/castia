@@ -294,6 +294,12 @@ def test_optimizer_client_uses_ga_rest_paths(monkeypatch):
         f"{base}/opt_1/candidates?after=a&api-version=v1": {"data": [{"candidate_id": "b"}]},
         f"{base}/opt_1/candidates/cand%201?expand=mutations&api-version=v1": candidate,
         f"{base}/opt_1?api-version=v1": _job(),
+        f"{base}/opt_1/candidates/cand%201/config?api-version=2025-11-15-preview": {
+            "instructions": "from resolver",
+            "model": "gpt-5-mini",
+            "tools": [{"type": "function", "name": "lookup"}],
+            "skills": [],
+        },
     }
 
     class Response:
@@ -337,11 +343,18 @@ def test_optimizer_client_uses_ga_rest_paths(monkeypatch):
     assert calls[0] == ("POST", f"{base}?api-version=v1", '{"x": 1}')
     assert calls[1] == ("POST", f"{base}:estimate?api-version=v1", '{"x": 1}')
     assert calls[2] == ("POST", f"{base}/opt_1:cancel?api-version=v1", None)
-    assert calls[-1][1] == (
-        f"{base}/opt_1/files?path=config.json&candidate_id=cand+1&api-version=v1"
+    # Same resolver call as azure-ai-agentserver-optimization; no preview header.
+    assert calls[-1] == (
+        "GET",
+        f"{base}/opt_1/candidates/cand%201/config?api-version=2025-11-15-preview",
+        None,
     )
-    assert config["instructions"] == "from file"
-    assert config["model"] == "gpt-5-mini"
+    assert config == {
+        "instructions": "from resolver",
+        "model": "gpt-5-mini",
+        "tools": [{"type": "function", "name": "lookup"}],
+    }
+    assert client.get_candidate("opt_1", "cand 1") == candidate
 
 
 def test_optimize_run_dry_run_prints_payload_without_submitting(
@@ -423,6 +436,9 @@ def test_optimize_run_waits_and_saves_state_in_config_dir(
             assert job_id == "opt_1"
             return {"id": "opt_1", "status": "succeeded", "result": {"best": "cand_1"}}
 
+        def sample_error_report(self, job_id):
+            return {"runs": [], "items": 2, "errored": 0, "errors": []}
+
     monkeypatch.setattr("castia.optimizing.jobs.OptimizerClient", FakeClient)
     rc = main(
         [
@@ -442,18 +458,35 @@ def test_optimize_run_waits_and_saves_state_in_config_dir(
     assert rc == 0
     assert state.job_id == "opt_1"
     assert "status        : succeeded" in out
+    assert "samples       : 2 scored, 0 errored" in out
 
 
 ENDPOINT = "https://example.ai.azure.com/api/projects/p"
+_ERRORED_REPORT = {
+    "runs": [{"candidate_id": "cand_1", "eval_id": "eval_1", "eval_run_id": "run_1",
+              "items": 2, "errored": 2}],
+    "items": 2,
+    "errored": 2,
+    "errors": [
+        {"candidate_id": "cand_1", "id": "1", "code": "TARGET_INVOCATION_FAILED",
+         "message": "424 session_not_ready"},
+        {"candidate_id": "cand_1", "id": "2", "code": "TARGET_INVOCATION_FAILED",
+         "message": "424 session_not_ready"},
+    ],
+}
 
 
-def _fake_client(monkeypatch, job: dict, calls: list) -> None:
+def _fake_client(monkeypatch, job: dict, calls: list, report: dict | None = None) -> None:
     class FakeClient:
         def __init__(self, endpoint):
             assert endpoint == ENDPOINT
 
         def status(self, job_id):
             return job
+
+        def sample_error_report(self, job_id):
+            calls.append(("sample_error_report", job_id))
+            return report or {"runs": [], "items": 0, "errored": 0, "errors": []}
 
         def estimate(self, request):
             calls.append(("estimate", request["target_configuration"]["name"]))
@@ -495,6 +528,108 @@ def test_optimize_status_exits_nonzero_for_skipped_job(capsys, monkeypatch):
     assert "status        : skipped" in capsys.readouterr().out
 
 
+_IMPROVED_JOB = {
+    "id": "opt_1",
+    "status": "succeeded",
+    "result": {"candidate_summary": {
+        "baseline_id": "cand_0", "baseline_score": 0.4, "best_id": "cand_1", "best_score": 0.5,
+    }},
+}
+
+
+def test_optimize_status_marks_scores_invalid_when_samples_errored(capsys, monkeypatch):
+    _fake_client(monkeypatch, _IMPROVED_JOB, [], _ERRORED_REPORT)
+
+    rc = main(["optimize", "status", "opt_1", "--project-endpoint", ENDPOINT])
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "samples       : 2/2 errored; SCORES INVALID" in out
+    assert "TARGET_INVOCATION_FAILED" in out
+
+
+def test_optimize_status_json_withholds_best_when_samples_errored(capsys, monkeypatch):
+    _fake_client(monkeypatch, _IMPROVED_JOB, [], _ERRORED_REPORT)
+
+    rc = main(["optimize", "status", "opt_1", "--project-endpoint", ENDPOINT, "--json"])
+
+    env = json.loads(capsys.readouterr().out)
+    assert rc == 1 and env["status"] == "scores_invalid" and env["ok"] is False
+    assert env["result"]["best_candidate_id"] is None
+    assert env["result"]["sample_errors"]["errored"] == 2
+    assert env["diagnostics"][-1]["code"] == "sample_errors"
+    assert env["next"] == []
+
+
+def test_optimize_apply_refuses_when_samples_errored(tmp_path: Path, capsys, monkeypatch):
+    calls: list = []
+    _fake_client(monkeypatch, _IMPROVED_JOB, calls, _ERRORED_REPORT)
+
+    rc = main(["optimize", "apply", "--job-id", "opt_1", "--project-endpoint", ENDPOINT,
+               "--config-dir", str(tmp_path)])
+
+    assert rc != 0
+    assert ("candidate_config", "cand_1") not in calls
+    assert "2/2 eval samples errored" in capsys.readouterr().err
+    assert not (tmp_path / "cand_1").exists()
+
+
+def test_sample_error_report_reads_every_candidate_run(monkeypatch):
+    from castia.optimizing.jobs import sample_errors
+
+    base = "https://example.ai.azure.com/api/projects/p"
+    pages = {
+        f"{base}/agent_optimization_jobs/opt_1/candidates?api-version=v1": {"data": [
+            {"candidate_id": "cand_0", "eval_id": "eval_1", "eval_run_id": "run_0"},
+            {"candidate_id": "cand_1", "eval_id": "eval_1", "eval_run_id": "run_1"},
+            {"candidate_id": "cand_2"},
+        ]},
+        f"{base}/openai/v1/evals/eval_1/runs/run_0/output_items?limit=100": {
+            "data": [{"id": "1", "sample": {"error": None}}],
+            "has_more": True, "last_id": "1",
+        },
+        f"{base}/openai/v1/evals/eval_1/runs/run_0/output_items?limit=100&after=1": {
+            "data": [{"id": "2", "sample": {"error": None}}],
+        },
+        f"{base}/openai/v1/evals/eval_1/runs/run_1/output_items?limit=100": {"data": [
+            {"id": "1", "sample": {"error": {"code": "TARGET_INVOCATION_FAILED",
+                                             "message": "400 background"}}},
+            {"id": "2", "sample": {"error": None}},
+        ]},
+    }
+    seen: list[str] = []
+
+    class Response:
+        def __init__(self, url):
+            self.url = url
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return pages[self.url]
+
+    class FakePipelineClient:
+        def __init__(self, *, base_url, policies):
+            pass
+
+        def send_request(self, request):
+            seen.append(request.url)
+            return Response(request.url)
+
+    monkeypatch.setattr("castia.optimizing.jobs.PipelineClient", FakePipelineClient)
+    report = OptimizerClient(base, credential=object()).sample_error_report("opt_1")
+
+    assert set(seen) == set(pages)
+    assert report["items"] == 4 and report["errored"] == 1
+    assert report["errors"] == [{"candidate_id": "cand_1", "id": "1",
+                                 "code": "TARGET_INVOCATION_FAILED",
+                                 "message": "400 background"}]
+    assert sample_errors([{"id": "9", "sample_error": {"code": "X", "message": "m"}}]) == [
+        {"id": "9", "code": "X", "message": "m"}
+    ]
+
+
 def test_optimize_run_estimate_starts_no_job(tmp_path: Path, capsys, monkeypatch):
     _write_agent_config(tmp_path)
     (tmp_path / "data.jsonl").write_text('{"query":"hello"}\n', encoding="utf-8")
@@ -516,3 +651,45 @@ def test_optimize_run_estimate_starts_no_job(tmp_path: Path, capsys, monkeypatch
     assert calls == [("estimate", "optimizer-smoke")]
     assert "estimate only (no job started)" in out
     assert not (tmp_path / ".agent_configs" / ".castia").exists()
+
+def test_candidate_config_without_instructions_fails_closed(monkeypatch):
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"model": "gpt-5-mini", "instructions": ""}
+
+    class FakePipelineClient:
+        def __init__(self, *, base_url, policies):
+            pass
+
+        def send_request(self, request):
+            return Response()
+
+    monkeypatch.setattr("castia.optimizing.jobs.PipelineClient", FakePipelineClient)
+    client = OptimizerClient("https://example.ai.azure.com/api/projects/p", credential=object())
+    with pytest.raises(CandidateResolutionError, match="no instructions"):
+        client.candidate_config("opt_1", "cand_1")
+
+
+def test_candidate_config_keeps_resolved_temperature(monkeypatch):
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"model": "gpt-5-mini", "instructions": "Be brief.", "temperature": 0.2}
+
+    class FakePipelineClient:
+        def __init__(self, *, base_url, policies):
+            pass
+
+        def send_request(self, request):
+            return Response()
+
+    monkeypatch.setattr("castia.optimizing.jobs.PipelineClient", FakePipelineClient)
+    client = OptimizerClient("https://example.ai.azure.com/api/projects/p", credential=object())
+    assert client.candidate_config("opt_1", "cand_1") == {
+        "instructions": "Be brief.", "model": "gpt-5-mini", "temperature": 0.2
+    }

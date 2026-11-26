@@ -1,6 +1,6 @@
 use castia::optimizing::{
     best_optimizer_candidate_id, optimizer_candidate_apply_plan, optimizer_job_id,
-    optimizer_request, optimizer_rest_request, optimizer_tool_names,
+    optimizer_request, optimizer_rest_request, optimizer_sample_errors, optimizer_tool_names,
     resolve_optimizer_candidate_config, terminal_optimizer_status,
 };
 use serde_json::json;
@@ -243,6 +243,22 @@ fn optimizer_rest_request_paths_match_python_client() {
     assert_eq!(
         optimizer_rest_request(
             "https://example.ai.azure.com/api/projects/p",
+            "candidate_resolved_config",
+            Some("opt_1"),
+            Some("cand 1"),
+            &json!(null),
+        )
+        .unwrap(),
+        json!({
+            "method": "GET",
+            "url": "https://example.ai.azure.com/api/projects/p/agent_optimization_jobs/opt_1/candidates/cand%201/config?api-version=2025-11-15-preview",
+            "headers": {},
+            "body": null,
+        })
+    );
+    assert_eq!(
+        optimizer_rest_request(
+            "https://example.ai.azure.com/api/projects/p",
             "candidate",
             Some("opt_1"),
             None,
@@ -361,5 +377,23 @@ fn optimizer_candidate_apply_plan_matches_runtime_candidate_layout() {
                 "content": "---\nname: tone\ndescription: Voice\n---\nBe crisp.\n",
             }],
         })
+    );
+}
+
+#[test]
+fn sample_errors_gate_native_scores_like_python() {
+    let items = vec![
+        json!({"id": "a", "sample": {"error": {"code": "TARGET_INVOCATION_FAILED", "message": "boom"}}}),
+        json!({"id": "b", "sample": {"error": null}}),
+        json!({"id": "c", "sample_error": "flat"}),
+        json!({"id": "d", "sample": {"error": {}}}),
+        json!("not an item"),
+    ];
+    assert_eq!(
+        optimizer_sample_errors(&items),
+        vec![
+            json!({"id": "a", "code": "TARGET_INVOCATION_FAILED", "message": "boom"}),
+            json!({"id": "c", "code": null, "message": "flat"}),
+        ]
     );
 }
