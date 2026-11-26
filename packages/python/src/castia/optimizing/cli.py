@@ -459,14 +459,34 @@ def _optimizer_status(args: argparse.Namespace, *, command: str, effects: dict) 
             if not args.watch or is_terminal_status(status.get("status")):
                 break
             __import__("time").sleep(args.poll_interval)
+        report = (
+            client.sample_error_report(job_id) if _status_name(status) == "succeeded" else None
+        )
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
         return _fail(args, command, exc, effects=effects)
-    code = 1 if _status_name(status) in {"failed", "cancelled", "skipped"} else 0
+    invalid = bool(report and report["errored"])
+    if not as_json and report is not None:
+        _print_sample_error_report(report)
+    code = 1 if invalid or _status_name(status) in {"failed", "cancelled", "skipped"} else 0
     if as_json:
-        emit_envelope(_optimizer_status_envelope(command, job_id, status, effects=effects))
+        emit_envelope(_optimizer_status_envelope(
+            command, job_id, status, effects=effects, sample_errors=report
+        ))
     return code
 
-def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effects: dict) -> dict:
+def _print_sample_error_report(report: dict) -> None:
+    if not report["errored"]:
+        print(f"samples       : {report['items']} scored, 0 errored")
+        return
+    print(f"samples       : {report['errored']}/{report['items']} errored; "
+          "SCORES INVALID (do not apply or cite)")
+    for error in report["errors"][:5]:
+        print(f"sample error  : {error.get('candidate_id')} item {error.get('id')}: "
+              f"{error.get('code') or ''} {error.get('message') or ''}".rstrip())
+
+def _optimizer_status_envelope(
+    command: str, job_id: str, status: dict, *, effects: dict, sample_errors: dict | None = None
+) -> dict:
     from castia.optimizing.jobs import (
         best_candidate_id,
         candidate_summary,
@@ -487,7 +507,21 @@ def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effec
         if isinstance(c, dict)
     ]
     best = best_candidate_id(status) if name == "succeeded" else None
-    if name == "succeeded":
+    invalid = bool(sample_errors and sample_errors["errored"])
+    diagnostics = (
+        [diagnostic("error", f"optimizer job {name}", "job_failed")]
+        if name in {"failed", "cancelled", "skipped"} else []
+    )
+    if invalid:
+        best = None
+        diagnostics.append(diagnostic(
+            "error",
+            f"{sample_errors['errored']}/{sample_errors['items']} eval samples errored; "
+            "native optimizer scores are invalid",
+            "sample_errors",
+        ))
+        next_actions = []
+    elif name == "succeeded":
         next_actions = [f"python -m castia optimize apply --job-id {job_id}"]
     elif not is_terminal_status(name):
         next_actions = [f"python -m castia optimize status {job_id} --watch"]
@@ -495,7 +529,7 @@ def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effec
         next_actions = []
     return command_envelope(
         command,
-        status=name,
+        status="scores_invalid" if invalid else name,
         result={
             "job_id": job_id,
             "terminal": is_terminal_status(name),
@@ -503,10 +537,10 @@ def _optimizer_status_envelope(command: str, job_id: str, status: dict, *, effec
             "candidates": summary,
             "best_candidate_id": best,
             "candidate_summary": candidate_summary(status),
+            "sample_errors": sample_errors,
             "job": status,
         },
-        diagnostics=[diagnostic("error", f"optimizer job {name}", "job_failed")]
-        if name in {"failed", "cancelled", "skipped"} else [],
+        diagnostics=diagnostics,
         next_actions=next_actions,
         effects=effects,
     )
@@ -571,6 +605,14 @@ def _cmd_optimize_apply(args: argparse.Namespace) -> int:
                 else:
                     print(f"result        : baseline {candidate} is best; nothing to apply")
                 return 1
+        report = client.sample_error_report(job_id)
+        if report["errored"]:
+            raise ValueError(
+                f"job {job_id}: {report['errored']}/{report['items']} eval samples errored "
+                "(for example "
+                f"{report['errors'][0].get('code') or report['errors'][0].get('message')}); "
+                "native optimizer scores are invalid, so no candidate is applied"
+            )
         config = client.candidate_config(job_id, candidate)
         plan = apply_candidate_config(candidate, config, config_dir=config_dir)
     except (OSError, TypeError, ValueError, KeyError, RuntimeError, ModuleNotFoundError) as exc:
