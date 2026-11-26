@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.4](https://github.com/sethjuarez/castia/compare/python-v0.20.3...python-v0.20.4) (2026-11-26)
+
+
+### Bug Fixes
+
+* **python:** unblock Foundry optimizer on hosted agents ([#153](https://github.com/sethjuarez/castia/issues/153)) ([6718126](https://github.com/sethjuarez/castia/commit/67181260198c9e01429359eb83eff1da4386ef62))
+
 ## [0.20.3](https://github.com/sethjuarez/castia/compare/python-v0.20.2...python-v0.20.3) (2026-11-25)
 
 
