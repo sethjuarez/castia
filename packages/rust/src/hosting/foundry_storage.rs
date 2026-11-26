@@ -15,6 +15,8 @@ use std::collections::HashMap;
 pub const FOUNDRY_STORAGE_SCOPE: &str = "https://ai.azure.com/.default";
 pub const FOUNDRY_CALL_ID_HEADER: &str = "x-agent-foundry-call-id";
 pub const FOUNDRY_STORAGE_RESPONSE_ID_PREFIX: &str = "caresp";
+/// `history/item_ids` limit meaning "all items" (agentserver's default).
+pub const HISTORY_LIMIT_ALL: i64 = -1;
 const API_VERSION: &str = "v1";
 const JSON_CONTENT_TYPE: &str = "application/json; charset=utf-8";
 const HOSTING_ENV: &str = "FOUNDRY_HOSTING_ENVIRONMENT";
@@ -413,11 +415,13 @@ impl FoundryStorage {
         )
     }
 
+    /// `GET history/item_ids`; pass [`HISTORY_LIMIT_ALL`] for every item, as
+    /// agentserver's default `default_fetch_history_count` does.
     pub fn history_item_ids(
         &self,
         previous_response_id: Option<&str>,
         conversation_id: Option<&str>,
-        limit: usize,
+        limit: i64,
         token: &str,
         call_id: Option<&str>,
     ) -> StorageRequest {

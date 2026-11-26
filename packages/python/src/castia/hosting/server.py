@@ -56,6 +56,7 @@ from castia.hosting.agent_identity import (
 from castia.hosting.foundry_storage import (
     FoundryResponseAlreadyExistsError,
     FoundryResponseStore,
+    FoundryStorageError,
     foundry_storage_enabled,
 )
 from castia.hosting.response_ids import (
@@ -606,6 +607,30 @@ async def _stored_history(
     Returns ``(groups, truncated)``. Raises :class:`_HistoryError` for a
     missing, foreign, or unfinished ``previous_response_id``.
     """
+    if isinstance(store, FoundryResponseStore) and (previous_response_id or conversation_id):
+        # agentserver ``_prefetch_history_ids``: storage resolves the chain or
+        # conversation for the forwarded caller; 404/400 become client errors.
+        try:
+            groups = await store.get_history(
+                previous_response_id=previous_response_id,
+                conversation_id=conversation_id,
+            )
+        except FoundryStorageError as error:
+            if error.status_code == 404:
+                raise _HistoryError(
+                    _not_found_response(previous_response_id or conversation_id)
+                ) from error
+            if error.status_code == 400:
+                raise _HistoryError(
+                    _api_error(
+                        error.message,
+                        param="previous_response_id"
+                        if previous_response_id
+                        else "conversation",
+                    )
+                ) from error
+            raise
+        return _history_groups(groups), False
     if conversation_id is not None:
         if not isinstance(store, ResponseHistoryStore):
             logger.info(
@@ -681,21 +706,24 @@ def _history_groups(groups) -> list[list]:
     return [list(group) for group in groups]
 
 
-def _capped_history(groups: list[list]) -> tuple[list[dict], bool]:
+def _capped_history(groups: list[list], *, cap: bool = True) -> tuple[list[dict], bool]:
     """Normalize history and drop the oldest whole responses past the item cap.
 
     Groups are flattened before normalizing so a tool call in one response
-    still pairs with its output in the next.
+    still pairs with its output in the next. ``cap=False`` disables the cap.
     """
     groups = [group for group in groups if group]
     truncated = False
     items = model_input_items(item for group in groups for item in group)
-    while len(groups) > 1 and len(items) > _HISTORY_MAX_ITEMS:
+    if not cap:
+        return items, truncated
+    max_items = _HISTORY_MAX_ITEMS
+    while len(groups) > 1 and len(items) > max_items:
         groups.pop(0)
         truncated = True
         items = model_input_items(item for group in groups for item in group)
-    if len(items) > _HISTORY_MAX_ITEMS:
-        items = model_input_items(items[-_HISTORY_MAX_ITEMS:])
+    if len(items) > max_items:
+        items = model_input_items(items[-max_items:])
         truncated = True
     return items, truncated
 
@@ -714,7 +742,15 @@ async def _resolve_history(
         conversation_id=conversation_id,
         owner=owner,
     )
-    items, capped = _capped_history([*groups, _inline_history(body.get("input"))])
+    # Foundry storage already applied agentserver's limit (-1 = all items);
+    # re-capping here would drop the whole single-group chain.
+    foundry = isinstance(store, FoundryResponseStore) and bool(
+        previous_response_id or conversation_id
+    )
+    items, capped = _capped_history(
+        [*groups, _inline_history(body.get("input"))],
+        cap=not foundry,
+    )
     _set_span_attribute("castia.responses.history.item_count", len(items))
     if truncated or capped:
         _set_span_attribute("castia.responses.history.truncated", True)
@@ -1479,11 +1515,15 @@ def _register_wire(
             if responses_stream_handler is not None
             else None
         )
-        if background_store is not None:
-            background_runner = _BackgroundResponses(background_store, responses_dispatch)
         foundry_store = (
             responses_store if isinstance(responses_store, FoundryResponseStore) else None
         )
+        # Foundry storage is shared by every replica, so background runs on it
+        # with agentserver's mark-failed semantics (resilience matrix row 2):
+        # the turn runs on this replica and ends failed if the replica stops.
+        runner_store = background_store if background_store is not None else foundry_store
+        if runner_store is not None:
+            background_runner = _BackgroundResponses(runner_store, responses_dispatch)
         id_prefix = getattr(responses_store, "response_id_prefix", "resp")
 
         @app.post("/responses")
@@ -1595,7 +1635,10 @@ def _register_wire(
                             param="response_id",
                             status_code=409,
                         )
-                if previous_response_id is not None and background_store is None:
+                history_store = (
+                    background_store if background_store is not None else foundry_store
+                )
+                if previous_response_id is not None and history_store is None:
                     return _api_error(
                         _HISTORY_STORE_REQUIRED,
                         code="unsupported_parameter",
@@ -1603,7 +1646,7 @@ def _register_wire(
                     )
                 try:
                     history = await _resolve_history(
-                        background_store,
+                        history_store,
                         body,
                         previous_response_id=previous_response_id,
                         conversation_id=conversation_id,
@@ -1631,7 +1674,9 @@ def _register_wire(
                             status="queued",
                             response_options=response_options,
                         ),
-                        "input_items": _responses_input_items(
+                        "input_items": _foundry_input_items(body.get("input"))
+                        if foundry_store is not None and background_store is None
+                        else _responses_input_items(
                             body.get("input"), response_id=response_id
                         ),
                         "background": True,
@@ -1639,7 +1684,7 @@ def _register_wire(
                     }
                     queued = deepcopy(record["response"])
                     try:
-                        await background_store.create(record)
+                        await runner_store.create(record)
                     except Exception:
                         logger.exception("Could not store background response.")
                         return _store_unavailable()

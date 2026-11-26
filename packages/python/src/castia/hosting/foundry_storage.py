@@ -21,8 +21,9 @@ operation to the calling end user. ``x-agent-user-id`` is never forwarded.
 
 Castia selects this store automatically when it runs hosted
 (``FOUNDRY_HOSTING_ENVIRONMENT`` set) and the agent passes no
-``response_store``. Foundry storage has no conditional write, so this store
-does not enable ``background=true``; pass your own atomic store for that.
+``response_store``. Hosted ``background=true`` runs on it with agentserver's
+mark-failed semantics, and ``previous_response_id``/``conversation`` history is
+read from storage (``history/item_ids`` then ``items/batch/retrieve``).
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ _ENDPOINT_ENV = "FOUNDRY_PROJECT_ENDPOINT"
 _RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 _ATTEMPTS = 3
 _INPUT_ITEMS_PAGE = 100
-_HISTORY_LIMIT = 1000
+_HISTORY_LIMIT = -1  # agentserver default_fetch_history_count: all items
 _CONFLICT_CODES = frozenset({"conflict", "already_exists", "duplicate"})
 # Types whose status becomes ``completed`` / is preserved when an input item is
 # stored, as in the agentserver ``to_output_item``.
@@ -278,7 +279,10 @@ class FoundryResponseStore:
     """Foundry storage, not Castia, decides which caller may read a record."""
 
     supports_background = False
-    """``update`` is not an atomic compare-and-set, so background stays off."""
+    """``update`` is not an atomic compare-and-set, so this store is not used as
+    a consumer background/history store. Hosted ``background=true`` still runs
+    on it with agentserver's mark-failed semantics (in-process turn; a stopped
+    replica marks it failed; cancel is best effort)."""
 
     response_id_prefix = "caresp"
     """Prefix for ids Castia mints for this store, as the agentserver SDK does."""
@@ -433,6 +437,29 @@ class FoundryResponseStore:
         if not isinstance(ids, list):
             raise FoundryStorageError(f"Foundry storage returned an unexpected {path} body.")
         return [str(value) for value in ids]
+
+    async def get_history(
+        self,
+        *,
+        previous_response_id: str | None,
+        conversation_id: str | None,
+        user_id: str | None = None,
+        limit: int = _HISTORY_LIMIT,
+    ) -> list[list[dict]]:
+        """agentserver ``ResponseContext.get_history``: item ids, then a batch read.
+
+        Storage resolves the chain or conversation and scopes it to the
+        forwarded caller, so ``user_id`` is unused. Storage returns one ordered
+        id list, so the history comes back as a single group. A missing
+        ``previous_response_id``/``conversation`` raises a 404
+        :class:`FoundryStorageError`.
+        """
+        ids = await self.get_history_item_ids(
+            previous_response_id=previous_response_id,
+            conversation_id=conversation_id,
+        )
+        items = [item for item in await self.get_items(ids) if item is not None]
+        return [items] if items else []
 
     async def create_envelope(self, record: StoredResponse) -> dict:
         """The ``POST responses`` body agentserver sends for ``record``."""

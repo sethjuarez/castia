@@ -278,8 +278,14 @@ can fetch a hosted Castia response by id.
   `response_id`, and `agent_session_id` (request, then
   `FOUNDRY_AGENT_SESSION_ID`, then derived), and each output item carries
   `response_id` and `agent_reference`, matching the agentserver snapshot.
-- **Not enabled:** `background`, `previous_response_id`, and `conversation`
-  still need your own store. Foundry storage has no atomic compare-and-set.
+- **History.** `previous_response_id` and `conversation` load prior turns from
+  Foundry storage like agentserver: `GET history/item_ids` (`limit=-1`), then
+  `POST items/batch/retrieve`, before the handler runs. An unknown previous
+  response or conversation that storage reports as missing returns `404`.
+  Each stored response records `previous_response_id`, `conversation`, and
+  (for `previous_response_id`) the prior turn's `history_item_ids`.
+- **Background.** `background: true` runs on this store; see
+  [Background responses](#background-responses).
 - A missing `FOUNDRY_PROJECT_ENDPOINT` fails at startup.
 
 An explicit `response_store` replaces this default, so those responses are
@@ -291,15 +297,17 @@ storage with an explicit choice, pass
 `in_progress` background response; for a terminal response it returns
 `400 unsupported_parameter` (`Cannot cancel a completed response.`), and `404`
 if the response is unknown. `previous_response_id` and `conversation` replay
-prior turns through a store you provide; see
-[Conversation history](#conversation-history).
+prior turns from Foundry storage when hosted, or through a store you provide;
+see [Conversation history](#conversation-history).
 
 > **Multi-turn through the Foundry gateway.** Foundry's reference SDK hydrates
 > history from `conversation.id` automatically
 > ([hosted agent runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract)).
-> In Castia, history is replayed only when your store implements
-> `castia.ResponseHistoryStore`. Without it, clients that rely on `conversation`
-> (the playground, simulated-user evaluation) see a stateless agent.
+> Castia does the same on the hosted Foundry storage default. With an explicit
+> store, history is replayed only when it implements
+> `castia.ResponseHistoryStore`; without it, clients that rely on
+> `conversation` (the playground, simulated-user evaluation) see a stateless
+> agent.
 
 Gateway facts that affect hosted Castia agents:
 
@@ -317,10 +325,13 @@ Foundry tooling, including native evaluations, can call a hosted agent with
 `background: true`. The client then expects a `queued` response right away and
 polls `GET /responses/{response_id}` until the status is terminal. A hosted
 agent may run on several replicas, so a poll can reach a replica other than the
-one running the turn. For that reason, **you own the response store** for
-background work. Castia's hosted default
-([Foundry response storage](#hosted-agents-foundry-response-storage)) does not
-enable it. Without a store, `background: true` returns
+one running the turn. Castia's hosted default
+([Foundry response storage](#hosted-agents-foundry-response-storage)) is shared
+by every replica, so hosted agents accept `background: true` with agentserver's
+semantics: the turn runs on the replica that received it, and if that replica
+stops first the response ends `failed`. Cancel is best effort, because Foundry
+storage has no atomic compare-and-set. Outside Foundry hosting, **you own the
+response store** for background work. Without one, `background: true` returns
 `400 unsupported_parameter` and the message says how to configure one.
 
 Implement the async `castia.ResponseStore` protocol over storage that every
@@ -394,8 +405,8 @@ tool items are dropped. History comes from three sources:
 | Source | Needs | Behavior |
 | --- | --- | --- |
 | Earlier items in `input` | Nothing | Items before the current user message (the one the handler receives as `text`) become history. Items after it are ignored. |
-| `previous_response_id` | `Agent(response_store=...)` | Castia walks the chain with `get`: each response's `input_items`, then its `output`. Without a store it returns `400 unsupported_parameter`. |
-| `conversation` (`"id"` or `{"id": ...}`) | A store that also implements `castia.ResponseHistoryStore` | Castia calls `get_history(conversation_id=...)`. Without that method, `conversation` is echoed but ignored, with the span attribute `castia.responses.conversation_ignored`. |
+| `previous_response_id` | `Agent(response_store=...)`, or the hosted Foundry storage default | Castia walks the chain with `get`: each response's `input_items`, then its `output`. Foundry storage resolves the chain itself. Without a store it returns `400 unsupported_parameter`. |
+| `conversation` (`"id"` or `{"id": ...}`) | A store that also implements `castia.ResponseHistoryStore`, or the hosted Foundry storage default | Castia calls `get_history(conversation_id=...)`. Without that method, `conversation` is echoed but ignored, with the span attribute `castia.responses.conversation_ignored`. |
 
 Implement `get_history` to serve `previous_response_id` from an index too:
 

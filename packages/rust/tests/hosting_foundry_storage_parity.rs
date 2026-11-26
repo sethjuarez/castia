@@ -5,7 +5,7 @@ use castia::hosting::agent_identity::{
 use castia::hosting::foundry_storage::{
     foundry_storage_enabled, is_retryable_status, storage_error, storage_snapshot,
     stored_input_items, FoundryStorage, FoundryStorageErrorKind, FOUNDRY_CALL_ID_HEADER,
-    FOUNDRY_STORAGE_SCOPE,
+    FOUNDRY_STORAGE_SCOPE, HISTORY_LIMIT_ALL,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -130,6 +130,11 @@ fn read_update_delete_and_items_paths_match_stock() {
         s.history_item_ids(Some("caresp_p"), None, 50, "t", None)
             .url,
         format!("{base}history/item_ids?api-version=v1&limit=50&previous_response_id=caresp_p")
+    );
+    assert_eq!(
+        s.history_item_ids(None, Some("conv_1"), HISTORY_LIMIT_ALL, "t", None)
+            .url,
+        format!("{base}history/item_ids?api-version=v1&limit=-1&conversation_id=conv_1")
     );
 }
 
